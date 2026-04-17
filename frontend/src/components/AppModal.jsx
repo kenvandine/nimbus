@@ -140,6 +140,27 @@ export default function AppModal({ app, onClose, onRefresh }) {
           </div>
         )}
 
+        {/* Default credentials */}
+        {(app.default_username || app.default_password) && (
+          <div style={styles.descSection}>
+            <h3 style={styles.sectionTitle}>Default Credentials</h3>
+            <div style={styles.credTable}>
+              {app.default_username && (
+                <div style={styles.credRow}>
+                  <span style={styles.credLabel}>Username</span>
+                  <code style={styles.credValue}>{app.default_username}</code>
+                </div>
+              )}
+              {app.default_password && (
+                <div style={styles.credRow}>
+                  <span style={styles.credLabel}>Password</span>
+                  <code style={styles.credValue}>{app.default_password}</code>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Description */}
         {app.description && (
           <div style={styles.descSection}>
@@ -246,6 +267,31 @@ const styles = {
   },
   thumbActive: { opacity: 1, border: '2px solid rgba(79,195,247,0.8)' },
   descSection: {},
+  credTable: {
+    background: 'rgba(255,255,255,0.04)',
+    borderRadius: '10px',
+    overflow: 'hidden',
+  },
+  credRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '10px 14px',
+    borderBottom: '1px solid rgba(255,255,255,0.06)',
+  },
+  credLabel: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: '13px',
+  },
+  credValue: {
+    background: 'rgba(79,195,247,0.1)',
+    color: 'rgba(79,195,247,0.9)',
+    border: '1px solid rgba(79,195,247,0.2)',
+    borderRadius: '6px',
+    padding: '2px 8px',
+    fontSize: '13px',
+    fontFamily: 'monospace',
+  },
   sectionTitle: { color: 'rgba(255,255,255,0.4)', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 10px' },
   description: { color: 'rgba(255,255,255,0.65)', fontSize: '14px', lineHeight: '1.7', margin: 0, whiteSpace: 'pre-wrap' },
 }

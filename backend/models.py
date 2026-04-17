@@ -15,6 +15,8 @@ class AppMeta(BaseModel):
     website: str = ""
     developer: str = ""
     version: str = ""
+    default_username: str = ""
+    default_password: str = ""
 
 
 class AppStatus(BaseModel):

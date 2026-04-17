@@ -67,6 +67,8 @@ def _parse_meta(app_id: str, data: dict) -> AppMeta:
         website=str(data.get("website", "")),
         developer=str(data.get("developer", "")),
         version=str(data.get("version", "")),
+        default_username=str(data.get("defaultUsername", "") or ""),
+        default_password=str(data.get("defaultPassword", "") or ""),
     )
 
 
