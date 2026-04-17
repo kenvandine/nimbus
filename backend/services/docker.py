@@ -102,8 +102,8 @@ def _prepare_compose(app_id: str, compose_src: Path, app_dir: Path) -> Path:
     # the plain service name (postgres), which is what Compose v2 DNS resolves.
     _fix_container_hostnames(app_id, services)
 
-    # Replace Umbrel-branded usernames with Nimbus equivalents.
-    _rewrite_umbrel_usernames(services)
+    # Replace Umbrel-branded values (usernames, domain names) with Nimbus equivalents.
+    _rewrite_umbrel_values(services)
 
     data["services"] = services
     # Drop obsolete version key to silence docker compose warnings.
@@ -138,28 +138,29 @@ def _fix_container_hostnames(app_id: str, services: dict) -> None:
                     env[key] = new_value
 
 
-_USERNAME_MAP = {
+_VALUE_MAP = {
     "umbrel": "nimbus",
     "umbrel@umbrel.local": "nimbus@nimbus.local",
+    "umbrel.local": "nimbus.local",
 }
 
 
-def _rewrite_umbrel_usernames(services: dict) -> None:
-    """Replace Umbrel-branded username values in env vars with Nimbus equivalents."""
+def _rewrite_umbrel_values(services: dict) -> None:
+    """Replace Umbrel-branded values in env vars with Nimbus equivalents."""
     for svc_cfg in services.values():
         env = svc_cfg.get("environment")
         if not env:
             continue
         if isinstance(env, dict):
             for key, value in env.items():
-                if isinstance(value, str) and value in _USERNAME_MAP:
-                    env[key] = _USERNAME_MAP[value]
+                if isinstance(value, str) and value in _VALUE_MAP:
+                    env[key] = _VALUE_MAP[value]
         elif isinstance(env, list):
             for i, item in enumerate(env):
                 if "=" in item:
                     k, v = item.split("=", 1)
-                    if v in _USERNAME_MAP:
-                        env[i] = f"{k}={_USERNAME_MAP[v]}"
+                    if v in _VALUE_MAP:
+                        env[i] = f"{k}={_VALUE_MAP[v]}"
 
 
 def _parse_user(user_spec: str) -> tuple[int, int]:
@@ -259,8 +260,8 @@ async def install_app(app_id: str) -> None:
             f"APP_SEED={seed}\n"
             f"APP_PASSWORD={app_password}\n"
             f"UMBREL_ROOT=/var/lib/nimbus\n"
-            f"DEVICE_DOMAIN_NAME={host_ip}\n"
-            f"DEVICE_HOSTNAME={host_ip}\n"
+            f"DEVICE_DOMAIN_NAME=nimbus.local\n"
+            f"DEVICE_HOSTNAME=nimbus.local\n"
         )
 
     # Ensure data dir is writable by any container user (apps vary: root, 1000, etc.)

@@ -41,11 +41,15 @@ async def refresh_store() -> None:
         logger.info("Store refreshed: %s", stdout.decode().strip())
 
 
-_USERNAME_MAP = {"umbrel": "nimbus", "umbrel@umbrel.local": "nimbus@nimbus.local"}
+_VALUE_MAP = {
+    "umbrel": "nimbus",
+    "umbrel@umbrel.local": "nimbus@nimbus.local",
+    "umbrel.local": "nimbus.local",
+}
 
 
 def _rewrite_username(value: str) -> str:
-    return _USERNAME_MAP.get(value, value)
+    return _VALUE_MAP.get(value, value)
 
 
 def _resolve_gallery(app_id: str, entries: list) -> list[str]:

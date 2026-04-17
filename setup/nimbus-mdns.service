@@ -1,0 +1,16 @@
+[Unit]
+Description=Advertise nimbus.local via mDNS for the Nimbus LXD container
+After=network-online.target avahi-daemon.service lxd.service
+Requires=avahi-daemon.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Resolve the container IP each restart so it survives container reboots
+ExecStartPre=/bin/bash -c 'echo $(lxc exec nimbus -- ip -4 addr show eth0 | grep -oP "(?<=inet )[^/]+") > /run/nimbus-ip'
+ExecStart=/bin/bash -c 'exec avahi-publish --address nimbus.local $(cat /run/nimbus-ip)'
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
