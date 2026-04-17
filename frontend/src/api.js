@@ -1,10 +1,26 @@
 const BASE = import.meta.env.VITE_API_BASE ?? '/api'
 
+function normalizeErrorMessage(status, text, fallback) {
+  try {
+    const parsed = JSON.parse(text)
+    if (parsed?.detail) return `${status}: ${parsed.detail}`
+  } catch {
+    // Response was not JSON.
+  }
+  const trimmed = (text || '').trim()
+  return `${status}: ${trimmed || fallback}`
+}
+
 async function request(path, options = {}) {
-  const res = await fetch(`${BASE}${path}`, options)
+  let res
+  try {
+    res = await fetch(`${BASE}${path}`, options)
+  } catch {
+    throw new Error('Backend temporarily unavailable')
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText)
-    throw new Error(`${res.status}: ${text}`)
+    throw new Error(normalizeErrorMessage(res.status, text, res.statusText))
   }
   return res.json()
 }

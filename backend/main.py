@@ -7,11 +7,54 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from config import settings
 from routers.apps import router as apps_router
 from routers.system import router as system_router
+from services.control_plane import get_control_plane
 from services.store import refresh_store
 
+
+def _patch_ws4py_shutdown_race() -> None:
+    try:
+        from ws4py.manager import EPollPoller
+    except Exception:
+        return
+
+    if getattr(EPollPoller, "_nimbus_patched", False):
+        return
+
+    original_unregister = EPollPoller.unregister
+    original_poll = EPollPoller.poll
+    original_release = EPollPoller.release
+
+    def safe_unregister(self, fd):
+        try:
+            return original_unregister(self, fd)
+        except (IOError, ValueError):
+            return None
+
+    def safe_poll(self):
+        try:
+            return original_poll(self)
+        except (IOError, ValueError):
+            return []
+
+    def safe_release(self):
+        try:
+            return original_release(self)
+        except (IOError, ValueError):
+            return None
+
+    EPollPoller.unregister = safe_unregister
+    EPollPoller.poll = safe_poll
+    EPollPoller.release = safe_release
+    EPollPoller._nimbus_patched = True
+
+
+_patch_ws4py_shutdown_race()
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(name)s  %(message)s")
+logging.getLogger("ws4py").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -19,11 +62,13 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Refreshing app store on startup...")
-    try:
-        await refresh_store()
-    except Exception as exc:
-        logger.warning("Store refresh failed (continuing anyway): %s", exc)
+    if settings.refresh_store_on_startup:
+        logger.info("Refreshing app store on startup...")
+        try:
+            await refresh_store()
+        except Exception as exc:
+            logger.warning("Store refresh failed (continuing anyway): %s", exc)
+    await get_control_plane().initialize()
     yield
 
 
@@ -39,5 +84,5 @@ app.add_middleware(
 app.include_router(apps_router)
 app.include_router(system_router)
 
-if STATIC_DIR.exists():
+if settings.serve_frontend and STATIC_DIR.exists():
     app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="frontend")

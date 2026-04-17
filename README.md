@@ -1,6 +1,6 @@
 # Nimbus
 
-A self-hosted personal app store that runs inside a privileged LXD container. Nimbus lets you browse, install, and manage apps from the [Umbrel app catalogue](https://github.com/getumbrel/umbrel-apps) as Docker containers — all from a clean web UI.
+A self-hosted personal app store for managing apps from the [Umbrel app catalogue](https://github.com/getumbrel/umbrel-apps). Nimbus can still run in the original all-in-one LXD container, but it now also supports a host-controller model where the UI/API runs outside the container, manages LXD directly with `pylxd`, and bootstraps an in-container Nimbus agent.
 
 ![Nimbus UI](https://getumbrel.github.io/umbrel-apps-gallery/immich/1.jpg)
 
@@ -10,11 +10,17 @@ A self-hosted personal app store that runs inside a privileged LXD container. Ni
 
 ```
 Host (Linux + LXD)
+├── Nimbus controller (snap or service on host)
+│   ├── Frontend + public API
+│   ├── LXD control path via pylxd + LXD socket
+│   ├── Future host-management features (snapd-control, reboot, other snaps)
+│   └── Container bootstrap + orchestration
 └── nimbus (LXD container, security.nesting=true)
+    ├── Nimbus agent (bootstrapped by host controller)
     ├── Docker Engine
     │   ├── <app-1> containers  (e.g. Immich)
     │   └── <app-2> containers  (e.g. File Browser)
-    └── Nimbus backend + frontend (uvicorn :8000)
+    └── App data and compose projects
 ```
 
 | Layer | Technology |
@@ -33,6 +39,76 @@ Host (Linux + LXD)
 - ~4 GB free disk space for the app catalogue clone and container images
 
 ---
+
+## Deployment modes
+
+### 1. Local mode (current default)
+
+Nimbus runs fully inside the LXD container exactly as before:
+
+- `NIMBUS_CONTROL_MODE=local`
+- `NIMBUS_SERVE_FRONTEND=true`
+- `NIMBUS_BIND_HOST=127.0.0.1`
+
+### 2. Split mode (host controller + in-container agent)
+
+This is the stepping stone toward a strictly confined snap on Ubuntu Core:
+
+- **Host controller**: runs the UI/public API with `NIMBUS_CONTROL_MODE=lxd`
+- **Transport**: uses `pylxd` against the local LXD socket instead of shelling out to `lxc`
+- **Container agent**: Nimbus is pushed into the container and started in `NIMBUS_CONTROL_MODE=local`
+- **Bootstrap**: the host controller creates the nested-container profile, creates/starts the `nimbus` container, pushes the backend + service files, installs runtime packages, and starts the agent
+
+Example host-controller environment:
+
+```bash
+NIMBUS_CONTROL_MODE=lxd
+NIMBUS_SERVE_FRONTEND=true
+NIMBUS_REFRESH_STORE_ON_STARTUP=true
+NIMBUS_LXD_AUTO_BOOTSTRAP=true
+LXD_DIR=/var/snap/lxd/common/lxd
+NIMBUS_LXD_IMAGE_SERVER=https://cloud-images.ubuntu.com/releases
+NIMBUS_LXD_IMAGE_ALIAS=24.04
+```
+
+Example in-container agent environment:
+
+```bash
+NIMBUS_CONTROL_MODE=local
+NIMBUS_API_TOKEN=<shared-secret>
+NIMBUS_SERVE_FRONTEND=false
+NIMBUS_BIND_HOST=0.0.0.0
+```
+
+### Security note
+
+Nimbus now prefers the **more secure design**: keep Nimbus on the host and use direct LXD socket/API operations from the snap (`lxd` interface) with tightly scoped exec/file operations. The in-container agent is bootstrapped as an internal service, but app lifecycle and Docker orchestration are driven by the host controller through LXD rather than a network-exposed control API.
+
+## Strict snap packaging
+
+This repository now includes a `snapcraft.yaml` for the host controller snap.
+
+The snap:
+
+- runs the Nimbus UI/API as a strict daemon
+- plugs `lxd` for direct LXD socket access
+- plugs `snapd-control` for future appliance-management operations
+- builds the React frontend into `backend/static`
+- auto-bootstraps the managed `nimbus` container on first start
+
+Build locally with:
+
+```bash
+snapcraft
+```
+
+The packaged daemon listens on port `8000` and defaults to:
+
+```bash
+NIMBUS_CONTROL_MODE=lxd
+NIMBUS_LXD_AUTO_BOOTSTRAP=true
+LXD_DIR=/var/snap/lxd/common/lxd
+```
 
 ## Quick start
 
@@ -76,6 +152,31 @@ Find the container IP with `lxc list nimbus`.
 
 The deploy script always pushes the latest code, rebuilds the frontend, and restarts the service. Installed apps are not affected.
 
+To override service settings, create `/etc/default/nimbus` inside the target environment and set variables such as:
+
+```bash
+NIMBUS_CONTROL_MODE=local
+NIMBUS_BIND_HOST=127.0.0.1
+NIMBUS_PORT=8000
+NIMBUS_API_TOKEN=
+NIMBUS_REMOTE_BASE_URL=
+NIMBUS_REMOTE_TOKEN=
+NIMBUS_SERVE_FRONTEND=true
+NIMBUS_REFRESH_STORE_ON_STARTUP=true
+```
+
+## How LXD bootstrap works
+
+When Nimbus runs in `NIMBUS_CONTROL_MODE=lxd`, the host controller:
+
+1. Ensures the `nimbus-hosting` LXD profile exists with nesting/syscall settings.
+2. Creates the `nimbus` Ubuntu container if it does not already exist.
+3. Starts the container and installs Docker, Compose, Python, and supporting packages.
+4. Pushes the Nimbus backend and systemd unit into the container via the LXD file API.
+5. Writes `/etc/default/nimbus` for the in-container agent and starts the `nimbus` systemd service.
+6. Uses direct LXD exec/file operations to manage Docker apps inside the container.
+7. Publishes installed app ports on the host with LXD proxy devices so apps are reachable from other machines on the network.
+
 ---
 
 ## Project structure
@@ -117,7 +218,7 @@ nimbus/
 
 ## How apps are installed
 
-When you click **Install** on an app:
+When you click **Install** on an app in local mode:
 
 1. The backend copies the app's `docker-compose.yml` from the cloned umbrel-apps catalogue to `/var/lib/nimbus/installed/<app-id>/`.
 2. The compose file is patched for standalone use:
@@ -131,6 +232,8 @@ When you click **Install** on an app:
 
 App data is stored under `/var/lib/nimbus/installed/<app-id>/data/`.  
 Shared storage (e.g. for file manager apps) lives at `/var/lib/nimbus/data/storage`.
+
+In split mode, the public API keeps the same contract but forwards app-management actions to the in-container agent.
 
 ---
 

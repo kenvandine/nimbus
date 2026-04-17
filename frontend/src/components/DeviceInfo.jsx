@@ -21,13 +21,41 @@ function InfoRow({ label, value }) {
   )
 }
 
+function formatBootstrapState(state) {
+  const labels = {
+    idle: 'Waiting to start',
+    'ensuring-profile': 'Configuring LXD profile',
+    'ensuring-container': 'Creating managed container',
+    'installing-runtime': 'Installing container runtime',
+    'pushing-agent': 'Copying Nimbus services',
+    'installing-agent-python': 'Installing Python dependencies',
+    'starting-agent': 'Starting Nimbus agent',
+    ready: 'Ready',
+    error: 'Error',
+  }
+  return labels[state] || state || 'Unknown'
+}
+
 export default function DeviceInfo({ stats, apps }) {
   const running = apps?.filter(a => a.running).length ?? 0
   const installed = apps?.filter(a => a.installed).length ?? 0
   const updates = apps?.filter(a => a.update_available).length ?? 0
+  const setupPending = stats?.control_mode === 'lxd' && (!stats?.container_bootstrapped || stats?.container_status !== 'running' || stats?.bootstrap_state !== 'ready')
+  const firstSetup = !stats?.container_bootstrapped
 
   return (
     <div style={styles.container}>
+      {setupPending && (
+        <section style={styles.setupBanner}>
+          <div style={styles.setupBannerTitle}>{firstSetup ? 'Nimbus is still being set up' : 'Nimbus is still starting'}</div>
+          <div style={styles.setupBannerText}>
+            {stats?.bootstrap_error
+              ? `Setup failed: ${stats.bootstrap_error}`
+              : `${formatBootstrapState(stats?.bootstrap_state)}. ${firstSetup ? 'The managed LXD container is not ready for normal use yet.' : 'Nimbus is reconnecting to the managed container and restoring app state.'}`}
+          </div>
+        </section>
+      )}
+
       <section style={styles.section}>
         <h3 style={styles.sectionTitle}>System Resources</h3>
         {stats ? (
@@ -54,9 +82,16 @@ export default function DeviceInfo({ stats, apps }) {
         <h3 style={styles.sectionTitle}>Platform</h3>
         <div style={styles.infoTable}>
           <InfoRow label="Service" value="Nimbus v0.1.0" />
-          <InfoRow label="Runtime" value="Docker + LXD" />
+          <InfoRow label="Runtime" value={stats?.control_mode === 'lxd' ? 'Strict snap controller + LXD' : 'Docker + LXD'} />
           <InfoRow label="App Catalogue" value="Umbrel App Store" />
+          {stats?.container_name && <InfoRow label="Managed Container" value={stats.container_name} />}
+          {stats?.container_status && <InfoRow label="Container State" value={stats.container_status} />}
+          {stats?.container_ip && <InfoRow label="Container IP" value={stats.container_ip} />}
+          {stats?.bootstrap_state && <InfoRow label="Bootstrap" value={formatBootstrapState(stats.bootstrap_state)} />}
         </div>
+        {stats?.bootstrap_error && (
+          <p style={styles.errorText}>Container bootstrap error: {stats.bootstrap_error}</p>
+        )}
       </section>
     </div>
   )
@@ -73,6 +108,23 @@ function StatTile({ value, label, color }) {
 
 const styles = {
   container: { display: 'flex', flexDirection: 'column', gap: '28px' },
+  setupBanner: {
+    padding: '16px 18px',
+    borderRadius: '14px',
+    background: 'rgba(79,195,247,0.12)',
+    border: '1px solid rgba(79,195,247,0.24)',
+  },
+  setupBannerTitle: {
+    color: '#b3e5fc',
+    fontSize: '14px',
+    fontWeight: 700,
+    marginBottom: '6px',
+  },
+  setupBannerText: {
+    color: 'rgba(255,255,255,0.76)',
+    fontSize: '13px',
+    lineHeight: 1.5,
+  },
   section: {},
   sectionTitle: {
     color: 'rgba(255,255,255,0.38)',
@@ -114,4 +166,5 @@ const styles = {
   infoLabel: { color: 'rgba(255,255,255,0.45)', fontSize: '13px' },
   infoValue: { color: 'rgba(255,255,255,0.8)', fontSize: '13px', fontWeight: 500 },
   muted: { color: 'rgba(255,255,255,0.3)', fontSize: '13px' },
+  errorText: { color: '#ff8a80', fontSize: '12px', margin: '10px 0 0' },
 }

@@ -9,17 +9,17 @@ const STATUS_COLORS = {
   available: 'rgba(255,255,255,0.25)',
 }
 
-export default function AppCard({ app, onRefresh, onOpenDetail }) {
+export default function AppCard({ app, onRefresh, onOpenDetail, isInstalling = false }) {
   const [action, setAction] = useState(null) // null | 'installing' | 'uninstalling'
   const [error, setError] = useState(null)
 
-  const status = app.running ? 'running' : app.installed ? 'installed' : 'available'
-  const busy = action !== null
+  const status = isInstalling ? 'installing' : app.running ? 'running' : app.installed ? 'installed' : 'available'
+  const busy = action !== null || isInstalling
 
   const statusLabel = action === 'installing' ? 'Installing…'
     : action === 'uninstalling' ? 'Uninstalling…'
     : action === 'updating' ? 'Updating…'
-    : { running: 'Running', installed: 'Installed', available: 'Available' }[status]
+    : { running: 'Running', installed: 'Installed', installing: 'Installing…', available: 'Available' }[status]
 
   const dotColor = action ? STATUS_COLORS[action] : STATUS_COLORS[status]
 
@@ -92,7 +92,7 @@ export default function AppCard({ app, onRefresh, onOpenDetail }) {
         {status === 'available' && !busy && (
           <button style={styles.btnPrimary} onClick={handleInstall}>Install</button>
         )}
-        {action === 'installing' && (
+        {(action === 'installing' || isInstalling) && (
           <button style={styles.btnDisabled} disabled>
             <span style={styles.spinner} /> Installing…
           </button>

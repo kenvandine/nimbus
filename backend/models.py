@@ -37,3 +37,10 @@ class SystemStats(BaseModel):
     mem_pct: float
     disk_pct: float
     app_count: int
+    control_mode: str = "local"
+    container_name: Optional[str] = None
+    container_status: Optional[str] = None
+    container_ip: Optional[str] = None
+    container_bootstrapped: bool = False
+    bootstrap_state: Optional[str] = None
+    bootstrap_error: Optional[str] = None

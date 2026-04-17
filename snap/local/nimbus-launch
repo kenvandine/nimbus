@@ -1,0 +1,13 @@
+#!/bin/sh
+set -eu
+
+export PYTHONDONTWRITEBYTECODE=1
+export PYTHONPATH="${SNAP}/backend${PYTHONPATH:+:$PYTHONPATH}"
+export GIT_EXEC_PATH="${SNAP}/usr/lib/git-core"
+export GIT_TEMPLATE_DIR="${SNAP}/usr/share/git-core/templates"
+export PATH="${SNAP}/usr/lib/git-core:${SNAP}/usr/bin:${SNAP}/bin${PATH:+:$PATH}"
+
+exec "${SNAP}/bin/python3" -m uvicorn main:app \
+  --app-dir "${SNAP}/backend" \
+  --host "${NIMBUS_BIND_HOST:-0.0.0.0}" \
+  --port "${NIMBUS_PORT:-8000}"

@@ -9,6 +9,48 @@ import AppModal from './components/AppModal.jsx'
 
 const POLL_INTERVAL = 5000
 
+function describeSetupState(stats) {
+  if (!stats || stats.control_mode !== 'lxd') return null
+  if (stats.bootstrap_error) {
+    return {
+      title: 'Nimbus setup needs attention',
+      message: `The managed LXD container could not be prepared: ${stats.bootstrap_error}`,
+      ready: false,
+      error: true,
+    }
+  }
+  if (stats.container_bootstrapped && stats.container_status === 'running' && stats.bootstrap_state === 'ready') {
+    return { ready: true }
+  }
+
+  const firstSetup = !stats.container_bootstrapped
+  const phaseMessage = firstSetup
+    ? {
+        idle: 'Preparing the managed environment.',
+        'ensuring-profile': 'Configuring the LXD profile for nested container support.',
+        'ensuring-container': 'Creating and starting the managed LXD container.',
+        'installing-runtime': 'Installing Docker and required system packages in the managed container.',
+        'pushing-agent': 'Copying Nimbus services into the managed container.',
+        'installing-agent-python': 'Installing Nimbus Python dependencies in the managed container.',
+        'starting-agent': 'Starting Nimbus services in the managed container.',
+        ready: 'Finalizing setup.',
+      }[stats.bootstrap_state || 'idle'] || 'Preparing the managed environment.'
+    : {
+        idle: 'Nimbus is checking the managed container and restoring app status.',
+        'ensuring-profile': 'Nimbus is checking the managed container configuration.',
+        'ensuring-container': 'Nimbus is starting the managed container.',
+        'starting-agent': 'Nimbus is starting the managed services.',
+        ready: 'Nimbus is finishing startup.',
+      }[stats.bootstrap_state || 'idle'] || 'Nimbus is checking the managed container and restoring app status.'
+
+  return {
+    title: firstSetup ? 'Nimbus is setting up' : 'Nimbus is starting',
+    message: phaseMessage,
+    ready: false,
+    error: false,
+  }
+}
+
 export default function App() {
   const [apps, setApps] = useState([])
   const [stats, setStats] = useState(null)
@@ -76,14 +118,26 @@ export default function App() {
 
   const n = runningApps.length
   const cols = n === 0 ? 1 : n <= 3 ? n : Math.ceil(Math.sqrt(n))
+  const errorMessage = error?.startsWith('Cannot reach backend') ? error : `Cannot reach backend — ${error}`
+  const setupState = describeSetupState(stats)
 
   return (
     <div style={{ ...styles.desktop, background: `linear-gradient(145deg, hsl(${hue},75%,${light}%) 0%, hsl(${hue + 10},60%,${light + 8}%) 60%, hsl(200,55%,${light + 22}%) 100%)` }}>
       {/* Desktop app icons — running apps */}
       <div style={styles.desktopArea}>
         {loading && <div style={styles.loadingMsg}>Loading…</div>}
-        {error && !loading && <div style={styles.errorMsg}>Cannot reach backend — {error}</div>}
-        {!loading && !error && (
+        {error && !loading && <div style={styles.errorMsg}>{errorMessage}</div>}
+        {!loading && !error && setupState && !setupState.ready && (
+          <div style={styles.setupCard}>
+            <div style={styles.setupBadge}>{setupState.error ? 'Setup Error' : 'Setup in Progress'}</div>
+            <h2 style={styles.setupTitle}>{setupState.title}</h2>
+            <p style={styles.setupMessage}>{setupState.message}</p>
+            <p style={styles.setupHint}>
+              Nimbus will be ready once the managed LXD container is running and fully bootstrapped.
+            </p>
+          </div>
+        )}
+        {!loading && !error && (!setupState || setupState.ready) && (
           <div style={{ ...styles.appGrid, gridTemplateColumns: `repeat(${cols}, 90px)` }}>
             {runningApps.map(app => (
               <DesktopIcon
@@ -109,7 +163,7 @@ export default function App() {
       {/* App windows */}
       {openWindow === 'appstore' && (
         <Window title="App Store" onClose={() => setOpenWindow(null)}>
-          <AppStore apps={apps} onRefresh={fetchAll} onOpenDetail={setDetailApp} />
+          <AppStore apps={apps} onRefresh={fetchAll} onOpenDetail={setDetailApp} activeInstalls={activeInstalls} />
         </Window>
       )}
       {openWindow === 'deviceinfo' && (
@@ -126,6 +180,7 @@ export default function App() {
       {/* App detail modal */}
       <AppModal
         app={detailApp}
+        isInstalling={detailApp ? activeInstalls.includes(detailApp.id) : false}
         onClose={() => setDetailApp(null)}
         onRefresh={() => { fetchAll(); setDetailApp(null) }}
       />
@@ -258,6 +313,46 @@ const styles = {
     color: 'rgba(255,255,255,0.4)',
     fontSize: '14px',
     margin: 'auto',
+  },
+  setupCard: {
+    width: 'min(560px, 100%)',
+    background: 'rgba(8,16,28,0.68)',
+    border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: '24px',
+    padding: '28px 30px',
+    boxShadow: '0 24px 60px rgba(0,0,0,0.28)',
+    backdropFilter: 'blur(18px)',
+  },
+  setupBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '6px 10px',
+    borderRadius: '999px',
+    background: 'rgba(79,195,247,0.16)',
+    color: '#81d4fa',
+    fontSize: '11px',
+    fontWeight: 700,
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+    marginBottom: '14px',
+  },
+  setupTitle: {
+    margin: '0 0 10px',
+    fontSize: '30px',
+    lineHeight: 1.1,
+    fontWeight: 700,
+  },
+  setupMessage: {
+    margin: '0 0 12px',
+    fontSize: '16px',
+    lineHeight: 1.5,
+    color: 'rgba(255,255,255,0.88)',
+  },
+  setupHint: {
+    margin: 0,
+    fontSize: '13px',
+    lineHeight: 1.5,
+    color: 'rgba(255,255,255,0.58)',
   },
   errorMsg: {
     color: 'rgba(255,150,150,0.8)',

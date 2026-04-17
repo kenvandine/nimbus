@@ -1,15 +1,15 @@
 import { useState, useCallback } from 'react'
 import { installApp, uninstallApp, updateApp } from '../api.js'
 
-export default function AppModal({ app, onClose, onRefresh }) {
+export default function AppModal({ app, onClose, onRefresh, isInstalling = false }) {
   const [action, setAction] = useState(null)
   const [error, setError] = useState(null)
   const [activeImg, setActiveImg] = useState(0)
 
   if (!app) return null
 
-  const status = app.running ? 'running' : app.installed ? 'installed' : 'available'
-  const busy = action !== null
+  const status = isInstalling ? 'installing' : app.running ? 'running' : app.installed ? 'installed' : 'available'
+  const busy = action !== null || isInstalling
 
   async function handleInstall() {
     setAction('installing')
@@ -50,11 +50,11 @@ export default function AppModal({ app, onClose, onRefresh }) {
     }
   }
 
-  const statusColor = { running: '#4caf50', installed: '#ff9800', available: 'rgba(255,255,255,0.3)' }[status]
+  const statusColor = { running: '#4caf50', installed: '#ff9800', installing: '#2196f3', available: 'rgba(255,255,255,0.3)' }[status]
   const statusLabel = action === 'installing' ? 'Installing…'
     : action === 'uninstalling' ? 'Uninstalling…'
     : action === 'updating' ? 'Updating…'
-    : { running: 'Running', installed: 'Installed', available: 'Available' }[status]
+    : { running: 'Running', installed: 'Installed', installing: 'Installing…', available: 'Available' }[status]
 
   return (
     <div style={styles.overlay} onClick={onClose}>
@@ -92,7 +92,7 @@ export default function AppModal({ app, onClose, onRefresh }) {
           {busy && (
             <button style={styles.btnBusy} disabled>
               <span style={styles.spinner} />
-              {action === 'installing' ? 'Installing…' : 'Uninstalling…'}
+              {action === 'updating' ? 'Updating…' : action === 'uninstalling' ? 'Uninstalling…' : 'Installing…'}
             </button>
           )}
           {app.update_available && !busy && (
