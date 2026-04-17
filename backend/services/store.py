@@ -69,6 +69,7 @@ def _parse_meta(app_id: str, data: dict) -> AppMeta:
         version=str(data.get("version", "")),
         default_username=str(data.get("defaultUsername", "") or ""),
         default_password=str(data.get("defaultPassword", "") or ""),
+        deterministic_password=bool(data.get("deterministicPassword", False)),
     )
 
 

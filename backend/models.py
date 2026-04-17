@@ -17,6 +17,7 @@ class AppMeta(BaseModel):
     version: str = ""
     default_username: str = ""
     default_password: str = ""
+    deterministic_password: bool = False
 
 
 class AppStatus(BaseModel):

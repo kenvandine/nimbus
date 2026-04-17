@@ -43,11 +43,18 @@ async def _status_for(app_id: str, meta=None) -> AppStatus:
                      open_url=open_url, update_available=update_available)
 
 
+def _build_detail(meta, status: AppStatus) -> AppDetail:
+    data = {**meta.model_dump(), **status.model_dump()}
+    if status.installed and meta.deterministic_password:
+        data["default_password"] = docker.get_app_password(meta.id)
+    return AppDetail(**data)
+
+
 @router.get("", response_model=list[AppDetail])
 async def list_apps() -> list[AppDetail]:
     metas = store.list_apps()
     statuses = await asyncio.gather(*[_status_for(m.id, m) for m in metas])
-    return [AppDetail(**m.model_dump(), **s.model_dump()) for m, s in zip(metas, statuses)]
+    return [_build_detail(m, s) for m, s in zip(metas, statuses)]
 
 
 @router.get("/{app_id}", response_model=AppDetail)
@@ -56,7 +63,7 @@ async def get_app(app_id: str) -> AppDetail:
     if meta is None:
         raise HTTPException(status_code=404, detail=f"App '{app_id}' not found in store")
     status = await _status_for(app_id, meta)
-    return AppDetail(**meta.model_dump(), **status.model_dump())
+    return _build_detail(meta, status)
 
 
 async def _do_install(app_id: str) -> None:

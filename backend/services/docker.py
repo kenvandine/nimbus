@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import hashlib
 import logging
 import re
 import secrets
@@ -29,6 +30,22 @@ async def _run(*args: str) -> tuple[int, str, str]:
 
 def _app_dir(app_id: str) -> Path:
     return INSTALLED_DIR / app_id
+
+
+def _derive_password(seed: str) -> str:
+    """Derive a deterministic password from the app seed (first 24 hex chars of sha256)."""
+    return hashlib.sha256(seed.encode()).hexdigest()[:24]
+
+
+def get_app_password(app_id: str) -> str:
+    """Return the APP_PASSWORD for an installed app, or empty string if unavailable."""
+    env_file = _app_dir(app_id) / ".env"
+    if not env_file.exists():
+        return ""
+    for line in env_file.read_text().splitlines():
+        if line.startswith("APP_PASSWORD="):
+            return line.split("=", 1)[1]
+    return ""
 
 
 def installed_app_ids() -> list[str]:
@@ -208,9 +225,12 @@ async def install_app(app_id: str) -> None:
     env_file = app_dir / ".env"
     if not env_file.exists():
         host_ip = await get_host_ip()
+        seed = secrets.token_hex(32)
+        app_password = _derive_password(seed)
         env_file.write_text(
             f"APP_DATA_DIR={data_dir}\n"
-            f"APP_SEED={secrets.token_hex(32)}\n"
+            f"APP_SEED={seed}\n"
+            f"APP_PASSWORD={app_password}\n"
             f"UMBREL_ROOT=/var/lib/nimbus\n"
             f"DEVICE_DOMAIN_NAME={host_ip}\n"
             f"DEVICE_HOSTNAME={host_ip}\n"
