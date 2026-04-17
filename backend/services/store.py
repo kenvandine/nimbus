@@ -66,6 +66,7 @@ def _parse_meta(app_id: str, data: dict) -> AppMeta:
         gallery=_resolve_gallery(app_id, data.get("gallery") or []),
         website=str(data.get("website", "")),
         developer=str(data.get("developer", "")),
+        version=str(data.get("version", "")),
     )
 
 

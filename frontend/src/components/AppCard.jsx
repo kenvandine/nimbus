@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { installApp, uninstallApp } from '../api.js'
+import { installApp, uninstallApp, updateApp } from '../api.js'
 
 const STATUS_COLORS = {
   running: '#4caf50',
@@ -18,6 +18,7 @@ export default function AppCard({ app, onRefresh, onOpenDetail }) {
 
   const statusLabel = action === 'installing' ? 'Installing…'
     : action === 'uninstalling' ? 'Uninstalling…'
+    : action === 'updating' ? 'Updating…'
     : { running: 'Running', installed: 'Installed', available: 'Available' }[status]
 
   const dotColor = action ? STATUS_COLORS[action] : STATUS_COLORS[status]
@@ -50,6 +51,20 @@ export default function AppCard({ app, onRefresh, onOpenDetail }) {
     }
   }
 
+  async function handleUpdate(e) {
+    e.stopPropagation()
+    setAction('updating')
+    setError(null)
+    try {
+      await updateApp(app.id)
+      onRefresh()
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setAction(null)
+    }
+  }
+
   return (
     <div style={styles.card} onClick={() => onOpenDetail(app)}>
       <div style={styles.header}>
@@ -66,6 +81,9 @@ export default function AppCard({ app, onRefresh, onOpenDetail }) {
         </div>
       </div>
 
+      {app.update_available && (
+        <span style={styles.updateBadge}>⬆ Update available</span>
+      )}
       <p style={styles.tagline}>{app.tagline || ''}</p>
 
       {error && <p style={styles.error}>{error}</p>}
@@ -83,6 +101,14 @@ export default function AppCard({ app, onRefresh, onOpenDetail }) {
           <button style={styles.btnDisabled} disabled>
             <span style={styles.spinner} /> Uninstalling…
           </button>
+        )}
+        {action === 'updating' && (
+          <button style={styles.btnDisabled} disabled>
+            <span style={styles.spinner} /> Updating…
+          </button>
+        )}
+        {app.update_available && !busy && (
+          <button style={styles.btnUpdate} onClick={handleUpdate}>⬆ Update</button>
         )}
         {status === 'running' && !busy && (
           <>
@@ -162,6 +188,20 @@ const styles = {
     overflow: 'hidden',
   },
   error: { color: '#ff6b6b', fontSize: '12px', margin: 0 },
+  updateBadge: {
+    display: 'inline-block',
+    background: 'rgba(255,152,0,0.18)',
+    color: '#ffb74d',
+    border: '1px solid rgba(255,152,0,0.35)',
+    borderRadius: '6px',
+    padding: '2px 8px',
+    fontSize: '11px',
+    fontWeight: 600,
+  },
+  btnUpdate: {
+    background: 'rgba(255,152,0,0.75)', color: '#0a1628', border: 'none',
+    borderRadius: '8px', padding: '7px 18px', fontSize: '13px', fontWeight: 600, cursor: 'pointer',
+  },
   actions: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: 'auto' },
   btnPrimary: {
     background: 'rgba(79,195,247,0.8)', color: '#0a1628', border: 'none',

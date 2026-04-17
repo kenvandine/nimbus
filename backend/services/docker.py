@@ -203,7 +203,45 @@ async def install_app(app_id: str) -> None:
     )
     if rc != 0:
         raise RuntimeError(f"docker compose up failed for {app_id}: {stderr}")
+
+    # Record installed version so we can detect updates later.
+    meta = get_app_meta(app_id)
+    if meta and meta.version:
+        (app_dir / ".nimbus-version").write_text(meta.version)
+
     logger.info("Installed %s: %s", app_id, stdout.strip())
+
+
+def get_installed_version(app_id: str) -> Optional[str]:
+    f = _app_dir(app_id) / ".nimbus-version"
+    return f.read_text().strip() if f.exists() else None
+
+
+async def update_app(app_id: str) -> None:
+    compose_src = get_app_compose_path(app_id)
+    if compose_src is None:
+        raise FileNotFoundError(f"No compose file found for app: {app_id}")
+
+    app_dir = _app_dir(app_id)
+    env_file = app_dir / ".env"
+    compose_file = _prepare_compose(app_id, compose_src, app_dir)
+    env_vars = dict(line.split("=", 1) for line in env_file.read_text().splitlines() if "=" in line)
+    _create_volume_dirs(yaml.safe_load(compose_file.read_text()), env_vars)
+
+    base_cmd = ["docker", "compose", "-p", app_id, "-f", str(compose_file), "--env-file", str(env_file)]
+    rc, _, stderr = await _run(*base_cmd, "pull")
+    if rc != 0:
+        logger.warning("docker compose pull warning for %s: %s", app_id, stderr)
+
+    rc, _, stderr = await _run(*base_cmd, "up", "-d", "--remove-orphans")
+    if rc != 0:
+        raise RuntimeError(f"docker compose up failed during update of {app_id}: {stderr}")
+
+    meta = get_app_meta(app_id)
+    if meta and meta.version:
+        (app_dir / ".nimbus-version").write_text(meta.version)
+
+    logger.info("Updated %s", app_id)
 
 
 async def uninstall_app(app_id: str) -> None:

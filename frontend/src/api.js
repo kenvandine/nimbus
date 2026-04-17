@@ -15,3 +15,4 @@ export const installApp = (id) => request(`/apps/${id}/install`, { method: 'POST
 export const uninstallApp = (id) => request(`/apps/${id}/uninstall`, { method: 'POST' })
 export const getStats = () => request('/system/stats')
 export const getActiveInstalls = () => request('/apps/installing/active')
+export const updateApp = (id) => request(`/apps/${id}/update`, { method: 'POST' })

@@ -14,6 +14,7 @@ class AppMeta(BaseModel):
     gallery: list[str] = []
     website: str = ""
     developer: str = ""
+    version: str = ""
 
 
 class AppStatus(BaseModel):
@@ -21,6 +22,7 @@ class AppStatus(BaseModel):
     running: bool = False
     port: Optional[int] = None
     open_url: Optional[str] = None
+    update_available: bool = False
 
 
 class AppDetail(AppMeta, AppStatus):

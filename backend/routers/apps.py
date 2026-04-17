@@ -13,11 +13,11 @@ from services.icons import generate_icon_svg
 router = APIRouter(prefix="/api/apps", tags=["apps"])
 logger = logging.getLogger(__name__)
 
-# Track in-progress installs so the UI can show a spinner
 _installing: set[str] = set()
+_updating: set[str] = set()
 
 
-async def _status_for(app_id: str) -> AppStatus:
+async def _status_for(app_id: str, meta=None) -> AppStatus:
     installed = app_id in docker.installed_app_ids()
     if not installed:
         return AppStatus(installed=False)
@@ -28,23 +28,26 @@ async def _status_for(app_id: str) -> AppStatus:
     if running:
         port = await docker.get_web_port(app_id)
         if not port:
-            # Fall back to the declared port from umbrel-app.yml
-            meta = store.get_app_meta(app_id)
-            port = meta.port_hint if meta else None
+            m = meta or store.get_app_meta(app_id)
+            port = m.port_hint if m else None
         if port:
             host_ip = await network.get_host_ip()
             open_url = network.build_open_url(host_ip, port)
-    return AppStatus(installed=True, running=running, port=port, open_url=open_url)
+
+    update_available = False
+    if meta and meta.version:
+        installed_ver = docker.get_installed_version(app_id)
+        update_available = bool(installed_ver and installed_ver != meta.version)
+
+    return AppStatus(installed=True, running=running, port=port,
+                     open_url=open_url, update_available=update_available)
 
 
 @router.get("", response_model=list[AppDetail])
 async def list_apps() -> list[AppDetail]:
     metas = store.list_apps()
-    statuses = await asyncio.gather(*[_status_for(m.id) for m in metas])
-    result = []
-    for meta, status in zip(metas, statuses):
-        result.append(AppDetail(**meta.model_dump(), **status.model_dump()))
-    return result
+    statuses = await asyncio.gather(*[_status_for(m.id, m) for m in metas])
+    return [AppDetail(**m.model_dump(), **s.model_dump()) for m, s in zip(metas, statuses)]
 
 
 @router.get("/{app_id}", response_model=AppDetail)
@@ -52,7 +55,7 @@ async def get_app(app_id: str) -> AppDetail:
     meta = store.get_app_meta(app_id)
     if meta is None:
         raise HTTPException(status_code=404, detail=f"App '{app_id}' not found in store")
-    status = await _status_for(app_id)
+    status = await _status_for(app_id, meta)
     return AppDetail(**meta.model_dump(), **status.model_dump())
 
 
@@ -66,6 +69,16 @@ async def _do_install(app_id: str) -> None:
         _installing.discard(app_id)
 
 
+async def _do_update(app_id: str) -> None:
+    _updating.add(app_id)
+    try:
+        await docker.update_app(app_id)
+    except Exception as exc:
+        logger.error("Update failed for %s: %s", app_id, exc)
+    finally:
+        _updating.discard(app_id)
+
+
 @router.post("/{app_id}/install", status_code=202)
 async def install_app(app_id: str, background_tasks: BackgroundTasks) -> dict:
     if store.get_app_meta(app_id) is None:
@@ -76,6 +89,16 @@ async def install_app(app_id: str, background_tasks: BackgroundTasks) -> dict:
         return {"status": "already_installed"}
     background_tasks.add_task(_do_install, app_id)
     return {"status": "installing"}
+
+
+@router.post("/{app_id}/update", status_code=202)
+async def update_app(app_id: str, background_tasks: BackgroundTasks) -> dict:
+    if app_id not in docker.installed_app_ids():
+        raise HTTPException(status_code=404, detail=f"App '{app_id}' is not installed")
+    if app_id in _updating:
+        return {"status": "already_updating"}
+    background_tasks.add_task(_do_update, app_id)
+    return {"status": "updating"}
 
 
 @router.post("/{app_id}/uninstall", status_code=200)

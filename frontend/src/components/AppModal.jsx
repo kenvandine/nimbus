@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { installApp, uninstallApp } from '../api.js'
+import { installApp, uninstallApp, updateApp } from '../api.js'
 
 export default function AppModal({ app, onClose, onRefresh }) {
   const [action, setAction] = useState(null)
@@ -37,9 +37,23 @@ export default function AppModal({ app, onClose, onRefresh }) {
     }
   }
 
+  async function handleUpdate() {
+    setAction('updating')
+    setError(null)
+    try {
+      await updateApp(app.id)
+      onRefresh()
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setAction(null)
+    }
+  }
+
   const statusColor = { running: '#4caf50', installed: '#ff9800', available: 'rgba(255,255,255,0.3)' }[status]
   const statusLabel = action === 'installing' ? 'Installing…'
     : action === 'uninstalling' ? 'Uninstalling…'
+    : action === 'updating' ? 'Updating…'
     : { running: 'Running', installed: 'Installed', available: 'Available' }[status]
 
   return (
@@ -80,6 +94,9 @@ export default function AppModal({ app, onClose, onRefresh }) {
               <span style={styles.spinner} />
               {action === 'installing' ? 'Installing…' : 'Uninstalling…'}
             </button>
+          )}
+          {app.update_available && !busy && (
+            <button style={styles.btnUpdate} onClick={handleUpdate}>⬆ Update</button>
           )}
           {status === 'running' && !busy && app.open_url && (
             <a href={app.open_url} target="_blank" rel="noreferrer" style={styles.btnOpen}>Open ↗</a>
@@ -192,6 +209,10 @@ const styles = {
     background: 'transparent', color: 'rgba(255,100,100,0.9)',
     border: '1px solid rgba(255,100,100,0.35)', borderRadius: '10px',
     padding: '10px 24px', fontSize: '14px', fontWeight: 600, cursor: 'pointer',
+  },
+  btnUpdate: {
+    background: 'rgba(255,152,0,0.8)', color: '#0a1628', border: 'none',
+    borderRadius: '10px', padding: '10px 24px', fontSize: '14px', fontWeight: 700, cursor: 'pointer',
   },
   btnGhost: {
     background: 'transparent', color: 'rgba(255,255,255,0.45)',
