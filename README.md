@@ -1,6 +1,6 @@
 # Nimbus
 
-A self-hosted personal app store for managing apps from the [Umbrel app catalogue](https://github.com/getumbrel/umbrel-apps). Nimbus can still run in the original all-in-one LXD container, but it now also supports a host-controller model where the UI/API runs outside the container, manages LXD directly with `pylxd`, and bootstraps an in-container Nimbus agent.
+A self-hosted personal app store for managing apps from the [Umbrel app catalog](https://github.com/getumbrel/umbrel-apps). Nimbus can still run in the original all-in-one LXD container, but it now also supports a host-controller model where the UI/API runs outside the container, manages LXD directly with `pylxd`, and bootstraps an in-container Nimbus agent.
 
 ![Nimbus UI](https://getumbrel.github.io/umbrel-apps-gallery/immich/1.jpg)
 
@@ -28,7 +28,7 @@ Host (Linux + LXD)
 | Backend | Python 3.12 · FastAPI · uvicorn |
 | Frontend | React 18 · Vite |
 | Container runtime | Docker Engine + Compose v2 (inside LXD) |
-| App catalogue | [getumbrel/umbrel-apps](https://github.com/getumbrel/umbrel-apps) |
+| App catalog | [getumbrel/umbrel-apps](https://github.com/getumbrel/umbrel-apps) |
 
 ---
 
@@ -36,7 +36,7 @@ Host (Linux + LXD)
 
 - Linux host with [LXD](https://canonical.com/lxd) installed and initialised (`lxd init`)
 - Internet access from the host (to pull Docker images and app metadata)
-- ~4 GB free disk space for the app catalogue clone and container images
+- ~4 GB free disk space for the app catalog clone and container images
 - `snapcraft` if you want to build the strict snap locally
 
 ---
@@ -300,7 +300,7 @@ nimbus/
 
 When you click **Install** on an app:
 
-1. The backend copies the app's `docker-compose.yml` from the cloned umbrel-apps catalogue to `/var/lib/nimbus/installed/<app-id>/`.
+1. The backend copies the app's `docker-compose.yml` from the cloned umbrel-apps catalog to `/var/lib/nimbus/installed/<app-id>/`.
 2. The compose file is patched for standalone use:
    - The Umbrel-internal `app_proxy` sidecar service is removed
    - A host port mapping is injected (`<external-port>:<internal-port>`) so the app is reachable directly
@@ -319,7 +319,7 @@ In `lxd` mode, Nimbus prepares the app bundle on the host, pushes it into the ma
 
 Nimbus now supports app updates through the UI and API:
 
-- the UI shows **Update available** when the installed version differs from the catalogue version
+- the UI shows **Update available** when the installed version differs from the catalog version
 - `POST /api/apps/{id}/update` refreshes the bundle and runs `docker compose pull` / `up -d`
 - install and update operations run in the background
 
