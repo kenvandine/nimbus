@@ -1,0 +1,16 @@
+# Redirect HTTP → HTTPS
+:80 {
+	redir https://{host}{uri} permanent
+}
+
+# HTTPS for nimbus.local with Caddy's built-in local CA
+nimbus.local {
+	tls internal
+	reverse_proxy 127.0.0.1:8000
+}
+
+# HTTPS for direct IP access (self-signed for any other hostname/IP)
+:443 {
+	tls internal
+	reverse_proxy 127.0.0.1:8000
+}

@@ -31,7 +31,17 @@ echo "==> Bootstrapping container dependencies"
 lxc exec "$CONTAINER_NAME" -- bash -c "
   set -euo pipefail
   apt-get update -q
-  apt-get install -y -q docker.io docker-compose-v2 python3 python3-venv git curl nodejs npm
+  apt-get install -y -q docker.io docker-compose-v2 python3 python3-venv git curl nodejs npm \
+    debian-keyring debian-archive-keyring apt-transport-https
+
+  # Install Caddy from official repo
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
+    | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+    | tee /etc/apt/sources.list.d/caddy-stable.list
+  apt-get update -q
+  apt-get install -y -q caddy
+
   systemctl enable --now docker
 
   # Create a venv for Nimbus (PEP 668 blocks system-wide pip on Ubuntu 24.04+)
@@ -50,12 +60,13 @@ lxc exec "$CONTAINER_NAME" -- bash -c "
   mkdir -p /opt/nimbus
 "
 
-echo "==> Installing systemd service"
+echo "==> Installing systemd services and Caddy config"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 lxc file push "$SCRIPT_DIR/nimbus.service" "$CONTAINER_NAME/etc/systemd/system/nimbus.service"
+lxc file push "$SCRIPT_DIR/Caddyfile" "$CONTAINER_NAME/etc/caddy/Caddyfile"
 lxc exec "$CONTAINER_NAME" -- systemctl daemon-reload
-lxc exec "$CONTAINER_NAME" -- systemctl enable nimbus
-echo "    Service installed and enabled (will start after deploy)"
+lxc exec "$CONTAINER_NAME" -- systemctl enable nimbus caddy
+echo "    Services installed and enabled (will start after deploy)"
 
 CONTAINER_IP=$(lxc info "$CONTAINER_NAME" | grep -oP '(?<=eth0:\s{10}inet\s)\S+' | head -1 || true)
 if [ -z "$CONTAINER_IP" ]; then

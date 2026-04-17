@@ -19,13 +19,22 @@ lxc exec "$CONTAINER_NAME" -- bash -c "
   npm run build
 "
 
-echo "==> Reloading and restarting Nimbus service"
+echo "==> Deploying Caddy config"
+lxc file push "$REPO_ROOT/setup/Caddyfile" "$CONTAINER_NAME/etc/caddy/Caddyfile"
+
+echo "==> Reloading and restarting services"
 lxc exec "$CONTAINER_NAME" -- bash -c "
   systemctl daemon-reload
-  systemctl enable nimbus
+  systemctl enable nimbus caddy
   systemctl restart nimbus
+  systemctl reload-or-restart caddy
 "
 
 CONTAINER_IP=$(lxc list "$CONTAINER_NAME" --format csv -c 4 | awk '{print $1}' | head -1)
 echo ""
-echo "==> Deploy complete! Open http://${CONTAINER_IP:-<lxc list>}:8000"
+echo "==> Deploy complete!"
+echo "    http://nimbus.local  (redirects to https)"
+echo "    https://nimbus.local"
+echo "    https://${CONTAINER_IP:-<lxc list>}"
+echo ""
+echo "    To trust the HTTPS cert, open Settings in the UI and download the CA cert."
