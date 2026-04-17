@@ -156,13 +156,23 @@ def _create_volume_dirs(compose_data: dict, env_vars: dict) -> None:
                 continue
             p = Path(host_path)
             try:
-                p.mkdir(parents=True, exist_ok=True)
-                p.chmod(0o777)
+                # If the host path looks like a file (has an extension or the
+                # container target is a file), create an empty file; otherwise a dir.
+                container_path = spec.split(":")[1].split(":")[0]
+                is_file = "." in p.name or "." in Path(container_path).name
+                p.parent.mkdir(parents=True, exist_ok=True)
+                if is_file:
+                    if not p.exists():
+                        p.touch()
+                    p.chmod(0o666)
+                else:
+                    p.mkdir(parents=True, exist_ok=True)
+                    p.chmod(0o777)
                 if uid >= 0:
                     import os
                     os.chown(p, uid, gid)
             except Exception as exc:
-                logger.debug("Could not pre-create volume dir %s: %s", p, exc)
+                logger.debug("Could not pre-create volume path %s: %s", p, exc)
 
 
 def _find_web_service(services: dict, port: int) -> Optional[str]:
