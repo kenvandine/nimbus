@@ -72,6 +72,10 @@ class LxdManager:
             "starting-agent",
         }
 
+    def _has_bootstrap_marker(self, instance) -> bool:
+        marker = self._read_file(instance, str(BOOTSTRAP_MARKER))
+        return bool(marker and marker.strip() == BOOTSTRAP_VERSION)
+
     def client(self) -> Client:
         client = getattr(self._local, "client", None)
         if client is None:
@@ -392,7 +396,7 @@ class LxdManager:
                 self.ensure_profile()
                 self._set_bootstrap_state("ensuring-container")
                 instance = self.ensure_started()
-                if self._read_file(instance, str(BOOTSTRAP_MARKER)) == BOOTSTRAP_VERSION:
+                if self._has_bootstrap_marker(instance):
                     self._set_bootstrap_state("ready")
                     return
 
@@ -438,7 +442,7 @@ class LxdManager:
         status = getattr(instance, "status", "unknown").lower()
         bootstrapped = False
         if status == "running":
-            bootstrapped = self._read_file(instance, str(BOOTSTRAP_MARKER)) == BOOTSTRAP_VERSION
+            bootstrapped = self._has_bootstrap_marker(instance)
 
         return ContainerInfo(
             name=settings.lxd_container_name,
