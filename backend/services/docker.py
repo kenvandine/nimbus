@@ -10,6 +10,7 @@ from typing import Optional
 import yaml
 
 from services.store import get_app_compose_path, get_app_meta
+from services.network import get_host_ip
 
 INSTALLED_DIR = Path("/var/lib/nimbus/installed")
 
@@ -117,22 +118,35 @@ def _fix_container_hostnames(app_id: str, services: dict) -> None:
                     env[key] = new_value
 
 
+def _parse_user(user_spec: str) -> tuple[int, int]:
+    """Parse a compose 'user:' value like '1000', '1000:1000', or 'root' into (uid, gid)."""
+    if not user_spec:
+        return (-1, -1)
+    parts = str(user_spec).split(":")
+    try:
+        uid = int(parts[0])
+        gid = int(parts[1]) if len(parts) > 1 else uid
+        return (uid, gid)
+    except ValueError:
+        return (-1, -1)
+
+
 def _create_volume_dirs(compose_data: dict, env_vars: dict) -> None:
-    """Pre-create all host-side bind-mount directories with open permissions.
+    """Pre-create all host-side bind-mount directories with correct ownership.
 
     Docker creates missing host dirs as root, breaking containers that run as
-    non-root users. We create them first so permissions are correct.
+    non-root users. We create them first and chown to the service's user.
     """
     import re
 
     def expand(s: str) -> str:
         for k, v in env_vars.items():
             s = s.replace(f"${{{k}}}", v).replace(f"${k}", v)
-        # Strip any remaining unexpanded variables
         s = re.sub(r'\$\{[^}]+\}', '', s).replace('$', '')
         return s
 
     for svc in compose_data.get("services", {}).values():
+        uid, gid = _parse_user(svc.get("user", ""))
         for vol in svc.get("volumes") or []:
             spec = vol if isinstance(vol, str) else vol.get("source", "")
             if ":" not in spec:
@@ -144,6 +158,9 @@ def _create_volume_dirs(compose_data: dict, env_vars: dict) -> None:
             try:
                 p.mkdir(parents=True, exist_ok=True)
                 p.chmod(0o777)
+                if uid >= 0:
+                    import os
+                    os.chown(p, uid, gid)
             except Exception as exc:
                 logger.debug("Could not pre-create volume dir %s: %s", p, exc)
 
@@ -180,10 +197,13 @@ async def install_app(app_id: str) -> None:
     # Write env file satisfying Umbrel-specific variables apps expect.
     env_file = app_dir / ".env"
     if not env_file.exists():
+        host_ip = await get_host_ip()
         env_file.write_text(
             f"APP_DATA_DIR={data_dir}\n"
             f"APP_SEED={secrets.token_hex(32)}\n"
             f"UMBREL_ROOT=/var/lib/nimbus\n"
+            f"DEVICE_DOMAIN_NAME={host_ip}\n"
+            f"DEVICE_HOSTNAME={host_ip}\n"
         )
 
     # Ensure data dir is writable by any container user (apps vary: root, 1000, etc.)
@@ -283,9 +303,11 @@ async def get_web_port(app_id: str) -> Optional[int]:
         return None
 
     for line in stdout.strip().splitlines():
-        # Pick the lowest published host port (most likely to be the web UI)
-        ports = re.findall(r'(?:0\.0\.0\.0|::):(\d+)->', line)
-        candidates = [int(p) for p in ports if int(p) > 0]
-        if candidates:
-            return min(candidates)
+        # Prefer TCP ports; fall back to any published port
+        tcp_ports = re.findall(r'(?:0\.0\.0\.0|\[::\]):(\d+)->\d+/tcp', line)
+        if tcp_ports:
+            return min(int(p) for p in tcp_ports)
+        udp_ports = re.findall(r'(?:0\.0\.0\.0|\[::\]):(\d+)->\d+/udp', line)
+        if udp_ports:
+            return min(int(p) for p in udp_ports)
     return None
