@@ -167,13 +167,26 @@ export default function AppModal({ app, onClose, onRefresh }) {
   )
 }
 
+function fallbackCopy(text, done) {
+  const el = document.createElement('textarea')
+  el.value = text
+  el.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0'
+  document.body.appendChild(el)
+  el.select()
+  document.execCommand('copy')
+  document.body.removeChild(el)
+  done()
+}
+
 function CredRow({ label, value }) {
   const [copied, setCopied] = useState(false)
   const copy = useCallback(() => {
-    navigator.clipboard.writeText(value).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    })
+    const done = () => { setCopied(true); setTimeout(() => setCopied(false), 1500) }
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(value).then(done).catch(() => fallbackCopy(value, done))
+    } else {
+      fallbackCopy(value, done)
+    }
   }, [value])
   return (
     <div style={styles.credRow}>
