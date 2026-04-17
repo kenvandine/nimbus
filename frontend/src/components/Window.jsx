@@ -1,7 +1,20 @@
+import { useEffect } from 'react'
+
 export default function Window({ title, onClose, children }) {
+  useEffect(() => {
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        onClose()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
   return (
-    <div style={styles.overlay}>
-      <div style={styles.window}>
+    <div style={styles.overlay} onClick={onClose}>
+      <div style={styles.window} onClick={event => event.stopPropagation()}>
         <div style={styles.titleBar}>
           <span style={styles.titleText}>{title}</span>
           <button style={styles.closeBtn} onClick={onClose} title="Close">

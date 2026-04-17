@@ -1,10 +1,23 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { installApp, uninstallApp, updateApp } from '../api.js'
 
 export default function AppModal({ app, onClose, onRefresh, isInstalling = false }) {
   const [action, setAction] = useState(null)
   const [error, setError] = useState(null)
   const [activeImg, setActiveImg] = useState(0)
+
+  useEffect(() => {
+    if (!app) return undefined
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        onClose()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [app, onClose])
 
   if (!app) return null
 
