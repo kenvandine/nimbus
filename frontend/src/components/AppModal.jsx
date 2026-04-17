@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { installApp, uninstallApp, updateApp } from '../api.js'
 
 export default function AppModal({ app, onClose, onRefresh }) {
@@ -146,16 +146,10 @@ export default function AppModal({ app, onClose, onRefresh }) {
             <h3 style={styles.sectionTitle}>Default Credentials</h3>
             <div style={styles.credTable}>
               {app.default_username && (
-                <div style={styles.credRow}>
-                  <span style={styles.credLabel}>Username</span>
-                  <code style={styles.credValue}>{app.default_username}</code>
-                </div>
+                <CredRow label="Username" value={app.default_username} />
               )}
               {app.default_password && (
-                <div style={styles.credRow}>
-                  <span style={styles.credLabel}>Password</span>
-                  <code style={styles.credValue}>{app.default_password}</code>
-                </div>
+                <CredRow label="Password" value={app.default_password} />
               )}
             </div>
           </div>
@@ -168,6 +162,30 @@ export default function AppModal({ app, onClose, onRefresh }) {
             <p style={styles.description}>{app.description}</p>
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+function CredRow({ label, value }) {
+  const [copied, setCopied] = useState(false)
+  const copy = useCallback(() => {
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }, [value])
+  return (
+    <div style={styles.credRow}>
+      <span style={styles.credLabel}>{label}</span>
+      <div style={styles.credValueWrap}>
+        <code style={styles.credValue}>{value}</code>
+        <button style={styles.copyBtn} onClick={copy} title="Copy">
+          {copied
+            ? <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><polyline points="1,7 5,11 12,2" stroke="#4fc3f7" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            : <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><rect x="4" y="1" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.4"/><path d="M1 4.5V11a1.5 1.5 0 001.5 1.5H9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
+          }
+        </button>
       </div>
     </div>
   )
@@ -283,6 +301,11 @@ const styles = {
     color: 'rgba(255,255,255,0.45)',
     fontSize: '13px',
   },
+  credValueWrap: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
   credValue: {
     background: 'rgba(79,195,247,0.1)',
     color: 'rgba(79,195,247,0.9)',
@@ -291,6 +314,17 @@ const styles = {
     padding: '2px 8px',
     fontSize: '13px',
     fontFamily: 'monospace',
+  },
+  copyBtn: {
+    background: 'none',
+    border: 'none',
+    color: 'rgba(255,255,255,0.35)',
+    cursor: 'pointer',
+    padding: '2px',
+    display: 'flex',
+    alignItems: 'center',
+    borderRadius: '4px',
+    transition: 'color 0.15s',
   },
   sectionTitle: { color: 'rgba(255,255,255,0.4)', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 10px' },
   description: { color: 'rgba(255,255,255,0.65)', fontSize: '14px', lineHeight: '1.7', margin: 0, whiteSpace: 'pre-wrap' },
