@@ -41,6 +41,13 @@ async def refresh_store() -> None:
         logger.info("Store refreshed: %s", stdout.decode().strip())
 
 
+_USERNAME_MAP = {"umbrel": "nimbus", "umbrel@umbrel.local": "nimbus@nimbus.local"}
+
+
+def _rewrite_username(value: str) -> str:
+    return _USERNAME_MAP.get(value, value)
+
+
 def _resolve_gallery(app_id: str, entries: list) -> list[str]:
     urls = []
     for entry in entries:
@@ -67,7 +74,7 @@ def _parse_meta(app_id: str, data: dict) -> AppMeta:
         website=str(data.get("website", "")),
         developer=str(data.get("developer", "")),
         version=str(data.get("version", "")),
-        default_username=str(data.get("defaultUsername", "") or ""),
+        default_username=_rewrite_username(str(data.get("defaultUsername", "") or "")),
         default_password=str(data.get("defaultPassword", "") or ""),
         deterministic_password=bool(data.get("deterministicPassword", False)),
     )

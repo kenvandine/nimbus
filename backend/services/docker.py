@@ -102,6 +102,9 @@ def _prepare_compose(app_id: str, compose_src: Path, app_dir: Path) -> Path:
     # the plain service name (postgres), which is what Compose v2 DNS resolves.
     _fix_container_hostnames(app_id, services)
 
+    # Replace Umbrel-branded usernames with Nimbus equivalents.
+    _rewrite_umbrel_usernames(services)
+
     data["services"] = services
     # Drop obsolete version key to silence docker compose warnings.
     data.pop("version", None)
@@ -133,6 +136,30 @@ def _fix_container_hostnames(app_id: str, services: dict) -> None:
             if new_value != value:
                 if isinstance(env, dict):
                     env[key] = new_value
+
+
+_USERNAME_MAP = {
+    "umbrel": "nimbus",
+    "umbrel@umbrel.local": "nimbus@nimbus.local",
+}
+
+
+def _rewrite_umbrel_usernames(services: dict) -> None:
+    """Replace Umbrel-branded username values in env vars with Nimbus equivalents."""
+    for svc_cfg in services.values():
+        env = svc_cfg.get("environment")
+        if not env:
+            continue
+        if isinstance(env, dict):
+            for key, value in env.items():
+                if isinstance(value, str) and value in _USERNAME_MAP:
+                    env[key] = _USERNAME_MAP[value]
+        elif isinstance(env, list):
+            for i, item in enumerate(env):
+                if "=" in item:
+                    k, v = item.split("=", 1)
+                    if v in _USERNAME_MAP:
+                        env[i] = f"{k}={_USERNAME_MAP[v]}"
 
 
 def _parse_user(user_spec: str) -> tuple[int, int]:
