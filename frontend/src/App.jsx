@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { getActiveInstalls, listApps, getStats, uninstallApp } from './api.js'
+import { getActiveInstalls, listApps, getStats, powerOffSystem, restartSystem, uninstallApp } from './api.js'
 import Dock from './components/Dock.jsx'
 import Window from './components/Window.jsx'
 import AppStore from './components/AppStore.jsx'
@@ -60,6 +60,9 @@ export default function App() {
   const [openWindow, setOpenWindow] = useState(null) // 'appstore' | 'deviceinfo' | 'settings'
   const [detailApp, setDetailApp] = useState(null)
   const [contextMenu, setContextMenu] = useState(null) // { app, x, y }
+  const [powerMenuOpen, setPowerMenuOpen] = useState(false)
+  const [powerBusy, setPowerBusy] = useState(null)
+  const [systemNotice, setSystemNotice] = useState(null)
   const intervalRef = useRef(null)
 
   async function fetchAll() {
@@ -98,6 +101,20 @@ export default function App() {
     }
   }, [contextMenu])
 
+  useEffect(() => {
+    if (!powerMenuOpen) return
+    function dismiss(e) {
+      if (e.type === 'keydown' && e.key !== 'Escape') return
+      setPowerMenuOpen(false)
+    }
+    window.addEventListener('click', dismiss)
+    window.addEventListener('keydown', dismiss)
+    return () => {
+      window.removeEventListener('click', dismiss)
+      window.removeEventListener('keydown', dismiss)
+    }
+  }, [powerMenuOpen])
+
   async function handleUninstall(app) {
     setContextMenu(null)
     try {
@@ -105,6 +122,33 @@ export default function App() {
       fetchAll()
     } catch (e) {
       // ignore — card-level errors not applicable here
+    }
+  }
+
+  async function handlePowerAction(action) {
+    setPowerMenuOpen(false)
+    setPowerBusy(action)
+    try {
+      if (action === 'restart') {
+        await restartSystem()
+        setSystemNotice({
+          tone: 'info',
+          message: 'Restart requested. Nimbus will disconnect while the device restarts.',
+        })
+      } else {
+        await powerOffSystem()
+        setSystemNotice({
+          tone: 'info',
+          message: 'Power off requested. Nimbus will disconnect while the device shuts down.',
+        })
+      }
+    } catch (e) {
+      setSystemNotice({
+        tone: 'error',
+        message: e.message,
+      })
+    } finally {
+      setPowerBusy(null)
     }
   }
 
@@ -123,6 +167,53 @@ export default function App() {
 
   return (
     <div style={{ ...styles.desktop, background: `linear-gradient(145deg, hsl(${hue},75%,${light}%) 0%, hsl(${hue + 10},60%,${light + 8}%) 60%, hsl(200,55%,${light + 22}%) 100%)` }}>
+      <div style={styles.topBar}>
+        {systemNotice && (
+          <div style={{ ...styles.systemNotice, ...(systemNotice.tone === 'error' ? styles.systemNoticeError : {}) }}>
+            {systemNotice.message}
+          </div>
+        )}
+        <div style={styles.powerWrap}>
+          <button
+            style={{
+              ...styles.powerButton,
+              ...((powerMenuOpen || stats?.system_restart_required) ? styles.powerButtonActive : {}),
+              ...((stats && !stats.device_management_available) ? styles.powerButtonDisabled : {}),
+            }}
+            title={
+              stats?.device_management_available === false
+                ? 'Power controls are unavailable until Nimbus can access snapd on the host.'
+                : 'Power'
+            }
+            onClick={e => {
+              e.stopPropagation()
+              setPowerMenuOpen(open => !open)
+            }}
+            disabled={powerBusy || (stats && !stats.device_management_available)}
+          >
+            ⏻
+          </button>
+          {powerMenuOpen && (
+            <div style={styles.powerMenu} onClick={e => e.stopPropagation()}>
+              <button
+                style={styles.powerMenuItem}
+                onClick={() => handlePowerAction('restart')}
+                disabled={powerBusy}
+              >
+                Restart
+              </button>
+              <button
+                style={{ ...styles.powerMenuItem, ...styles.powerMenuItemDanger }}
+                onClick={() => handlePowerAction('poweroff')}
+                disabled={powerBusy}
+              >
+                Power Off
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Desktop app icons — running apps */}
       <div style={styles.desktopArea}>
         {loading && <div style={styles.loadingMsg}>Loading…</div>}
@@ -173,7 +264,7 @@ export default function App() {
       )}
       {openWindow === 'settings' && (
         <Window title="Settings" onClose={() => setOpenWindow(null)}>
-          <Settings />
+          <Settings stats={stats} onRefresh={fetchAll} />
         </Window>
       )}
 
@@ -253,6 +344,80 @@ const styles = {
     color: 'white',
     position: 'relative',
     transition: 'background 3s ease',
+  },
+  topBar: {
+    position: 'absolute',
+    top: '18px',
+    right: '24px',
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '12px',
+    zIndex: 20,
+  },
+  systemNotice: {
+    maxWidth: '360px',
+    background: 'rgba(8,16,28,0.74)',
+    border: '1px solid rgba(79,195,247,0.26)',
+    color: 'rgba(255,255,255,0.86)',
+    borderRadius: '14px',
+    padding: '10px 14px',
+    fontSize: '12px',
+    lineHeight: 1.45,
+    boxShadow: '0 12px 30px rgba(0,0,0,0.22)',
+    backdropFilter: 'blur(14px)',
+  },
+  systemNoticeError: {
+    border: '1px solid rgba(255,120,120,0.28)',
+    color: 'rgba(255,210,210,0.92)',
+  },
+  powerWrap: {
+    position: 'relative',
+  },
+  powerButton: {
+    width: '46px',
+    height: '46px',
+    borderRadius: '14px',
+    border: '1px solid rgba(255,255,255,0.14)',
+    background: 'rgba(8,16,28,0.54)',
+    color: 'rgba(255,255,255,0.92)',
+    fontSize: '22px',
+    cursor: 'pointer',
+    boxShadow: '0 12px 28px rgba(0,0,0,0.2)',
+    backdropFilter: 'blur(16px)',
+  },
+  powerButtonActive: {
+    border: '1px solid rgba(255,152,0,0.45)',
+    color: '#ffd180',
+  },
+  powerButtonDisabled: {
+    opacity: 0.45,
+    cursor: 'not-allowed',
+  },
+  powerMenu: {
+    position: 'absolute',
+    top: '56px',
+    right: 0,
+    minWidth: '160px',
+    background: 'rgba(10,18,30,0.96)',
+    border: '1px solid rgba(255,255,255,0.14)',
+    borderRadius: '14px',
+    padding: '6px',
+    boxShadow: '0 18px 40px rgba(0,0,0,0.36)',
+    backdropFilter: 'blur(18px)',
+  },
+  powerMenuItem: {
+    width: '100%',
+    border: 'none',
+    background: 'transparent',
+    color: 'rgba(255,255,255,0.9)',
+    padding: '10px 12px',
+    borderRadius: '10px',
+    fontSize: '13px',
+    textAlign: 'left',
+    cursor: 'pointer',
+  },
+  powerMenuItemDanger: {
+    color: '#ffb4b4',
   },
   desktopArea: {
     flex: 1,

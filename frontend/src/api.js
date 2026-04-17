@@ -32,3 +32,6 @@ export const uninstallApp = (id) => request(`/apps/${id}/uninstall`, { method: '
 export const getStats = () => request('/system/stats')
 export const getActiveInstalls = () => request('/apps/installing/active')
 export const updateApp = (id) => request(`/apps/${id}/update`, { method: 'POST' })
+export const restartSystem = () => request('/system/restart', { method: 'POST' })
+export const powerOffSystem = () => request('/system/poweroff', { method: 'POST' })
+export const updateSystem = () => request('/system/update', { method: 'POST' })

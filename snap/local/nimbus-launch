@@ -1,8 +1,19 @@
 #!/bin/sh
 set -eu
 
+typelib_path=
+for candidate in "$SNAP"/usr/lib/*/girepository-1.0; do
+  if [ -d "$candidate" ]; then
+    typelib_path="$candidate"
+    break
+  fi
+done
+
 export PYTHONDONTWRITEBYTECODE=1
-export PYTHONPATH="${SNAP}/backend${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH="${SNAP}/backend:${SNAP}/usr/lib/python3/dist-packages${PYTHONPATH:+:$PYTHONPATH}"
+if [ -n "$typelib_path" ]; then
+  export GI_TYPELIB_PATH="$typelib_path${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}"
+fi
 export GIT_EXEC_PATH="${SNAP}/usr/lib/git-core"
 export GIT_TEMPLATE_DIR="${SNAP}/usr/share/git-core/templates"
 export PATH="${SNAP}/usr/lib/git-core:${SNAP}/usr/bin:${SNAP}/bin${PATH:+:$PATH}"

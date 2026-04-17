@@ -44,3 +44,10 @@ class SystemStats(BaseModel):
     container_bootstrapped: bool = False
     bootstrap_state: Optional[str] = None
     bootstrap_error: Optional[str] = None
+    device_management_available: bool = False
+    system_update_supported: bool = False
+    system_update_available: bool = False
+    system_update_targets: list[str] = []
+    system_update_status: Optional[str] = None
+    system_update_message: Optional[str] = None
+    system_restart_required: bool = False

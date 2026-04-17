@@ -11,6 +11,7 @@ from pylxd.exceptions import ClientConnectionFailed, LXDAPIException
 
 from config import settings
 from models import AppDetail, AppStatus, SystemStats
+from services.device import get_device_manager
 from services import docker, network, store
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,31 @@ class ControlPlane(Protocol):
     async def uninstall_app(self, app_id: str) -> dict: ...
     async def active_installs(self) -> list[str]: ...
     async def get_stats(self) -> SystemStats: ...
+    async def restart_system(self) -> dict: ...
+    async def power_off_system(self) -> dict: ...
+    async def update_system(self) -> dict: ...
     async def get_ca_cert(self) -> tuple[bytes, str, str]: ...
+
+
+async def _call_device_manager(func, *args):
+    try:
+        return await asyncio.to_thread(func, *args)
+    except HTTPException:
+        raise
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _apply_device_stats(stats: SystemStats) -> SystemStats:
+    device_status = get_device_manager().status()
+    stats.device_management_available = device_status.actions_available
+    stats.system_update_supported = device_status.system_update_supported
+    stats.system_update_available = device_status.system_update_available
+    stats.system_update_targets = device_status.system_update_targets
+    stats.system_update_status = device_status.system_update_status
+    stats.system_update_message = device_status.system_update_message
+    stats.system_restart_required = device_status.system_restart_required
+    return stats
 
 
 class LocalControlPlane:
@@ -130,12 +155,32 @@ class LocalControlPlane:
         return list(self._installing)
 
     async def get_stats(self) -> SystemStats:
-        return SystemStats(
+        return _apply_device_stats(SystemStats(
             cpu_pct=psutil.cpu_percent(interval=0.1),
             mem_pct=psutil.virtual_memory().percent,
             disk_pct=psutil.disk_usage("/").percent,
             app_count=len(docker.installed_app_ids()),
-        )
+        ))
+
+    async def restart_system(self) -> dict:
+        await _call_device_manager(get_device_manager().restart_system)
+        return {"status": "restarting"}
+
+    async def power_off_system(self) -> dict:
+        await _call_device_manager(get_device_manager().power_off_system)
+        return {"status": "powering_off"}
+
+    async def _do_system_update(self, targets: list[str]) -> None:
+        try:
+            await asyncio.to_thread(get_device_manager().refresh_system, targets)
+        except Exception as exc:
+            logger.error("System update failed: %s", exc)
+
+    async def update_system(self) -> dict:
+        data = await _call_device_manager(get_device_manager().request_system_refresh)
+        if data["status"] == "running":
+            asyncio.create_task(self._do_system_update(list(data.get("targets", []))))
+        return dict(data)
 
     async def get_ca_cert(self) -> tuple[bytes, str, str]:
         cert_path = settings.caddy_ca_cert
@@ -214,6 +259,18 @@ class RemoteControlPlane:
     async def get_stats(self) -> SystemStats:
         data = await self._json("GET", "/api/system/stats")
         return SystemStats.model_validate(data)
+
+    async def restart_system(self) -> dict:
+        data = await self._json("POST", "/api/system/restart")
+        return dict(data)
+
+    async def power_off_system(self) -> dict:
+        data = await self._json("POST", "/api/system/poweroff")
+        return dict(data)
+
+    async def update_system(self) -> dict:
+        data = await self._json("POST", "/api/system/update")
+        return dict(data)
 
     async def get_ca_cert(self) -> tuple[bytes, str, str]:
         return await self._content("/api/system/ca-cert")
@@ -380,7 +437,7 @@ class LxdControlPlane:
         info = await self._call_manager(self.manager.container_info)
         snapshot = await self._call_manager(self.manager.app_runtime_snapshot) if self._container_ready(info) else None
         app_count = len(snapshot.installed) if snapshot else 0
-        return SystemStats(
+        return _apply_device_stats(SystemStats(
             cpu_pct=psutil.cpu_percent(interval=0.1),
             mem_pct=psutil.virtual_memory().percent,
             disk_pct=psutil.disk_usage("/").percent,
@@ -392,7 +449,27 @@ class LxdControlPlane:
             container_bootstrapped=info.bootstrapped,
             bootstrap_state=info.bootstrap_state,
             bootstrap_error=info.bootstrap_error,
-        )
+        ))
+
+    async def restart_system(self) -> dict:
+        await _call_device_manager(get_device_manager().restart_system)
+        return {"status": "restarting"}
+
+    async def power_off_system(self) -> dict:
+        await _call_device_manager(get_device_manager().power_off_system)
+        return {"status": "powering_off"}
+
+    async def _do_system_update(self, targets: list[str]) -> None:
+        try:
+            await asyncio.to_thread(get_device_manager().refresh_system, targets)
+        except Exception as exc:
+            logger.error("System update failed: %s", exc)
+
+    async def update_system(self) -> dict:
+        data = await _call_device_manager(get_device_manager().request_system_refresh)
+        if data["status"] == "running":
+            asyncio.create_task(self._do_system_update(list(data.get("targets", []))))
+        return dict(data)
 
     async def get_ca_cert(self) -> tuple[bytes, str, str]:
         raise HTTPException(status_code=404, detail="CA certificate is not available in LXD controller mode")

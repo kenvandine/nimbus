@@ -13,7 +13,7 @@ Host (Linux + LXD)
 ├── Nimbus controller (snap or service on host)
 │   ├── Frontend + public API
 │   ├── LXD control path via pylxd + LXD socket
-│   ├── Future host-management features (snapd-control, reboot, other snaps)
+│   ├── Host device management (snapd refresh, reboot, power off)
 │   └── Container bootstrap + orchestration
 └── nimbus (LXD container, security.nesting=true)
     ├── Nimbus agent (bootstrapped by host controller)
@@ -95,10 +95,11 @@ The snap:
 
 - runs the Nimbus UI/API as a strict daemon
 - plugs `lxd` for direct LXD socket access
-- plugs `snapd-control` for future appliance-management operations
+- plugs `snapd-control` for host device management operations
 - builds the React frontend into `backend/static`
 - auto-bootstraps the managed `nimbus` container on first start
 - publishes installed app ports from the managed container onto the host with LXD proxy devices
+- can update the host `core24`, `snapd`, `lxd`, and Nimbus snaps and request host restart / power-off actions through snapd
 
 Build locally with:
 
@@ -336,6 +337,9 @@ Nimbus now supports app updates through the UI and API:
 | `GET` | `/api/apps/{id}/icon.svg` | Generated SVG icon (fallback) |
 | `GET` | `/api/apps/installing/active` | List app IDs currently installing |
 | `GET` | `/api/system/stats` | CPU, RAM, disk usage and installed app count |
+| `POST` | `/api/system/restart` | Request a host restart through snapd |
+| `POST` | `/api/system/poweroff` | Request a host power-off through snapd |
+| `POST` | `/api/system/update` | Update supported host snaps (`core24`, `snapd`, `lxd`, Nimbus) |
 
 ---
 

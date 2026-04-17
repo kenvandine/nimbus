@@ -15,6 +15,21 @@ async def get_stats() -> SystemStats:
     return await get_control_plane().get_stats()
 
 
+@router.post("/restart")
+async def restart_system() -> dict:
+    return await get_control_plane().restart_system()
+
+
+@router.post("/poweroff")
+async def power_off_system() -> dict:
+    return await get_control_plane().power_off_system()
+
+
+@router.post("/update")
+async def update_system() -> dict:
+    return await get_control_plane().update_system()
+
+
 @router.get("/ca-cert")
 async def get_ca_cert() -> Response:
     content, media_type, filename = await get_control_plane().get_ca_cert()
