@@ -231,7 +231,7 @@ def _collect_volume_paths(compose_data: dict, env_vars: dict[str, str]) -> list[
                 continue
             p = Path(host_path)
             container_path = spec.split(":")[1].split(":")[0]
-            is_file = "." in p.name or "." in Path(container_path).name
+            is_file = bool(p.suffix) or bool(Path(container_path).suffix)
             paths.append(
                 VolumePathSpec(
                     path=str(p),
