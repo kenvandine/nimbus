@@ -37,6 +37,20 @@ SNAPD_SNAP = "snapd"
 LXD_SNAP = "lxd"
 
 
+def _logind_action(method: str) -> None:
+    # Fall back to calling logind directly via D-Bus using the shutdown plug.
+    # This bypasses snapd's scheduler and works even when a systemd block
+    # inhibitor (e.g. GNOME session manager) prevents snapd from scheduling.
+    try:
+        import dbus
+
+        bus = dbus.SystemBus()
+        obj = bus.get_object("org.freedesktop.login1", "/org/freedesktop/login1")
+        getattr(obj, method)(False, dbus_interface="org.freedesktop.login1.Manager")
+    except Exception as exc:
+        logger.warning("logind %s fallback failed: %s", method, exc)
+
+
 class SnapdRequestError(RuntimeError):
     def __init__(self, message: str, status_code: int | None = None) -> None:
         super().__init__(message)
@@ -99,7 +113,11 @@ class DeviceManager:
 
     def _current_boot_id(self) -> str:
         try:
-            return Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
+            return (
+                Path("/proc/sys/kernel/random/boot_id")
+                .read_text(encoding="utf-8")
+                .strip()
+            )
         except OSError:
             return ""
 
@@ -130,14 +148,20 @@ class DeviceManager:
             status=str(payload.get("status") or "idle"),
             message=payload.get("message"),
             restart_required=bool(payload.get("restart_required")),
-            current_boot_id=str(payload.get("current_boot_id") or self._current_boot_id()),
-            requested_targets=[str(item) for item in payload.get("requested_targets", [])],
+            current_boot_id=str(
+                payload.get("current_boot_id") or self._current_boot_id()
+            ),
+            requested_targets=[
+                str(item) for item in payload.get("requested_targets", [])
+            ],
         )
 
     def _persist_update_state(self) -> None:
         try:
             self._state_file.parent.mkdir(parents=True, exist_ok=True)
-            self._state_file.write_text(json.dumps(asdict(self._update_state)), encoding="utf-8")
+            self._state_file.write_text(
+                json.dumps(asdict(self._update_state)), encoding="utf-8"
+            )
         except OSError as exc:
             logger.warning("Could not persist system update state: %s", exc)
 
@@ -150,14 +174,26 @@ class DeviceManager:
                 current_boot_id=self._update_state.current_boot_id,
                 requested_targets=list(self._update_state.requested_targets),
             )
-        available_targets = self._refreshable_target_names() if self.system_update_supported() else []
+        available_targets = (
+            self._refreshable_target_names() if self.system_update_supported() else []
+        )
         display_targets = available_targets or []
-        if update_state.restart_required and update_state.current_boot_id and update_state.current_boot_id != self._current_boot_id():
-            self._set_update_state("idle", None, restart_required=False, requested_targets=[])
+        if (
+            update_state.restart_required
+            and update_state.current_boot_id
+            and update_state.current_boot_id != self._current_boot_id()
+        ):
+            self._set_update_state(
+                "idle", None, restart_required=False, requested_targets=[]
+            )
             update_state = SystemUpdateState(current_boot_id=self._current_boot_id())
         elif update_state.status == "running" and update_state.requested_targets:
             if available_targets is not None:
-                pending_requested = [name for name in update_state.requested_targets if name in available_targets]
+                pending_requested = [
+                    name
+                    for name in update_state.requested_targets
+                    if name in available_targets
+                ]
             else:
                 pending_requested = update_state.requested_targets
             if available_targets is not None and not pending_requested:
@@ -188,12 +224,16 @@ class DeviceManager:
         if not message:
             if update_state.status == "idle":
                 if display_targets:
-                    message = f"Updates available for {_format_snap_names(display_targets)}."
+                    message = (
+                        f"Updates available for {_format_snap_names(display_targets)}."
+                    )
                 elif self.system_update_supported():
                     message = "System is up to date."
                 else:
                     message = "System updates are unavailable until Nimbus can access snapd on the host."
-            elif update_state.status == "completed" and not update_state.restart_required:
+            elif (
+                update_state.status == "completed" and not update_state.restart_required
+            ):
                 message = "System is up to date."
 
         return DeviceManagementStatus(
@@ -225,7 +265,9 @@ class DeviceManager:
 
     def _require_actions_available(self) -> None:
         if requests_unixsocket is None:
-            raise RuntimeError(f"requests-unixsocket is unavailable: {REQUESTS_UNIXSOCKET_IMPORT_ERROR}")
+            raise RuntimeError(
+                f"requests-unixsocket is unavailable: {REQUESTS_UNIXSOCKET_IMPORT_ERROR}"
+            )
         if not SNAPD_SOCKET_PATH.exists():
             raise RuntimeError("snapd socket is unavailable on this system")
 
@@ -233,9 +275,13 @@ class DeviceManager:
         if not SNAPD_SOCKET_PATH.exists():
             raise RuntimeError("snapd socket is unavailable on this system")
         if Snapd is None:
-            raise RuntimeError(f"Snapd GI bindings are unavailable: {SNAPD_GI_IMPORT_ERROR}")
+            raise RuntimeError(
+                f"Snapd GI bindings are unavailable: {SNAPD_GI_IMPORT_ERROR}"
+            )
 
-    def _refreshable_target_names(self, *, raise_on_error: bool = False) -> list[str] | None:
+    def _refreshable_target_names(
+        self, *, raise_on_error: bool = False
+    ) -> list[str] | None:
         if not self.system_update_supported():
             return []
         try:
@@ -248,9 +294,13 @@ class DeviceManager:
             return None
 
         refreshable_names = {snap.get_name() for snap in refreshable}
-        return [name for name in self._managed_snap_names() if name in refreshable_names]
+        return [
+            name for name in self._managed_snap_names() if name in refreshable_names
+        ]
 
-    def _socket_request(self, method: str, path: str, payload: dict | None = None) -> dict:
+    def _socket_request(
+        self, method: str, path: str, payload: dict | None = None
+    ) -> dict:
         self._require_actions_available()
         session = requests_unixsocket.Session()
         response = session.request(
@@ -263,7 +313,10 @@ class DeviceManager:
         try:
             data = response.json()
         except ValueError as exc:
-            raise SnapdRequestError(response.text.strip() or "snapd returned an invalid response", response.status_code) from exc
+            raise SnapdRequestError(
+                response.text.strip() or "snapd returned an invalid response",
+                response.status_code,
+            ) from exc
 
         if response.status_code >= 400 or data.get("type") == "error":
             result = data.get("result")
@@ -271,20 +324,33 @@ class DeviceManager:
                 message = str(result.get("message") or response.text)
             else:
                 message = response.text
-            raise SnapdRequestError(message.strip() or "snapd request failed", response.status_code)
+            raise SnapdRequestError(
+                message.strip() or "snapd request failed", response.status_code
+            )
 
         return data
 
     def restart_system(self) -> None:
-        self._socket_request("POST", "/v2/systems", {"action": "reboot"})
+        try:
+            self._socket_request("POST", "/v2/systems", {"action": "reboot"})
+        except SnapdRequestError:
+            pass
+        _logind_action("Reboot")
 
     def power_off_system(self) -> None:
         try:
             self._socket_request("POST", "/v2/systems", {"action": "poweroff"})
         except SnapdRequestError as exc:
-            if exc.status_code not in {400, 404} and "unsupported action" not in str(exc).lower():
+            if (
+                exc.status_code not in {400, 404}
+                and "unsupported action" not in str(exc).lower()
+            ):
                 raise
-            self._socket_request("POST", "/v2/systems", {"action": "shutdown"})
+            try:
+                self._socket_request("POST", "/v2/systems", {"action": "shutdown"})
+            except SnapdRequestError:
+                pass
+        _logind_action("PowerOff")
 
     def request_system_refresh(self) -> dict:
         self._require_system_update_available()
@@ -317,14 +383,18 @@ class DeviceManager:
         client = Snapd.Client()
         target_names = [name for name in self._managed_snap_names() if name in targets]
         if not target_names:
-            self._set_update_state("completed", "System is already up to date.", requested_targets=[])
+            self._set_update_state(
+                "completed", "System is already up to date.", requested_targets=[]
+            )
             return
         try:
             restart_required = False
             for snap_name in target_names:
                 refreshed = client.refresh_sync(snap_name, None, None, None, None)
                 if not refreshed:
-                    raise RuntimeError(f"snapd did not accept the refresh request for {snap_name}")
+                    raise RuntimeError(
+                        f"snapd did not accept the refresh request for {snap_name}"
+                    )
                 if snap_name == CORE_BASE_SNAP:
                     restart_required = True
                     self._set_update_state(

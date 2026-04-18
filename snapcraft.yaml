@@ -21,6 +21,7 @@ apps:
       - network-bind
       - lxd
       - snapd-control
+      - shutdown
     environment:
       HOME: $SNAP_COMMON
       LXD_DIR: /var/snap/lxd/common/lxd
@@ -63,6 +64,7 @@ parts:
       - ca-certificates
       - git
       - gir1.2-snapd-2
+      - python3-dbus
       - python3-gi
     after:
       - frontend
