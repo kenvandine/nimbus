@@ -82,7 +82,7 @@ export default function DeviceInfo({ stats, apps }) {
         <h3 style={styles.sectionTitle}>Platform</h3>
         <div style={styles.infoTable}>
           <InfoRow label="Service" value="Nimbus v0.1.0" />
-          <InfoRow label="Runtime" value={stats?.control_mode === 'lxd' ? 'Strict snap controller + LXD' : 'Docker + LXD'} />
+          <InfoRow label="Runtime" value={stats?.control_mode === 'lxd' ? 'SnapD + LXD' : 'Docker + LXD'} />
           <InfoRow label="App Catalog" value="Umbrel App Store" />
           {stats?.container_name && <InfoRow label="Managed Container" value={stats.container_name} />}
           {stats?.container_status && <InfoRow label="Container State" value={stats.container_status} />}
