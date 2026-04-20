@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+from dataclasses import dataclass
 import hashlib
 import logging
 import re
@@ -10,12 +11,36 @@ from typing import Optional
 
 import yaml
 
+from config import settings
 from services.store import get_app_compose_path, get_app_meta
 from services.network import get_host_ip
 
-INSTALLED_DIR = Path("/var/lib/nimbus/installed")
+INSTALLED_DIR = settings.installed_dir
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class VolumePathSpec:
+    path: str
+    is_file: bool
+    uid: int
+    gid: int
+    mode: int
+
+
+@dataclass(frozen=True)
+class PreparedAppBundle:
+    app_id: str
+    app_dir: Path
+    data_dir: Path
+    published_port: Optional[int]
+    compose_text: str
+    compose_data: dict
+    env_text: str
+    env_vars: dict[str, str]
+    version: Optional[str]
+    volume_paths: list[VolumePathSpec]
 
 
 async def _run(*args: str) -> tuple[int, str, str]:
@@ -30,6 +55,10 @@ async def _run(*args: str) -> tuple[int, str, str]:
 
 def _app_dir(app_id: str) -> Path:
     return INSTALLED_DIR / app_id
+
+
+def _parse_env_text(env_text: str) -> dict[str, str]:
+    return dict(line.split("=", 1) for line in env_text.splitlines() if "=" in line)
 
 
 def _derive_password(seed: str) -> str:
@@ -54,8 +83,8 @@ def installed_app_ids() -> list[str]:
     return [d.name for d in INSTALLED_DIR.iterdir() if d.is_dir()]
 
 
-def _prepare_compose(app_id: str, compose_src: Path, app_dir: Path) -> Path:
-    """Return a patched compose file suitable for standalone (non-Umbrel) use."""
+def _prepare_compose_data(app_id: str, compose_src: Path) -> dict:
+    """Return compose data patched for standalone (non-Umbrel) use."""
     data = yaml.safe_load(compose_src.read_text())
     services = data.get("services", {})
 
@@ -108,6 +137,11 @@ def _prepare_compose(app_id: str, compose_src: Path, app_dir: Path) -> Path:
     data["services"] = services
     # Drop obsolete version key to silence docker compose warnings.
     data.pop("version", None)
+    return data
+
+
+def _prepare_compose(app_id: str, compose_src: Path, app_dir: Path) -> Path:
+    data = _prepare_compose_data(app_id, compose_src)
     dest = app_dir / "docker-compose.yml"
     dest.write_text(yaml.dump(data, default_flow_style=False))
     return dest
@@ -176,12 +210,7 @@ def _parse_user(user_spec: str) -> tuple[int, int]:
         return (-1, -1)
 
 
-def _create_volume_dirs(compose_data: dict, env_vars: dict) -> None:
-    """Pre-create all host-side bind-mount directories with correct ownership.
-
-    Docker creates missing host dirs as root, breaking containers that run as
-    non-root users. We create them first and chown to the service's user.
-    """
+def _collect_volume_paths(compose_data: dict, env_vars: dict[str, str]) -> list[VolumePathSpec]:
     import re
 
     def expand(s: str) -> str:
@@ -190,6 +219,7 @@ def _create_volume_dirs(compose_data: dict, env_vars: dict) -> None:
         s = re.sub(r'\$\{[^}]+\}', '', s).replace('$', '')
         return s
 
+    paths: list[VolumePathSpec] = []
     for svc in compose_data.get("services", {}).values():
         uid, gid = _parse_user(svc.get("user", ""))
         for vol in svc.get("volumes") or []:
@@ -200,24 +230,38 @@ def _create_volume_dirs(compose_data: dict, env_vars: dict) -> None:
             if not host_path.startswith("/"):
                 continue
             p = Path(host_path)
-            try:
-                # If the host path looks like a file (has an extension or the
-                # container target is a file), create an empty file; otherwise a dir.
-                container_path = spec.split(":")[1].split(":")[0]
-                is_file = "." in p.name or "." in Path(container_path).name
-                p.parent.mkdir(parents=True, exist_ok=True)
-                if is_file:
-                    if not p.exists():
-                        p.touch()
-                    p.chmod(0o666)
-                else:
-                    p.mkdir(parents=True, exist_ok=True)
-                    p.chmod(0o777)
-                if uid >= 0:
-                    import os
-                    os.chown(p, uid, gid)
-            except Exception as exc:
-                logger.debug("Could not pre-create volume path %s: %s", p, exc)
+            container_path = spec.split(":")[1].split(":")[0]
+            is_file = bool(p.suffix) or bool(Path(container_path).suffix)
+            paths.append(
+                VolumePathSpec(
+                    path=str(p),
+                    is_file=is_file,
+                    uid=uid,
+                    gid=gid,
+                    mode=0o666 if is_file else 0o777,
+                )
+            )
+    return paths
+
+
+def _create_volume_dirs(volume_paths: list[VolumePathSpec]) -> None:
+    """Pre-create all host-side bind-mount paths with correct ownership."""
+    import os
+
+    for spec in volume_paths:
+        p = Path(spec.path)
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            if spec.is_file:
+                if not p.exists():
+                    p.touch()
+            else:
+                p.mkdir(parents=True, exist_ok=True)
+            p.chmod(spec.mode)
+            if spec.uid >= 0:
+                os.chown(p, spec.uid, spec.gid)
+        except Exception as exc:
+            logger.debug("Could not pre-create volume path %s: %s", p, exc)
 
 
 def _find_web_service(services: dict, port: int) -> Optional[str]:
@@ -240,52 +284,16 @@ def _find_web_service(services: dict, port: int) -> Optional[str]:
 
 
 async def install_app(app_id: str) -> None:
-    compose_src = get_app_compose_path(app_id)
-    if compose_src is None:
-        raise FileNotFoundError(f"No docker-compose.yml found for app: {app_id}")
-
-    app_dir = _app_dir(app_id)
-    data_dir = app_dir / "data"
-    app_dir.mkdir(parents=True, exist_ok=True)
-    data_dir.mkdir(parents=True, exist_ok=True)
-
-    # Write env file satisfying Umbrel-specific variables apps expect.
-    env_file = app_dir / ".env"
-    if not env_file.exists():
-        host_ip = await get_host_ip()
-        seed = secrets.token_hex(32)
-        app_password = _derive_password(seed)
-        env_file.write_text(
-            f"APP_DATA_DIR={data_dir}\n"
-            f"APP_SEED={seed}\n"
-            f"APP_PASSWORD={app_password}\n"
-            f"UMBREL_ROOT=/var/lib/nimbus\n"
-            f"DEVICE_DOMAIN_NAME=nimbus.local\n"
-            f"DEVICE_HOSTNAME=nimbus.local\n"
-        )
-
-    # Ensure data dir is writable by any container user (apps vary: root, 1000, etc.)
-    data_dir.mkdir(parents=True, exist_ok=True)
-    data_dir.chmod(0o777)
-
-    compose_file = _prepare_compose(app_id, compose_src, app_dir)
-
-    # Pre-create bind-mount dirs so non-root container users can write to them.
-    env_vars = dict(line.split("=", 1) for line in env_file.read_text().splitlines() if "=" in line)
-    _create_volume_dirs(yaml.safe_load(compose_file.read_text()), env_vars)
+    bundle = build_app_bundle(app_id)
+    write_bundle_to_disk(bundle)
 
     rc, stdout, stderr = await _run(
-        "docker", "compose", "-p", app_id, "-f", str(compose_file),
-        "--env-file", str(env_file),
+        "docker", "compose", "-p", app_id, "-f", str(bundle.app_dir / "docker-compose.yml"),
+        "--env-file", str(bundle.app_dir / ".env"),
         "up", "-d", "--remove-orphans",
     )
     if rc != 0:
         raise RuntimeError(f"docker compose up failed for {app_id}: {stderr}")
-
-    # Record installed version so we can detect updates later.
-    meta = get_app_meta(app_id)
-    if meta and meta.version:
-        (app_dir / ".nimbus-version").write_text(meta.version)
 
     logger.info("Installed %s: %s", app_id, stdout.strip())
 
@@ -296,17 +304,12 @@ def get_installed_version(app_id: str) -> Optional[str]:
 
 
 async def update_app(app_id: str) -> None:
-    compose_src = get_app_compose_path(app_id)
-    if compose_src is None:
-        raise FileNotFoundError(f"No compose file found for app: {app_id}")
-
     app_dir = _app_dir(app_id)
     env_file = app_dir / ".env"
-    compose_file = _prepare_compose(app_id, compose_src, app_dir)
-    env_vars = dict(line.split("=", 1) for line in env_file.read_text().splitlines() if "=" in line)
-    _create_volume_dirs(yaml.safe_load(compose_file.read_text()), env_vars)
+    bundle = build_app_bundle(app_id, env_text=env_file.read_text())
+    write_bundle_to_disk(bundle)
 
-    base_cmd = ["docker", "compose", "-p", app_id, "-f", str(compose_file), "--env-file", str(env_file)]
+    base_cmd = ["docker", "compose", "-p", app_id, "-f", str(app_dir / "docker-compose.yml"), "--env-file", str(env_file)]
     rc, _, stderr = await _run(*base_cmd, "pull")
     if rc != 0:
         logger.warning("docker compose pull warning for %s: %s", app_id, stderr)
@@ -314,10 +317,6 @@ async def update_app(app_id: str) -> None:
     rc, _, stderr = await _run(*base_cmd, "up", "-d", "--remove-orphans")
     if rc != 0:
         raise RuntimeError(f"docker compose up failed during update of {app_id}: {stderr}")
-
-    meta = get_app_meta(app_id)
-    if meta and meta.version:
-        (app_dir / ".nimbus-version").write_text(meta.version)
 
     logger.info("Updated %s", app_id)
 
@@ -369,3 +368,57 @@ async def get_web_port(app_id: str) -> Optional[int]:
         if udp_ports:
             return min(int(p) for p in udp_ports)
     return None
+
+
+def build_app_bundle(
+    app_id: str,
+    *,
+    installed_dir: Path = INSTALLED_DIR,
+    env_text: str | None = None,
+) -> PreparedAppBundle:
+    compose_src = get_app_compose_path(app_id)
+    if compose_src is None:
+        raise FileNotFoundError(f"No docker-compose.yml found for app: {app_id}")
+
+    app_dir = installed_dir / app_id
+    data_dir = app_dir / "data"
+    if env_text is None:
+        seed = secrets.token_hex(32)
+        app_password = _derive_password(seed)
+        env_text = (
+            f"APP_DATA_DIR={data_dir}\n"
+            f"APP_SEED={seed}\n"
+            f"APP_PASSWORD={app_password}\n"
+            f"UMBREL_ROOT=/var/lib/nimbus\n"
+            f"DEVICE_DOMAIN_NAME=nimbus.local\n"
+            f"DEVICE_HOSTNAME=nimbus.local\n"
+        )
+
+    env_vars = _parse_env_text(env_text)
+    compose_data = _prepare_compose_data(app_id, compose_src)
+    volume_paths = _collect_volume_paths(compose_data, env_vars)
+    meta = get_app_meta(app_id)
+
+    return PreparedAppBundle(
+        app_id=app_id,
+        app_dir=app_dir,
+        data_dir=data_dir,
+        published_port=meta.port_hint if meta else None,
+        compose_text=yaml.dump(compose_data, default_flow_style=False),
+        compose_data=compose_data,
+        env_text=env_text,
+        env_vars=env_vars,
+        version=meta.version if meta and meta.version else None,
+        volume_paths=volume_paths,
+    )
+
+
+def write_bundle_to_disk(bundle: PreparedAppBundle) -> None:
+    bundle.app_dir.mkdir(parents=True, exist_ok=True)
+    bundle.data_dir.mkdir(parents=True, exist_ok=True)
+    bundle.data_dir.chmod(0o777)
+    (bundle.app_dir / ".env").write_text(bundle.env_text)
+    (bundle.app_dir / "docker-compose.yml").write_text(bundle.compose_text)
+    _create_volume_dirs(bundle.volume_paths)
+    if bundle.version:
+        (bundle.app_dir / ".nimbus-version").write_text(bundle.version)

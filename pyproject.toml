@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nimbus"
+version = "0.1.0"
+description = "Nimbus host-side LXD controller"
+requires-python = ">=3.12"
+
+[tool.setuptools]
+package-dir = {"" = "backend"}
+packages = ["routers", "services"]
+py-modules = ["auth", "config", "main", "models"]

@@ -6,7 +6,8 @@ Requires=docker.service
 [Service]
 Type=simple
 WorkingDirectory=/opt/nimbus/backend
-ExecStart=/opt/nimbus-venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000
+EnvironmentFile=-/etc/default/nimbus
+ExecStart=/bin/sh -c 'exec /opt/nimbus-venv/bin/uvicorn main:app --host "${NIMBUS_BIND_HOST:-127.0.0.1}" --port "${NIMBUS_PORT:-8000}"'
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

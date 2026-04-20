@@ -2,7 +2,7 @@ import { useState } from 'react'
 import AppCard from './AppCard.jsx'
 import AppModal from './AppModal.jsx'
 
-export default function AppStore({ apps, onRefresh, onOpenDetail }) {
+export default function AppStore({ apps, onRefresh, onOpenDetail, activeInstalls = [] }) {
   const [search, setSearch] = useState('')
   const [showUpdatesOnly, setShowUpdatesOnly] = useState(false)
   const [selectedApp, setSelectedApp] = useState(null)
@@ -49,9 +49,15 @@ export default function AppStore({ apps, onRefresh, onOpenDetail }) {
           {showUpdatesOnly ? 'All installed apps are up to date.' : `No apps match "${search}"`}
         </p>
       ) : (
-        <div style={styles.grid}>
-          {filtered.map(app => (
-            <AppCard key={app.id} app={app} onRefresh={onRefresh} onOpenDetail={handleOpenDetail} />
+          <div style={styles.grid}>
+            {filtered.map(app => (
+            <AppCard
+              key={app.id}
+              app={app}
+              onRefresh={onRefresh}
+              onOpenDetail={handleOpenDetail}
+              isInstalling={activeInstalls.includes(app.id)}
+            />
           ))}
         </div>
       )}

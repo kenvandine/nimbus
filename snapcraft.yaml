@@ -1,0 +1,79 @@
+name: nimbus
+base: core24
+version: "0.1.0"
+summary: Nimbus LXD application controller
+description: |
+  Nimbus is a host-side controller for an Ubuntu Core appliance that manages a
+  nested LXD container and Docker-based application workloads. The snap runs
+  the Nimbus UI and API outside the container, talks to LXD through the lxd
+  interface using pylxd, and bootstraps an in-container Nimbus agent for bounded
+  future operations.
+grade: devel
+confinement: strict
+
+apps:
+  nimbus:
+    command: bin/nimbus-launch
+    daemon: simple
+    restart-condition: on-failure
+    plugs:
+      - network
+      - network-bind
+      - lxd
+      - snapd-control
+      - shutdown
+    environment:
+      HOME: $SNAP_COMMON
+      LXD_DIR: /var/snap/lxd/common/lxd
+      NIMBUS_CONTROL_MODE: lxd
+      NIMBUS_BIND_HOST: 0.0.0.0
+      NIMBUS_PORT: "8000"
+      NIMBUS_SERVE_FRONTEND: "true"
+      NIMBUS_REFRESH_STORE_ON_STARTUP: "true"
+      NIMBUS_STORE_DIR: $SNAP_COMMON/store
+      NIMBUS_INSTALLED_DIR: $SNAP_COMMON/installed
+      NIMBUS_LXD_AUTO_BOOTSTRAP: "true"
+      NIMBUS_LXD_CONTAINER_NAME: nimbus
+      NIMBUS_LXD_PROFILE_NAME: nimbus-hosting
+
+parts:
+  frontend:
+    plugin: nil
+    source: frontend
+    build-snaps:
+      - node/20/stable
+    override-build: |
+      npm install --silent
+      npm run build --silent -- --outDir dist
+      mkdir -p "$CRAFT_PART_INSTALL/web-static"
+      cp -r dist/. "$CRAFT_PART_INSTALL/web-static/"
+
+  nimbus:
+    plugin: python
+    source: .
+    python-packages:
+      - pylxd>=2.3.5
+      - fastapi>=0.111.0
+      - uvicorn[standard]>=0.29.0
+      - pyyaml>=6.0
+      - psutil>=5.9
+      - httpx>=0.27
+      - aiofiles>=23.0
+      - requests-unixsocket>=0.4.1
+    stage-packages:
+      - ca-certificates
+      - git
+      - gir1.2-snapd-2
+      - python3-dbus
+      - python3-gi
+    after:
+      - frontend
+    override-build: |
+      mkdir -p "$CRAFT_PART_BUILD/backend/static"
+      cp -r "$CRAFT_STAGE/web-static/." "$CRAFT_PART_BUILD/backend/static/"
+      craftctl default
+      mkdir -p "$CRAFT_PART_INSTALL/backend" "$CRAFT_PART_INSTALL/setup" "$CRAFT_PART_INSTALL/bin"
+      cp -a "$CRAFT_PART_BUILD/backend/." "$CRAFT_PART_INSTALL/backend/"
+      cp -a setup/. "$CRAFT_PART_INSTALL/setup/"
+      cp snap/local/nimbus-launch "$CRAFT_PART_INSTALL/bin/nimbus-launch"
+      chmod +x "$CRAFT_PART_INSTALL/bin/nimbus-launch"

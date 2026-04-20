@@ -46,7 +46,7 @@ lxc exec "$CONTAINER_NAME" -- bash -c "
 
   # Create a venv for Nimbus (PEP 668 blocks system-wide pip on Ubuntu 24.04+)
   python3 -m venv /opt/nimbus-venv
-  /opt/nimbus-venv/bin/pip install --quiet fastapi 'uvicorn[standard]' pyyaml psutil httpx aiofiles
+  /opt/nimbus-venv/bin/pip install --quiet fastapi 'uvicorn[standard]' pyyaml psutil httpx aiofiles requests-unixsocket
 
   echo 'Bootstrap complete.'
 "

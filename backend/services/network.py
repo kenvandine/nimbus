@@ -2,6 +2,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from config import settings
+
 logger = logging.getLogger(__name__)
 
 _cached_ip: str | None = None
@@ -17,7 +19,7 @@ async def get_host_ip() -> str:
     # only routable inside the container.
     try:
         proc = await asyncio.create_subprocess_exec(
-            "ip", "-4", "addr", "show", "eth0",
+            "ip", "-4", "addr", "show", settings.primary_interface,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -28,7 +30,7 @@ async def get_host_ip() -> str:
             _cached_ip = m.group(1)
             return _cached_ip
     except Exception as exc:
-        logger.warning("ip addr show eth0 failed: %s", exc)
+        logger.warning("ip addr show %s failed: %s", settings.primary_interface, exc)
 
     # Fallback: first non-loopback, non-docker IP from hostname -I
     try:

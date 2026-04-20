@@ -6,9 +6,10 @@ from typing import Optional
 
 import yaml
 
+from config import settings
 from models import AppMeta
 
-STORE_DIR = Path("/var/lib/nimbus/store")
+STORE_DIR = settings.store_dir
 REPO_URL = "https://github.com/getumbrel/umbrel-apps"
 _GALLERY_CDN = "https://getumbrel.github.io/umbrel-apps-gallery"
 
