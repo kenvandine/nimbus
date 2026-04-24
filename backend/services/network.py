@@ -1,12 +1,41 @@
 from __future__ import annotations
 import asyncio
 import logging
+import subprocess
 
 from config import settings
 
 logger = logging.getLogger(__name__)
 
 _cached_ip: str | None = None
+
+# NetworkManager state values
+_NM_STATE_CONNECTED_SITE = 60
+_NM_STATE_CONNECTED_GLOBAL = 70
+
+
+def is_online() -> bool:
+    """Return True if the host has site-level or better network connectivity."""
+    try:
+        import dbus
+        bus = dbus.SystemBus()
+        nm = bus.get_object("org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager")
+        state = int(dbus.Interface(nm, "org.freedesktop.DBus.Properties").Get(
+            "org.freedesktop.NetworkManager", "State"
+        ))
+        return state >= _NM_STATE_CONNECTED_SITE
+    except Exception:
+        pass
+    # Fallback: presence of a default route
+    try:
+        result = subprocess.run(
+            ["ip", "route", "show", "default"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return bool(result.stdout.strip())
+    except Exception:
+        pass
+    return False
 
 
 async def get_host_ip() -> str:

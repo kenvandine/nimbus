@@ -43,3 +43,4 @@ export const connectWifi = (ssid, password) => request('/network/wifi/connect', 
   body: JSON.stringify({ ssid, password: password || null }),
 })
 export const disconnectWifi = () => request('/network/wifi/disconnect', { method: 'POST' })
+export const completeOobe = () => request('/system/oobe-complete', { method: 'POST' })

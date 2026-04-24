@@ -436,3 +436,19 @@ device_manager = DeviceManager()
 
 def get_device_manager() -> DeviceManager:
     return device_manager
+
+
+def _oobe_marker() -> Path:
+    return settings.installed_dir.parent / "oobe-complete"
+
+
+def is_oobe_complete() -> bool:
+    if settings.control_mode != "lxd":
+        return True
+    return _oobe_marker().exists()
+
+
+def mark_oobe_complete() -> None:
+    marker = _oobe_marker()
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.touch()

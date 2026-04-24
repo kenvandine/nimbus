@@ -11,7 +11,7 @@ from pylxd.exceptions import ClientConnectionFailed, LXDAPIException
 
 from config import settings
 from models import AppDetail, AppStatus, SystemStats
-from services.device import get_device_manager
+from services.device import get_device_manager, is_oobe_complete
 from services import docker, network, store
 
 logger = logging.getLogger(__name__)
@@ -160,6 +160,8 @@ class LocalControlPlane:
             mem_pct=psutil.virtual_memory().percent,
             disk_pct=psutil.disk_usage("/").percent,
             app_count=len(docker.installed_app_ids()),
+            oobe_complete=True,
+            online=True,
         ))
 
     async def restart_system(self) -> dict:
@@ -284,10 +286,22 @@ class LxdControlPlane:
         self._installing: set[str] = set()
         self._updating: set[str] = set()
         self._bootstrap_task: asyncio.Task | None = None
+        self._waiting_for_network: bool = False
 
     async def initialize(self) -> None:
         if settings.lxd_auto_bootstrap and self._bootstrap_task is None:
-            self._bootstrap_task = asyncio.create_task(asyncio.to_thread(self.manager.ensure_bootstrapped))
+            self._bootstrap_task = asyncio.create_task(self._bootstrap_when_online())
+
+    async def _bootstrap_when_online(self) -> None:
+        from services.network import is_online
+        if not await asyncio.to_thread(is_online):
+            self._waiting_for_network = True
+            logger.info("Waiting for network connectivity before LXD bootstrap…")
+            while not await asyncio.to_thread(is_online):
+                await asyncio.sleep(10)
+            self._waiting_for_network = False
+            logger.info("Network is up, starting LXD bootstrap")
+        await asyncio.to_thread(self.manager.ensure_bootstrapped)
 
     def _raise_manager_error(self, exc: Exception) -> HTTPException:
         return HTTPException(status_code=500, detail=str(exc))
@@ -434,9 +448,12 @@ class LxdControlPlane:
         return list(self._installing)
 
     async def get_stats(self) -> SystemStats:
+        from services.network import is_online
         info = await self._call_manager(self.manager.container_info)
         snapshot = await self._call_manager(self.manager.app_runtime_snapshot) if self._container_ready(info) else None
         app_count = len(snapshot.installed) if snapshot else 0
+        online = await asyncio.to_thread(is_online)
+        bootstrap_state = "waiting-for-network" if self._waiting_for_network else info.bootstrap_state
         return _apply_device_stats(SystemStats(
             cpu_pct=psutil.cpu_percent(interval=0.1),
             mem_pct=psutil.virtual_memory().percent,
@@ -447,8 +464,10 @@ class LxdControlPlane:
             container_status=info.status,
             container_ip=info.ip_address,
             container_bootstrapped=info.bootstrapped,
-            bootstrap_state=info.bootstrap_state,
+            bootstrap_state=bootstrap_state,
             bootstrap_error=info.bootstrap_error,
+            oobe_complete=is_oobe_complete(),
+            online=online,
         ))
 
     async def restart_system(self) -> dict:

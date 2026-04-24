@@ -6,6 +6,7 @@ from fastapi.responses import Response
 from auth import require_api_token
 from models import SystemStats
 from services.control_plane import get_control_plane
+from services.device import mark_oobe_complete
 
 router = APIRouter(prefix="/api/system", tags=["system"], dependencies=[Depends(require_api_token)])
 
@@ -28,6 +29,12 @@ async def power_off_system() -> dict:
 @router.post("/update")
 async def update_system() -> dict:
     return await get_control_plane().update_system()
+
+
+@router.post("/oobe-complete")
+async def oobe_complete() -> dict:
+    mark_oobe_complete()
+    return {"status": "ok"}
 
 
 @router.get("/ca-cert")

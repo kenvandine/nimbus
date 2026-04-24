@@ -6,6 +6,7 @@ import AppStore from './components/AppStore.jsx'
 import DeviceInfo from './components/DeviceInfo.jsx'
 import Settings from './components/Settings.jsx'
 import AppModal from './components/AppModal.jsx'
+import Oobe from './components/Oobe.jsx'
 
 const POLL_INTERVAL = 5000
 
@@ -27,6 +28,7 @@ function describeSetupState(stats) {
   const phaseMessage = firstSetup
     ? {
         idle: 'Preparing the managed environment.',
+        'waiting-for-network': 'Waiting for network connectivity before setting up the managed environment.',
         'ensuring-profile': 'Configuring the LXD profile for nested container support.',
         'ensuring-container': 'Creating and starting the managed LXD container.',
         'installing-runtime': 'Installing Docker and required system packages in the managed container.',
@@ -63,6 +65,7 @@ export default function App() {
   const [powerMenuOpen, setPowerMenuOpen] = useState(false)
   const [powerBusy, setPowerBusy] = useState(null)
   const [systemNotice, setSystemNotice] = useState(null)
+  const [oobeComplete, setOobeComplete] = useState(true)
   const intervalRef = useRef(null)
 
   async function fetchAll() {
@@ -74,6 +77,7 @@ export default function App() {
       setStats(statsData)
       setActiveInstalls(active)
       setError(null)
+      if (statsData.oobe_complete === false) setOobeComplete(false)
     } catch (e) {
       setError(e.message)
     } finally {
@@ -295,6 +299,13 @@ export default function App() {
             Uninstall
           </button>
         </div>
+      )}
+
+      {!oobeComplete && (
+        <Oobe
+          online={stats?.online ?? false}
+          onComplete={() => setOobeComplete(true)}
+        />
       )}
 
       <style>{`
