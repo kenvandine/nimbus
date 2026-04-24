@@ -9,7 +9,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pylxd import Client
-from pylxd.exceptions import ClientConnectionFailed, LXDAPIException
+from pylxd.exceptions import ClientConnectionFailed, LXDAPIException, NotFound
+from pylxd.models.network import Network
+from pylxd.models.profile import Profile
+from pylxd.models.storage_pool import StoragePool
 
 from config import settings
 from services import docker
@@ -22,6 +25,9 @@ BOOTSTRAP_VERSION = "1"
 BACKEND_SOURCE_DIR = Path(__file__).resolve().parents[1]
 SETUP_DIR = Path(__file__).resolve().parents[2] / "setup"
 AGENT_SERVICE_SOURCE = SETUP_DIR / "nimbus.service"
+DEFAULT_LXD_STORAGE_POOL = "default"
+DEFAULT_LXD_PROFILE = "default"
+DEFAULT_LXD_BRIDGE_PREFIX = "lxdbr"
 
 
 @dataclass(frozen=True)
@@ -64,6 +70,7 @@ class LxdManager:
 
     def _bootstrap_in_progress(self) -> bool:
         return self._bootstrap_state in {
+            "ensuring-daemon",
             "ensuring-profile",
             "ensuring-container",
             "installing-runtime",
@@ -82,6 +89,96 @@ class LxdManager:
             client = Client()
             self._local.client = client
         return client
+
+    def _get_profile(self, name: str) -> Profile | None:
+        try:
+            return Profile.get(self.client(), name)
+        except NotFound:
+            return None
+
+    def _profile_devices(self, profile: Profile | None) -> dict[str, dict[str, str]]:
+        devices = getattr(profile, "devices", {}) if profile is not None else {}
+        return {name: dict(config) for name, config in (devices or {}).items()}
+
+    def _profile_has_nic(self, devices: dict[str, dict[str, str]]) -> bool:
+        return any(device.get("type") == "nic" for device in devices.values())
+
+    def _managed_networks(self) -> list[Network]:
+        networks: list[Network] = []
+        for network in self.client().networks.all():
+            network.sync()
+            if network.managed:
+                networks.append(network)
+        return networks
+
+    def _next_bridge_name(self, existing_names: set[str]) -> str:
+        idx = 0
+        while True:
+            name = f"{DEFAULT_LXD_BRIDGE_PREFIX}{idx}"
+            if name in existing_names or Path("/sys/class/net", name).exists():
+                idx += 1
+                continue
+            return name
+
+    def ensure_initialized(self) -> None:
+        client = self.client()
+        storage_pools = client.storage_pools.all()
+        if storage_pools:
+            return
+
+        logger.info("Initializing LXD with Nimbus defaults")
+
+        default_profile = self._get_profile(DEFAULT_LXD_PROFILE)
+        profile_devices = self._profile_devices(default_profile)
+        profile_devices["root"] = {
+            "type": "disk",
+            "path": "/",
+            "pool": DEFAULT_LXD_STORAGE_POOL,
+        }
+
+        StoragePool.create(
+            client,
+            {
+                "name": DEFAULT_LXD_STORAGE_POOL,
+                "driver": "dir",
+                "config": {},
+            },
+            wait=True,
+        )
+
+        managed_networks = self._managed_networks()
+        if not managed_networks and not self._profile_has_nic(profile_devices):
+            bridge_name = self._next_bridge_name({network.name for network in client.networks.all()})
+            Network.create(
+                client,
+                bridge_name,
+                description="Nimbus managed bridge",
+                type="bridge",
+                config={
+                    "ipv4.address": "auto",
+                    "ipv4.nat": "true",
+                    "ipv6.address": "none",
+                },
+                wait=True,
+            )
+            profile_devices["eth0"] = {
+                "type": "nic",
+                "network": bridge_name,
+                "name": "eth0",
+            }
+
+        if default_profile is None:
+            Profile.create(
+                client,
+                DEFAULT_LXD_PROFILE,
+                devices=profile_devices,
+                description="Default LXD profile",
+                wait=True,
+            )
+            return
+
+        default_profile.devices = profile_devices
+        default_profile.save(wait=True)
 
     def ensure_profile(self) -> None:
         client = self.client()
@@ -392,6 +489,8 @@ class LxdManager:
     def ensure_bootstrapped(self) -> None:
         with self._lock:
             try:
+                self._set_bootstrap_state("ensuring-daemon")
+                self.ensure_initialized()
                 self._set_bootstrap_state("ensuring-profile")
                 self.ensure_profile()
                 self._set_bootstrap_state("ensuring-container")
