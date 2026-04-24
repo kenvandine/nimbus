@@ -14,7 +14,7 @@ function normalizeErrorMessage(status, text, fallback) {
 async function request(path, options = {}) {
   let res
   try {
-    res = await fetch(`${BASE}${path}`, options)
+    res = await fetch(`${BASE}${path}`, { credentials: 'same-origin', ...options })
   } catch {
     throw new Error('Backend temporarily unavailable')
   }
@@ -24,6 +24,12 @@ async function request(path, options = {}) {
   }
   return res.json()
 }
+
+const json = (method, path, body) => request(path, {
+  method,
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+})
 
 export const listApps = () => request('/apps')
 export const getApp = (id) => request(`/apps/${id}`)
@@ -37,10 +43,11 @@ export const powerOffSystem = () => request('/system/poweroff', { method: 'POST'
 export const updateSystem = () => request('/system/update', { method: 'POST' })
 export const getWifiStatus = () => request('/network/wifi/status')
 export const scanWifiNetworks = () => request('/network/wifi/networks')
-export const connectWifi = (ssid, password) => request('/network/wifi/connect', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ ssid, password: password || null }),
-})
+export const connectWifi = (ssid, password) => json('POST', '/network/wifi/connect', { ssid, password: password || null })
 export const disconnectWifi = () => request('/network/wifi/disconnect', { method: 'POST' })
 export const completeOobe = () => request('/system/oobe-complete', { method: 'POST' })
+
+export const getAuthStatus = () => request('/auth/status')
+export const setupAccount = (username, password) => json('POST', '/auth/setup', { username, password })
+export const login = (username, password) => json('POST', '/auth/login', { username, password })
+export const logout = () => request('/auth/logout', { method: 'POST' })

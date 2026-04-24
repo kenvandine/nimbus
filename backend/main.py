@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from config import settings
 from routers.apps import router as apps_router
+from routers.auth import router as auth_router
 from routers.network import router as network_router
 from routers.system import router as system_router
 from services.control_plane import get_control_plane
@@ -82,6 +83,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router)  # no auth dependency — handles login/logout/setup
 app.include_router(apps_router)
 app.include_router(network_router)
 app.include_router(system_router)

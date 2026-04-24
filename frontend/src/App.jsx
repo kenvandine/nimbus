@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { getActiveInstalls, listApps, getStats, powerOffSystem, restartSystem, uninstallApp } from './api.js'
+import { getActiveInstalls, listApps, getStats, powerOffSystem, restartSystem, uninstallApp, getAuthStatus, logout } from './api.js'
 import Dock from './components/Dock.jsx'
 import Window from './components/Window.jsx'
 import AppStore from './components/AppStore.jsx'
@@ -7,6 +7,7 @@ import DeviceInfo from './components/DeviceInfo.jsx'
 import Settings from './components/Settings.jsx'
 import AppModal from './components/AppModal.jsx'
 import Oobe from './components/Oobe.jsx'
+import Login from './components/Login.jsx'
 
 const POLL_INTERVAL = 5000
 
@@ -66,7 +67,21 @@ export default function App() {
   const [powerBusy, setPowerBusy] = useState(null)
   const [systemNotice, setSystemNotice] = useState(null)
   const [oobeComplete, setOobeComplete] = useState(true)
+  // null = unknown (checking), { configured, authenticated, username } = known
+  const [authStatus, setAuthStatus] = useState(null)
   const intervalRef = useRef(null)
+
+  async function checkAuth() {
+    try {
+      const status = await getAuthStatus()
+      setAuthStatus(status)
+      return status
+    } catch {
+      // If auth endpoint fails, assume open access
+      setAuthStatus({ configured: false, authenticated: true, username: null })
+      return null
+    }
+  }
 
   async function fetchAll() {
     try {
@@ -79,14 +94,28 @@ export default function App() {
       setError(null)
       if (statsData.oobe_complete === false) setOobeComplete(false)
     } catch (e) {
+      // A 401 means the session expired — re-check auth status.
+      if (e.message.startsWith('401:')) {
+        setAuthStatus(prev => prev ? { ...prev, authenticated: false } : null)
+        checkAuth()
+        return
+      }
       setError(e.message)
     } finally {
       setLoading(false)
     }
   }
 
+  async function handleLogout() {
+    try { await logout() } catch {}
+    setAuthStatus(prev => ({ ...prev, authenticated: false }))
+  }
+
   useEffect(() => {
-    fetchAll()
+    checkAuth().then(status => {
+      if (!status || status.authenticated) fetchAll()
+      else setLoading(false)
+    })
     intervalRef.current = setInterval(fetchAll, POLL_INTERVAL)
     return () => clearInterval(intervalRef.current)
   }, [])
@@ -176,6 +205,11 @@ export default function App() {
           <div style={{ ...styles.systemNotice, ...(systemNotice.tone === 'error' ? styles.systemNoticeError : {}) }}>
             {systemNotice.message}
           </div>
+        )}
+        {authStatus?.authenticated && authStatus?.configured && (
+          <button style={styles.logoutBtn} onClick={handleLogout} title={`Signed in as ${authStatus.username || 'admin'}`}>
+            {authStatus.username || 'admin'} · Sign out
+          </button>
         )}
         <div style={styles.powerWrap}>
           <button
@@ -304,8 +338,15 @@ export default function App() {
       {!oobeComplete && (
         <Oobe
           online={stats?.online ?? false}
-          onComplete={() => setOobeComplete(true)}
+          onComplete={() => {
+            setOobeComplete(true)
+            checkAuth().then(() => fetchAll())
+          }}
         />
+      )}
+
+      {oobeComplete && authStatus?.configured && !authStatus?.authenticated && (
+        <Login onLogin={() => checkAuth().then(() => fetchAll())} />
       )}
 
       <style>{`
@@ -380,6 +421,20 @@ const styles = {
   systemNoticeError: {
     border: '1px solid rgba(255,120,120,0.28)',
     color: 'rgba(255,210,210,0.92)',
+  },
+  logoutBtn: {
+    background: 'rgba(8,16,28,0.54)',
+    border: '1px solid rgba(255,255,255,0.14)',
+    color: 'rgba(255,255,255,0.55)',
+    borderRadius: '12px',
+    padding: '0 14px',
+    height: '46px',
+    fontSize: '12px',
+    fontWeight: 500,
+    cursor: 'pointer',
+    boxShadow: '0 12px 28px rgba(0,0,0,0.2)',
+    backdropFilter: 'blur(16px)',
+    whiteSpace: 'nowrap',
   },
   powerWrap: {
     position: 'relative',
