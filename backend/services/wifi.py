@@ -12,6 +12,7 @@ NM_IFACE = "org.freedesktop.NetworkManager"
 NM_DEVICE_IFACE = "org.freedesktop.NetworkManager.Device"
 NM_WIRELESS_IFACE = "org.freedesktop.NetworkManager.Device.Wireless"
 NM_AP_IFACE = "org.freedesktop.NetworkManager.AccessPoint"
+NM_IP4_CONFIG_IFACE = "org.freedesktop.NetworkManager.IP4Config"
 NM_SETTINGS_PATH = "/org/freedesktop/NetworkManager/Settings"
 NM_SETTINGS_IFACE = "org.freedesktop.NetworkManager.Settings"
 NM_CONN_IFACE = "org.freedesktop.NetworkManager.Settings.Connection"
@@ -36,6 +37,7 @@ class WifiStatus:
     enabled: bool
     connected: bool
     ssid: Optional[str] = None
+    ip_address: Optional[str] = None
     error: Optional[str] = None
 
 
@@ -97,6 +99,28 @@ def _saved_conn_for_ssid(bus, ssid: str):
     return None
 
 
+def _ipv4_address_for_device(bus, dev) -> Optional[str]:
+    try:
+        import dbus
+
+        props = dbus.Interface(dev, DBUS_PROPS_IFACE)
+        config_path = str(props.Get(NM_DEVICE_IFACE, "Ip4Config"))
+        if config_path == "/":
+            return None
+
+        config = bus.get_object(NM_SERVICE, config_path)
+        address_data = dbus.Interface(config, DBUS_PROPS_IFACE).Get(
+            NM_IP4_CONFIG_IFACE, "AddressData"
+        )
+        for entry in address_data:
+            address = str(entry.get("address", "")).strip()
+            if address:
+                return address
+    except Exception as exc:
+        logger.debug("Could not read WiFi IPv4 address: %s", exc)
+    return None
+
+
 def get_wifi_status() -> WifiStatus:
     try:
         import dbus
@@ -113,12 +137,19 @@ def get_wifi_status() -> WifiStatus:
         active_ap = dbus.Interface(dev, DBUS_PROPS_IFACE).Get(NM_WIRELESS_IFACE, "ActiveAccessPoint")
 
         ssid = None
+        ip_address = _ipv4_address_for_device(bus, dev)
         if str(active_ap) != "/":
             ap = bus.get_object(NM_SERVICE, active_ap)
             ssid_bytes = dbus.Interface(ap, DBUS_PROPS_IFACE).Get(NM_AP_IFACE, "Ssid")
             ssid = bytes(ssid_bytes).decode("utf-8", errors="replace")
 
-        return WifiStatus(available=True, enabled=enabled, connected=ssid is not None, ssid=ssid)
+        return WifiStatus(
+            available=True,
+            enabled=enabled,
+            connected=ssid is not None,
+            ssid=ssid,
+            ip_address=ip_address,
+        )
     except Exception as exc:
         logger.warning("WiFi status error: %s", exc)
         return WifiStatus(available=False, enabled=False, connected=False, error=str(exc))

@@ -2,6 +2,9 @@ import { useState, useEffect } from 'react'
 
 import { restartSystem, updateSystem, getWifiStatus, scanWifiNetworks, connectWifi, disconnectWifi } from '../api.js'
 
+const STATUS_REFRESH_DELAY_MS = 3000
+const STATUS_IP_RETRY_DELAY_MS = 1500
+
 const SECTIONS = [
   {
     title: 'Network',
@@ -82,6 +85,20 @@ function WifiPanel() {
     getWifiStatus().then(setStatus).catch(() => {})
   }, [])
 
+  async function refreshWifiStatus() {
+    let nextStatus = null
+    try {
+      nextStatus = await getWifiStatus()
+      setStatus(nextStatus)
+      if (nextStatus?.connected && !nextStatus.ip_address) {
+        await new Promise(resolve => setTimeout(resolve, STATUS_IP_RETRY_DELAY_MS))
+        nextStatus = await getWifiStatus()
+        setStatus(nextStatus)
+      }
+    } catch {}
+    return nextStatus
+  }
+
   async function handleScan() {
     setScanning(true)
     setError(null)
@@ -103,9 +120,9 @@ function WifiPanel() {
       setExpandedSsid(null)
       setPassword('')
       setTimeout(async () => {
-        try { setStatus(await getWifiStatus()) } catch {}
+        await refreshWifiStatus()
         try { setNetworks(await scanWifiNetworks()) } catch {}
-      }, 3000)
+      }, STATUS_REFRESH_DELAY_MS)
     } catch (e) {
       setError(e.message)
     } finally {
@@ -117,8 +134,8 @@ function WifiPanel() {
     setError(null)
     try {
       await disconnectWifi()
-      const s = await getWifiStatus()
-      setStatus(s)
+      const s = await refreshWifiStatus()
+      if (s) setStatus(s)
       if (networks) setNetworks(await scanWifiNetworks())
     } catch (e) {
       setError(e.message)
@@ -168,6 +185,9 @@ function WifiPanel() {
             </div>
             {unavailable && status.error && (
               <div style={styles.itemSub}>{status.error}</div>
+            )}
+            {status?.connected && status?.ip_address && (
+              <div style={styles.itemSub}>IP address: {status.ip_address}</div>
             )}
           </div>
           {status?.connected && (

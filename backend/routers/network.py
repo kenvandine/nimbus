@@ -29,6 +29,7 @@ async def wifi_status() -> dict:
         "enabled": status.enabled,
         "connected": status.connected,
         "ssid": status.ssid,
+        "ip_address": status.ip_address,
         "error": status.error,
     }
 

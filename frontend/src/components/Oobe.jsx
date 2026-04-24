@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react'
 import { getWifiStatus, scanWifiNetworks, connectWifi, completeOobe, setupAccount } from '../api.js'
 
+const STATUS_REFRESH_DELAY_MS = 3000
+const STATUS_IP_RETRY_DELAY_MS = 1500
+
 function SignalBars({ strength }) {
   const bars = 4
   const filled = Math.ceil((strength / 100) * bars)
@@ -32,6 +35,18 @@ function NetworkStep({ online, onNext }) {
     getWifiStatus().then(setWifiStatus).catch(() => {})
   }, [online])
 
+  async function refreshWifiStatus() {
+    try {
+      let nextStatus = await getWifiStatus()
+      setWifiStatus(nextStatus)
+      if (nextStatus?.connected && !nextStatus.ip_address) {
+        await new Promise(resolve => setTimeout(resolve, STATUS_IP_RETRY_DELAY_MS))
+        nextStatus = await getWifiStatus()
+        setWifiStatus(nextStatus)
+      }
+    } catch {}
+  }
+
   async function handleScan() {
     setScanning(true)
     setError(null)
@@ -48,9 +63,9 @@ function NetworkStep({ online, onNext }) {
       setExpandedSsid(null)
       setPassword('')
       setTimeout(async () => {
-        try { setWifiStatus(await getWifiStatus()) } catch {}
+        await refreshWifiStatus()
         try { setNetworks(await scanWifiNetworks()) } catch {}
-      }, 3000)
+      }, STATUS_REFRESH_DELAY_MS)
     } catch (e) { setError(e.message) }
     finally { setConnecting(null) }
   }
@@ -79,6 +94,9 @@ function NetworkStep({ online, onNext }) {
           ? `✓ Connected${wifiStatus?.ssid ? ` — ${wifiStatus.ssid}` : ' via Ethernet'}`
           : '✗ Not connected'}
       </div>
+      {online && wifiStatus?.ip_address && (
+        <div style={s.connectionMeta}>IP address: {wifiStatus.ip_address}</div>
+      )}
 
       {wifiAvailable && (
         <div style={s.wifiPanel}>
@@ -306,6 +324,7 @@ const s = {
   },
   badgeOnline: { background: 'rgba(129,199,132,0.18)', color: 'rgba(185,246,202,0.95)', border: '1px solid rgba(129,199,132,0.3)' },
   badgeOffline: { background: 'rgba(255,138,128,0.12)', color: 'rgba(255,204,188,0.9)', border: '1px solid rgba(255,138,128,0.25)' },
+  connectionMeta: { margin: '-8px 0 18px', fontSize: '12px', color: 'rgba(255,255,255,0.58)' },
   wifiPanel: {
     background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)',
     borderRadius: '14px', overflow: 'hidden', marginBottom: '20px',
