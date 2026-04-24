@@ -20,10 +20,10 @@ apps:
       - network
       - network-bind
       - network-manager
-      - lxd
-      - snapd-control
       - network-control
-      - shutdown
+      - lxd
+      #- snapd-control
+      #- shutdown
     environment:
       HOME: $SNAP_COMMON
       LXD_DIR: /var/snap/lxd/common/lxd
