@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from config import settings
 from routers.apps import router as apps_router
+from routers.network import router as network_router
 from routers.system import router as system_router
 from services.control_plane import get_control_plane
 from services.store import refresh_store
@@ -82,6 +83,7 @@ app.add_middleware(
 )
 
 app.include_router(apps_router)
+app.include_router(network_router)
 app.include_router(system_router)
 
 if settings.serve_frontend and STATIC_DIR.exists():

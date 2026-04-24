@@ -1,12 +1,12 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
-import { restartSystem, updateSystem } from '../api.js'
+import { restartSystem, updateSystem, getWifiStatus, scanWifiNetworks, connectWifi, disconnectWifi } from '../api.js'
 
 const SECTIONS = [
   {
     title: 'Network',
     icon: '📡',
-    items: ['Wi-Fi', 'Ethernet', 'Firewall rules', 'DNS settings'],
+    items: ['Ethernet', 'Firewall rules', 'DNS settings'],
   },
   {
     title: 'Security',
@@ -46,6 +46,227 @@ function formatTargets(targets) {
   if (labels.length === 1) return labels[0]
   if (labels.length === 2) return `${labels[0]} and ${labels[1]}`
   return `${labels.slice(0, -1).join(', ')}, and ${labels[labels.length - 1]}`
+}
+
+function SignalBars({ strength }) {
+  const bars = 4
+  const filled = Math.ceil((strength / 100) * bars)
+  return (
+    <span style={{ display: 'inline-flex', gap: '2px', alignItems: 'flex-end', height: '14px' }}>
+      {Array.from({ length: bars }, (_, i) => (
+        <span
+          key={i}
+          style={{
+            width: '3px',
+            height: `${5 + i * 3}px`,
+            borderRadius: '1px',
+            background: i < filled ? 'rgba(129,212,250,0.85)' : 'rgba(255,255,255,0.15)',
+          }}
+        />
+      ))}
+    </span>
+  )
+}
+
+function WifiPanel() {
+  const [status, setStatus] = useState(null)
+  const [networks, setNetworks] = useState(null)
+  const [scanning, setScanning] = useState(false)
+  const [connecting, setConnecting] = useState(null)
+  const [expandedSsid, setExpandedSsid] = useState(null)
+  const [password, setPassword] = useState('')
+  const [showPw, setShowPw] = useState(false)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    getWifiStatus().then(setStatus).catch(() => {})
+  }, [])
+
+  async function handleScan() {
+    setScanning(true)
+    setError(null)
+    try {
+      const nets = await scanWifiNetworks()
+      setNetworks(nets)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setScanning(false)
+    }
+  }
+
+  async function handleConnect(ssid, pwd) {
+    setConnecting(ssid)
+    setError(null)
+    try {
+      await connectWifi(ssid, pwd || null)
+      setExpandedSsid(null)
+      setPassword('')
+      setTimeout(async () => {
+        try { setStatus(await getWifiStatus()) } catch {}
+        try { setNetworks(await scanWifiNetworks()) } catch {}
+      }, 3000)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setConnecting(null)
+    }
+  }
+
+  async function handleDisconnect() {
+    setError(null)
+    try {
+      await disconnectWifi()
+      const s = await getWifiStatus()
+      setStatus(s)
+      if (networks) setNetworks(await scanWifiNetworks())
+    } catch (e) {
+      setError(e.message)
+    }
+  }
+
+  function toggleExpand(ssid) {
+    setExpandedSsid(prev => prev === ssid ? null : ssid)
+    setPassword('')
+    setShowPw(false)
+    setError(null)
+  }
+
+  const unavailable = status && !status.available
+
+  return (
+    <div style={styles.section}>
+      <div style={styles.sectionHeader}>
+        <span style={styles.sectionIcon}>📶</span>
+        <span style={styles.sectionTitle}>Wi-Fi</span>
+        <div style={{ marginLeft: 'auto' }}>
+          <button
+            style={{
+              ...styles.btnPrimary,
+              ...(scanning ? styles.btnDisabled : {}),
+            }}
+            onClick={handleScan}
+            disabled={scanning || unavailable}
+          >
+            {scanning ? 'Scanning…' : 'Scan'}
+          </button>
+        </div>
+      </div>
+
+      <div style={styles.itemList}>
+        {/* Status row */}
+        <div style={styles.item}>
+          <div>
+            <div style={styles.itemLabel}>
+              {unavailable
+                ? 'Not available'
+                : status === null
+                  ? 'Loading…'
+                  : status.connected
+                    ? `Connected to "${status.ssid}"`
+                    : 'Not connected'}
+            </div>
+            {unavailable && status.error && (
+              <div style={styles.itemSub}>{status.error}</div>
+            )}
+          </div>
+          {status?.connected && (
+            <button style={styles.btnDanger} onClick={handleDisconnect}>
+              Disconnect
+            </button>
+          )}
+        </div>
+
+        {error && (
+          <div style={{ padding: '8px 16px', color: 'rgba(255,138,128,0.9)', fontSize: '12px' }}>
+            {error}
+          </div>
+        )}
+
+        {/* Network list */}
+        {networks !== null && networks.map(net => (
+          <div key={net.ssid}>
+            <div style={styles.item}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <SignalBars strength={net.strength} />
+                <span style={{ ...styles.itemLabel, color: net.in_use ? 'rgba(129,212,250,0.9)' : undefined }}>
+                  {net.ssid}
+                  {net.secured && <span style={{ marginLeft: '5px', opacity: 0.5 }}>🔒</span>}
+                  {net.in_use && <span style={{ marginLeft: '6px', fontSize: '10px', color: 'rgba(129,199,132,0.9)' }}>✓ connected</span>}
+                </span>
+              </div>
+              {!net.in_use && (
+                <button
+                  style={{
+                    ...styles.btnPrimary,
+                    ...(connecting === net.ssid ? styles.btnDisabled : {}),
+                  }}
+                  onClick={() => {
+                    if (!net.secured || net.known) {
+                      handleConnect(net.ssid, null)
+                    } else {
+                      toggleExpand(net.ssid)
+                    }
+                  }}
+                  disabled={connecting === net.ssid}
+                >
+                  {connecting === net.ssid ? 'Connecting…' : 'Connect'}
+                </button>
+              )}
+            </div>
+
+            {expandedSsid === net.ssid && (
+              <div style={styles.passwordRow}>
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <input
+                    type={showPw ? 'text' : 'password'}
+                    placeholder="Password"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleConnect(net.ssid, password)}
+                    style={styles.input}
+                    autoFocus
+                  />
+                  <button
+                    style={styles.showPwBtn}
+                    onClick={() => setShowPw(p => !p)}
+                    tabIndex={-1}
+                  >
+                    {showPw ? '🙈' : '👁'}
+                  </button>
+                </div>
+                <button
+                  style={{
+                    ...styles.btnPrimary,
+                    ...(connecting === net.ssid || !password ? styles.btnDisabled : {}),
+                  }}
+                  onClick={() => handleConnect(net.ssid, password)}
+                  disabled={connecting === net.ssid || !password}
+                >
+                  {connecting === net.ssid ? 'Connecting…' : 'Connect'}
+                </button>
+                <button style={styles.btnCancel} onClick={() => setExpandedSsid(null)}>
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+
+        {networks !== null && networks.length === 0 && (
+          <div style={{ ...styles.item }}>
+            <span style={styles.itemLabel}>No networks found</span>
+          </div>
+        )}
+
+        {networks === null && (
+          <div style={{ ...styles.item }}>
+            <span style={styles.itemLabel}>Press Scan to discover available networks</span>
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 export default function Settings({ stats, onRefresh }) {
@@ -195,9 +416,11 @@ export default function Settings({ stats, onRefresh }) {
         <span style={styles.noticeIcon}>🚧</span>
         <div>
           <strong style={{ color: 'white' }}>More settings coming soon</strong>
-          <p style={styles.noticeSub}>Networking, security, storage, and system tuning are still planned for a future release.</p>
+          <p style={styles.noticeSub}>Security, storage, and system tuning are still planned for a future release.</p>
         </div>
       </div>
+
+      <WifiPanel />
 
       {SECTIONS.map(section => (
         <div key={section.title} style={styles.section}>
@@ -330,5 +553,58 @@ const styles = {
     borderRadius: '10px',
     textTransform: 'uppercase',
     letterSpacing: '0.05em',
+  },
+  btnDanger: {
+    background: 'rgba(255,138,128,0.12)',
+    color: 'rgba(255,138,128,0.9)',
+    border: '1px solid rgba(255,138,128,0.25)',
+    borderRadius: '8px',
+    padding: '7px 14px',
+    fontSize: '12px',
+    fontWeight: 600,
+    whiteSpace: 'nowrap',
+    cursor: 'pointer',
+  },
+  btnCancel: {
+    background: 'rgba(255,255,255,0.06)',
+    color: 'rgba(255,255,255,0.45)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '8px',
+    padding: '7px 14px',
+    fontSize: '12px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  passwordRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '8px 16px 12px',
+    borderBottom: '1px solid rgba(255,255,255,0.05)',
+    background: 'rgba(255,255,255,0.02)',
+  },
+  input: {
+    width: '100%',
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.15)',
+    borderRadius: '8px',
+    padding: '7px 36px 7px 12px',
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: '13px',
+    outline: 'none',
+    boxSizing: 'border-box',
+  },
+  showPwBtn: {
+    position: 'absolute',
+    right: '8px',
+    top: '50%',
+    transform: 'translateY(-50%)',
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: '14px',
+    lineHeight: 1,
+    padding: '2px',
   },
 }

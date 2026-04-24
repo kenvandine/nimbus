@@ -19,6 +19,7 @@ apps:
     plugs:
       - network
       - network-bind
+      - network-manager
       - lxd
       - snapd-control
       - shutdown

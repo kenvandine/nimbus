@@ -35,3 +35,11 @@ export const updateApp = (id) => request(`/apps/${id}/update`, { method: 'POST' 
 export const restartSystem = () => request('/system/restart', { method: 'POST' })
 export const powerOffSystem = () => request('/system/poweroff', { method: 'POST' })
 export const updateSystem = () => request('/system/update', { method: 'POST' })
+export const getWifiStatus = () => request('/network/wifi/status')
+export const scanWifiNetworks = () => request('/network/wifi/networks')
+export const connectWifi = (ssid, password) => request('/network/wifi/connect', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ ssid, password: password || null }),
+})
+export const disconnectWifi = () => request('/network/wifi/disconnect', { method: 'POST' })
