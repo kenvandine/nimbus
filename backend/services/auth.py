@@ -15,7 +15,10 @@ _TOKEN_EXPIRE_DAYS = 7
 
 try:
     from passlib.context import CryptContext
-    _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    _pwd_context = CryptContext(
+        schemes=["pbkdf2_sha256", "bcrypt"],
+        deprecated=["bcrypt"],
+    )
 except ImportError as _exc:
     _pwd_context = None
     logger.warning("passlib not available — password hashing disabled: %s", _exc)
@@ -53,10 +56,21 @@ def account_exists() -> bool:
 
 def get_username() -> Optional[str]:
     try:
-        data = json.loads(_account_file().read_text(encoding="utf-8"))
+        data = _read_account_data()
         return str(data.get("username") or "")
     except Exception:
         return None
+
+
+def _read_account_data() -> dict:
+    return json.loads(_account_file().read_text(encoding="utf-8"))
+
+
+def _write_account_data(data: dict) -> None:
+    f = _account_file()
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps(data), encoding="utf-8")
+    f.chmod(0o600)
 
 
 def create_account(username: str, password: str) -> None:
@@ -72,20 +86,21 @@ def create_account(username: str, password: str) -> None:
         "username": username.strip(),
         "password_hash": _pwd_context.hash(password),
     }
-    f = _account_file()
-    f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text(json.dumps(data), encoding="utf-8")
-    f.chmod(0o600)
+    _write_account_data(data)
 
 
 def verify_credentials(username: str, password: str) -> bool:
     if _pwd_context is None or not account_exists():
         return False
     try:
-        data = json.loads(_account_file().read_text(encoding="utf-8"))
+        data = _read_account_data()
         if data.get("username") != username:
             return False
-        return bool(_pwd_context.verify(password, data["password_hash"]))
+        verified = bool(_pwd_context.verify(password, data["password_hash"]))
+        if verified and _pwd_context.needs_update(data["password_hash"]):
+            data["password_hash"] = _pwd_context.hash(password)
+            _write_account_data(data)
+        return verified
     except Exception:
         return False
 
