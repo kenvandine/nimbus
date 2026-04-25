@@ -119,7 +119,7 @@ export default function AppModal({ app, onClose, onRefresh, isInstalling = false
             <button style={styles.btnDanger} onClick={handleUninstall}>Uninstall</button>
           )}
           {app.website && (
-            <a href={app.website} target="_blank" rel="noreferrer" style={styles.btnGhost}>Website ↗</a>
+            <button style={styles.btnGhost} onClick={() => openApp(app.website)}>Website ↗</button>
           )}
         </div>
 
