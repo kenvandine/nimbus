@@ -379,6 +379,17 @@ class LxdManager:
             )
         return exit_code, stdout, stderr
 
+    def _wait_for_container_dns(self, instance, timeout: int = 120) -> None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            code, _, _ = self._run(
+                instance, ["getent", "hosts", "github.com"], acceptable={0, 1, 2}
+            )
+            if code == 0:
+                return
+            time.sleep(5)
+        logger.warning("DNS did not become ready inside the container within %ds, proceeding anyway", timeout)
+
     def _file_exists(self, instance, path: str) -> bool:
         exit_code, _, _ = self._run(
             instance,
@@ -668,6 +679,7 @@ print(json.dumps(apps), end='')
         self._write_file(instance, f"{bundle.app_dir}/.env", bundle.env_text, mode=0o600)
         if bundle.version:
             self._write_file(instance, f"{bundle.app_dir}/.nimbus-version", bundle.version + "\n")
+        self._wait_for_container_dns(instance)
         self._run(
             instance,
             [
@@ -702,6 +714,7 @@ print(json.dumps(apps), end='')
         self._write_file(instance, f"{bundle.app_dir}/docker-compose.yml", bundle.compose_text)
         if bundle.version:
             self._write_file(instance, f"{bundle.app_dir}/.nimbus-version", bundle.version + "\n")
+        self._wait_for_container_dns(instance)
         pull_code, _, pull_stderr = self._run(
             instance,
             [
