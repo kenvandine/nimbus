@@ -292,19 +292,15 @@ class LxdControlPlane:
         if settings.lxd_auto_bootstrap and self._bootstrap_task is None:
             self._bootstrap_task = asyncio.create_task(self._bootstrap_when_online())
 
-    async def _wait_for_network(self, reason: str) -> None:
-        from services.network import is_online
-        if await asyncio.to_thread(is_online):
-            return
-        self._waiting_for_network = True
-        logger.info("Waiting for network connectivity before %s…", reason)
-        while not await asyncio.to_thread(is_online):
-            await asyncio.sleep(10)
-        self._waiting_for_network = False
-        logger.info("Network is up, proceeding with %s", reason)
-
     async def _bootstrap_when_online(self) -> None:
-        await self._wait_for_network("LXD bootstrap")
+        from services.network import is_online
+        if not await asyncio.to_thread(is_online):
+            self._waiting_for_network = True
+            logger.info("Waiting for network connectivity before LXD bootstrap…")
+            while not await asyncio.to_thread(is_online):
+                await asyncio.sleep(10)
+            self._waiting_for_network = False
+            logger.info("Network is up, starting LXD bootstrap")
         await asyncio.to_thread(self.manager.ensure_bootstrapped)
 
     def _raise_manager_error(self, exc: Exception) -> HTTPException:
@@ -399,13 +395,35 @@ class LxdControlPlane:
                 raise
         return self._build_detail(meta, status, default_password)
 
+    _NETWORK_ERROR_HINTS = frozenset([
+        "lookup", "i/o timeout", "dial tcp", "resolve reference",
+        "no such host", "connection refused", "network unreachable",
+    ])
+
+    @classmethod
+    def _is_network_error(cls, exc: Exception) -> bool:
+        msg = str(exc).lower()
+        return any(hint in msg for hint in cls._NETWORK_ERROR_HINTS)
+
     async def _do_install(self, app_id: str) -> None:
         self._installing.add(app_id)
         logger.info("Starting install for %s", app_id)
         try:
-            await self._wait_for_network(f"install of {app_id}")
-            await asyncio.to_thread(self.manager.install_app, app_id)
-            logger.info("Install completed for %s", app_id)
+            for attempt in range(1, 4):
+                try:
+                    await asyncio.to_thread(self.manager.install_app, app_id)
+                    logger.info("Install completed for %s", app_id)
+                    return
+                except Exception as exc:
+                    if attempt < 3 and self._is_network_error(exc):
+                        delay = 30 * attempt
+                        logger.warning(
+                            "Install attempt %d for %s failed (network error), retrying in %ds: %s",
+                            attempt, app_id, delay, exc,
+                        )
+                        await asyncio.sleep(delay)
+                    else:
+                        raise
         except Exception as exc:
             logger.error("Install failed for %s: %s", app_id, exc)
         finally:
@@ -415,9 +433,21 @@ class LxdControlPlane:
         self._updating.add(app_id)
         logger.info("Starting update for %s", app_id)
         try:
-            await self._wait_for_network(f"update of {app_id}")
-            await asyncio.to_thread(self.manager.update_app, app_id)
-            logger.info("Update completed for %s", app_id)
+            for attempt in range(1, 4):
+                try:
+                    await asyncio.to_thread(self.manager.update_app, app_id)
+                    logger.info("Update completed for %s", app_id)
+                    return
+                except Exception as exc:
+                    if attempt < 3 and self._is_network_error(exc):
+                        delay = 30 * attempt
+                        logger.warning(
+                            "Update attempt %d for %s failed (network error), retrying in %ds: %s",
+                            attempt, app_id, delay, exc,
+                        )
+                        await asyncio.sleep(delay)
+                    else:
+                        raise
         except Exception as exc:
             logger.error("Update failed for %s: %s", app_id, exc)
         finally:
