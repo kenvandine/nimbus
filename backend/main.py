@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -13,7 +14,7 @@ from routers.auth import router as auth_router
 from routers.network import router as network_router
 from routers.system import router as system_router
 from services.control_plane import get_control_plane
-from services.store import refresh_store
+from services.store import ensure_store, refresh_store
 
 
 def _patch_ws4py_shutdown_race() -> None:
@@ -64,14 +65,22 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    store_task = None
     if settings.refresh_store_on_startup:
         logger.info("Refreshing app store on startup...")
         try:
             await refresh_store()
         except Exception as exc:
             logger.warning("Store refresh failed (continuing anyway): %s", exc)
+        store_task = asyncio.create_task(ensure_store())
     await get_control_plane().initialize()
     yield
+    if store_task and not store_task.done():
+        store_task.cancel()
+        try:
+            await store_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(title="Nimbus", version="0.1.0", lifespan=lifespan)

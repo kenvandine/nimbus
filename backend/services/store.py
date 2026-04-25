@@ -42,6 +42,18 @@ async def refresh_store() -> None:
         logger.info("Store refreshed: %s", stdout.decode().strip())
 
 
+async def ensure_store(*, poll_interval: int = 30) -> None:
+    """Background task: retry the store clone each time network becomes available."""
+    from services.network import is_online
+
+    while not (STORE_DIR / ".git").exists():
+        await asyncio.sleep(poll_interval)
+        if not is_online():
+            continue
+        logger.info("Network available, retrying store clone...")
+        await refresh_store()
+
+
 _VALUE_MAP = {
     "umbrel": "nimbus",
     "umbrel@umbrel.local": "nimbus@nimbus.local",
