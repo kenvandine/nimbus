@@ -36,6 +36,9 @@ CORE_BASE_SNAP = "core24"
 SNAPD_SNAP = "snapd"
 LXD_SNAP = "lxd"
 
+# Disabled until the snap is published with snapd-control access
+SNAPD_ENABLED = False
+
 
 def _logind_action(method: str) -> None:
     # Fall back to calling logind directly via D-Bus using the shutdown plug.
@@ -106,10 +109,10 @@ class DeviceManager:
         self._update_state = self._load_update_state()
 
     def actions_available(self) -> bool:
-        return requests_unixsocket is not None and SNAPD_SOCKET_PATH.exists()
+        return SNAPD_ENABLED and requests_unixsocket is not None and SNAPD_SOCKET_PATH.exists()
 
     def system_update_supported(self) -> bool:
-        return Snapd is not None and SNAPD_SOCKET_PATH.exists()
+        return SNAPD_ENABLED and Snapd is not None and SNAPD_SOCKET_PATH.exists()
 
     def _current_boot_id(self) -> str:
         try:
@@ -264,6 +267,8 @@ class DeviceManager:
             self._persist_update_state()
 
     def _require_actions_available(self) -> None:
+        if not SNAPD_ENABLED:
+            raise RuntimeError("snapd API calls are temporarily disabled")
         if requests_unixsocket is None:
             raise RuntimeError(
                 f"requests-unixsocket is unavailable: {REQUESTS_UNIXSOCKET_IMPORT_ERROR}"
