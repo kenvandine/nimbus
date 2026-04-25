@@ -14,6 +14,31 @@ _NM_STATE_CONNECTED_SITE = 60
 _NM_STATE_CONNECTED_GLOBAL = 70
 
 
+def get_primary_interface() -> str | None:
+    """Return the interface name that carries the default IPv4 route, via NetworkManager."""
+    try:
+        import dbus
+        bus = dbus.SystemBus()
+        nm = bus.get_object("org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager")
+        active_connections = dbus.Interface(nm, "org.freedesktop.DBus.Properties").Get(
+            "org.freedesktop.NetworkManager", "ActiveConnections"
+        )
+        for conn_path in active_connections:
+            conn = bus.get_object("org.freedesktop.NetworkManager", str(conn_path))
+            props = dbus.Interface(conn, "org.freedesktop.DBus.Properties")
+            if props.Get("org.freedesktop.NetworkManager.Connection.Active", "Default"):
+                devices = props.Get("org.freedesktop.NetworkManager.Connection.Active", "Devices")
+                if devices:
+                    dev = bus.get_object("org.freedesktop.NetworkManager", str(devices[0]))
+                    iface = dbus.Interface(dev, "org.freedesktop.DBus.Properties").Get(
+                        "org.freedesktop.NetworkManager.Device", "Interface"
+                    )
+                    return str(iface)
+    except Exception as exc:
+        logger.debug("Could not determine primary interface via NetworkManager: %s", exc)
+    return None
+
+
 def is_online() -> bool:
     """Return True if the host has site-level or better network connectivity."""
     try:
@@ -43,12 +68,13 @@ async def get_host_ip() -> str:
     if _cached_ip:
         return _cached_ip
 
-    # Prefer eth0 — that's the LXD bridge interface reachable from the host.
-    # hostname -I may return the Docker bridge (172.17.x.x) first, which is
-    # only routable inside the container.
+    # Ask NetworkManager which interface carries the default route, then read
+    # its IP. This works on both WiFi and Ethernet without manual configuration.
+    # Fall back to NIMBUS_PRIMARY_INTERFACE if NM is unavailable.
+    iface = get_primary_interface() or settings.primary_interface
     try:
         proc = await asyncio.create_subprocess_exec(
-            "ip", "-4", "addr", "show", settings.primary_interface,
+            "ip", "-4", "addr", "show", iface,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -59,7 +85,7 @@ async def get_host_ip() -> str:
             _cached_ip = m.group(1)
             return _cached_ip
     except Exception as exc:
-        logger.warning("ip addr show %s failed: %s", settings.primary_interface, exc)
+        logger.warning("ip addr show %s failed: %s", iface, exc)
 
     # Fallback: first non-loopback, non-docker IP from hostname -I
     try:

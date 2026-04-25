@@ -20,6 +20,7 @@ apps:
       - network
       - network-bind
       - network-manager
+      - network-observe
       - network-control
       - lxd
       #- snapd-control
