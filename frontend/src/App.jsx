@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { getActiveInstalls, listApps, getStats, powerOffSystem, restartSystem, uninstallApp, getAuthStatus, logout } from './api.js'
+import { openApp } from './utils.js'
 import Dock from './components/Dock.jsx'
 import Window from './components/Window.jsx'
 import AppStore from './components/AppStore.jsx'
@@ -272,7 +273,7 @@ export default function App() {
               <DesktopIcon
                 key={app.id}
                 app={app}
-                onClick={() => { if (app.open_url) window.open(app.open_url, '_blank') }}
+                onClick={() => { if (app.open_url) openApp(app.open_url) }}
                 onContextMenu={(e) => {
                   e.preventDefault()
                   setContextMenu({ app, x: e.clientX, y: e.clientY })

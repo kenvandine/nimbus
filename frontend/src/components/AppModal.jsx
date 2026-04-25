@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { installApp, uninstallApp, updateApp } from '../api.js'
+import { openApp } from '../utils.js'
 
 export default function AppModal({ app, onClose, onRefresh, isInstalling = false }) {
   const [action, setAction] = useState(null)
@@ -112,7 +113,7 @@ export default function AppModal({ app, onClose, onRefresh, isInstalling = false
             <button style={styles.btnUpdate} onClick={handleUpdate}>⬆ Update</button>
           )}
           {status === 'running' && !busy && app.open_url && (
-            <a href={app.open_url} target="_blank" rel="noreferrer" style={styles.btnOpen}>Open ↗</a>
+            <button style={styles.btnOpen} onClick={() => openApp(app.open_url)}>Open ↗</button>
           )}
           {(status === 'running' || status === 'installed') && !busy && (
             <button style={styles.btnDanger} onClick={handleUninstall}>Uninstall</button>

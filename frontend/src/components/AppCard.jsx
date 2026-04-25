@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { installApp, uninstallApp, updateApp } from '../api.js'
+import { openApp } from '../utils.js'
 
 const STATUS_COLORS = {
   running: '#4caf50',
@@ -113,8 +114,8 @@ export default function AppCard({ app, onRefresh, onOpenDetail, isInstalling = f
         {status === 'running' && !busy && (
           <>
             {app.open_url && (
-              <a href={app.open_url} target="_blank" rel="noreferrer" style={styles.btnOpen}
-                onClick={e => e.stopPropagation()}>Open ↗</a>
+              <button style={styles.btnOpen}
+                onClick={e => { e.stopPropagation(); openApp(app.open_url) }}>Open ↗</button>
             )}
             <button style={styles.btnDanger} onClick={handleUninstall}>Uninstall</button>
           </>
