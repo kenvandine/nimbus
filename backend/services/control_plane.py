@@ -292,15 +292,19 @@ class LxdControlPlane:
         if settings.lxd_auto_bootstrap and self._bootstrap_task is None:
             self._bootstrap_task = asyncio.create_task(self._bootstrap_when_online())
 
-    async def _bootstrap_when_online(self) -> None:
+    async def _wait_for_network(self, reason: str) -> None:
         from services.network import is_online
-        if not await asyncio.to_thread(is_online):
-            self._waiting_for_network = True
-            logger.info("Waiting for network connectivity before LXD bootstrap…")
-            while not await asyncio.to_thread(is_online):
-                await asyncio.sleep(10)
-            self._waiting_for_network = False
-            logger.info("Network is up, starting LXD bootstrap")
+        if await asyncio.to_thread(is_online):
+            return
+        self._waiting_for_network = True
+        logger.info("Waiting for network connectivity before %s…", reason)
+        while not await asyncio.to_thread(is_online):
+            await asyncio.sleep(10)
+        self._waiting_for_network = False
+        logger.info("Network is up, proceeding with %s", reason)
+
+    async def _bootstrap_when_online(self) -> None:
+        await self._wait_for_network("LXD bootstrap")
         await asyncio.to_thread(self.manager.ensure_bootstrapped)
 
     def _raise_manager_error(self, exc: Exception) -> HTTPException:
@@ -399,6 +403,7 @@ class LxdControlPlane:
         self._installing.add(app_id)
         logger.info("Starting install for %s", app_id)
         try:
+            await self._wait_for_network(f"install of {app_id}")
             await asyncio.to_thread(self.manager.install_app, app_id)
             logger.info("Install completed for %s", app_id)
         except Exception as exc:
@@ -410,6 +415,7 @@ class LxdControlPlane:
         self._updating.add(app_id)
         logger.info("Starting update for %s", app_id)
         try:
+            await self._wait_for_network(f"update of {app_id}")
             await asyncio.to_thread(self.manager.update_app, app_id)
             logger.info("Update completed for %s", app_id)
         except Exception as exc:
