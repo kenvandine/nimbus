@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { getActiveInstalls, listApps, getStats, powerOffSystem, restartSystem, uninstallApp, getAuthStatus, logout } from './api.js'
-import { openApp } from './utils.js'
+import { openApp, setKioskFallback } from './utils.js'
 import Dock from './components/Dock.jsx'
 import Window from './components/Window.jsx'
 import AppStore from './components/AppStore.jsx'
@@ -62,6 +62,7 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [openWindow, setOpenWindow] = useState(null) // 'appstore' | 'deviceinfo' | 'settings'
+  const [appFrame, setAppFrame] = useState(null) // { url, name } when showing kiosk iframe
   const [detailApp, setDetailApp] = useState(null)
   const [contextMenu, setContextMenu] = useState(null) // { app, x, y }
   const [powerMenuOpen, setPowerMenuOpen] = useState(false)
@@ -113,6 +114,7 @@ export default function App() {
   }
 
   useEffect(() => {
+    setKioskFallback((url, meta) => setAppFrame({ url, name: meta.name || '' }))
     checkAuth().then(status => {
       if (!status || status.authenticated) fetchAll()
       else setLoading(false)
@@ -273,7 +275,7 @@ export default function App() {
               <DesktopIcon
                 key={app.id}
                 app={app}
-                onClick={() => { if (app.open_url) openApp(app.open_url) }}
+                onClick={() => { if (app.open_url) openApp(app.open_url, { name: app.name }) }}
                 onContextMenu={(e) => {
                   e.preventDefault()
                   setContextMenu({ app, x: e.clientX, y: e.clientY })
@@ -322,7 +324,7 @@ export default function App() {
           onClick={e => e.stopPropagation()}
         >
           {contextMenu.app.open_url && (
-            <button style={styles.ctxItem} onClick={() => { window.open(contextMenu.app.open_url, '_blank'); setContextMenu(null) }}>
+            <button style={styles.ctxItem} onClick={() => { openApp(contextMenu.app.open_url, { name: contextMenu.app.name }); setContextMenu(null) }}>
               Open ↗
             </button>
           )}
@@ -348,6 +350,16 @@ export default function App() {
 
       {oobeComplete && authStatus?.configured && !authStatus?.authenticated && (
         <Login onLogin={() => checkAuth().then(() => fetchAll())} />
+      )}
+
+      {appFrame && (
+        <div style={styles.frameOverlay}>
+          <div style={styles.frameBar}>
+            <button style={styles.frameBack} onClick={() => setAppFrame(null)}>← Back to Nimbus</button>
+            {appFrame.name && <span style={styles.frameTitle}>{appFrame.name}</span>}
+          </div>
+          <iframe src={appFrame.url} style={styles.frameContent} title={appFrame.name} />
+        </div>
       )}
 
       <style>{`
@@ -625,5 +637,44 @@ const styles = {
     height: '1px',
     background: 'rgba(255,255,255,0.1)',
     margin: '4px 6px',
+  },
+  frameOverlay: {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 9000,
+    display: 'flex',
+    flexDirection: 'column',
+    background: '#000',
+  },
+  frameBar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '16px',
+    padding: '0 16px',
+    height: '48px',
+    background: 'rgba(8,16,28,0.96)',
+    borderBottom: '1px solid rgba(255,255,255,0.1)',
+    flexShrink: 0,
+  },
+  frameBack: {
+    background: 'rgba(79,195,247,0.15)',
+    border: '1px solid rgba(79,195,247,0.3)',
+    color: '#81d4fa',
+    borderRadius: '10px',
+    padding: '6px 14px',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  frameTitle: {
+    fontSize: '14px',
+    fontWeight: 600,
+    color: 'rgba(255,255,255,0.7)',
+  },
+  frameContent: {
+    flex: 1,
+    border: 'none',
+    width: '100%',
   },
 }

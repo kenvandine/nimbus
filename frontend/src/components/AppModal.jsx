@@ -113,7 +113,7 @@ export default function AppModal({ app, onClose, onRefresh, isInstalling = false
             <button style={styles.btnUpdate} onClick={handleUpdate}>⬆ Update</button>
           )}
           {status === 'running' && !busy && app.open_url && (
-            <button style={styles.btnOpen} onClick={() => openApp(app.open_url)}>Open ↗</button>
+            <button style={styles.btnOpen} onClick={() => openApp(app.open_url, { name: app.name })}>Open ↗</button>
           )}
           {(status === 'running' || status === 'installed') && !busy && (
             <button style={styles.btnDanger} onClick={handleUninstall}>Uninstall</button>
