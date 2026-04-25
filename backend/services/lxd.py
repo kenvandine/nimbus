@@ -511,6 +511,7 @@ class LxdManager:
                     return
 
                 self._set_bootstrap_state("installing-runtime")
+                self._wait_for_container_dns(instance)
                 self._install_runtime_packages(instance)
                 self._set_bootstrap_state("pushing-agent")
                 self._push_agent_payload(instance)
