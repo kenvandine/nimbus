@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 import logging
+import warnings
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -55,6 +56,7 @@ def _patch_ws4py_shutdown_race() -> None:
 
 
 _patch_ws4py_shutdown_race()
+warnings.filterwarnings("ignore", "Attempted to set unknown attribute", UserWarning, "pylxd")
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(name)s  %(message)s")
 logging.getLogger("ws4py").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
