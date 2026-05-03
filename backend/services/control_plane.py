@@ -12,7 +12,7 @@ from pylxd.exceptions import ClientConnectionFailed, LXDAPIException
 from config import settings
 from models import AppDetail, AppStatus, SystemStats
 from services.device import get_device_manager, is_oobe_complete
-from services import docker, network, store
+from services import docker, network, store, system_apps
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,24 @@ class LocalControlPlane:
         self._updating: set[str] = set()
 
     async def initialize(self) -> None:
-        return None
+        if settings.pressed_apps:
+            await self._maybe_install_pressed_apps()
+
+    async def _maybe_install_pressed_apps(self) -> None:
+        sentinel = settings.installed_dir.parent / ".pressed_apps_done"
+        if sentinel.exists():
+            return
+        logger.info("Installing pressed apps on first run: %s", settings.pressed_apps)
+        for app_id in settings.pressed_apps:
+            try:
+                await self.request_install(app_id)
+            except Exception as exc:
+                logger.warning("Failed to queue pressed app %s: %s", app_id, exc)
+        try:
+            sentinel.parent.mkdir(parents=True, exist_ok=True)
+            sentinel.touch()
+        except OSError as exc:
+            logger.warning("Could not write pressed-apps sentinel: %s", exc)
 
     async def _status_for(self, app_id: str, meta=None) -> AppStatus:
         installed = app_id in docker.installed_app_ids()
@@ -100,9 +117,14 @@ class LocalControlPlane:
     async def list_apps(self) -> list[AppDetail]:
         metas = store.list_apps()
         statuses = await asyncio.gather(*[self._status_for(m.id, m) for m in metas])
-        return [self._build_detail(m, s) for m, s in zip(metas, statuses)]
+        host_ip = await network.get_host_ip()
+        sys_apps = await system_apps.get_system_apps(host_ip)
+        return sys_apps + [self._build_detail(m, s) for m, s in zip(metas, statuses)]
 
     async def get_app(self, app_id: str) -> AppDetail:
+        if app_id == "lemonade":
+            host_ip = await network.get_host_ip()
+            return system_apps.get_lemonade_app(host_ip)
         meta = store.get_app_meta(app_id)
         if meta is None:
             raise HTTPException(status_code=404, detail=f"App '{app_id}' not found in store")
@@ -162,6 +184,7 @@ class LocalControlPlane:
             app_count=len(docker.installed_app_ids()),
             oobe_complete=True,
             online=True,
+            appstore_visible=settings.appstore_visible,
         ))
 
     async def restart_system(self) -> dict:
@@ -292,6 +315,24 @@ class LxdControlPlane:
         if settings.lxd_auto_bootstrap and self._bootstrap_task is None:
             self._bootstrap_task = asyncio.create_task(self._bootstrap_when_online())
 
+    async def _maybe_install_pressed_apps(self) -> None:
+        if not settings.pressed_apps:
+            return
+        sentinel = settings.installed_dir.parent / ".pressed_apps_done"
+        if sentinel.exists():
+            return
+        logger.info("Installing pressed apps on first run: %s", settings.pressed_apps)
+        for app_id in settings.pressed_apps:
+            try:
+                await self.request_install(app_id)
+            except Exception as exc:
+                logger.warning("Failed to queue pressed app %s: %s", app_id, exc)
+        try:
+            sentinel.parent.mkdir(parents=True, exist_ok=True)
+            sentinel.touch()
+        except OSError as exc:
+            logger.warning("Could not write pressed-apps sentinel: %s", exc)
+
     async def _bootstrap_when_online(self) -> None:
         from services.network import is_online
         if not await asyncio.to_thread(is_online):
@@ -302,6 +343,7 @@ class LxdControlPlane:
             self._waiting_for_network = False
             logger.info("Network is up, starting LXD bootstrap")
         await asyncio.to_thread(self.manager.ensure_bootstrapped)
+        await self._maybe_install_pressed_apps()
 
     def _raise_manager_error(self, exc: Exception) -> HTTPException:
         return HTTPException(status_code=500, detail=str(exc))
@@ -369,9 +411,14 @@ class LxdControlPlane:
 
     async def list_apps(self) -> list[AppDetail]:
         host_ip = await network.get_host_ip()
-        return await self._call_manager(self._list_apps_sync, host_ip)
+        store_apps = await self._call_manager(self._list_apps_sync, host_ip)
+        sys = await system_apps.get_system_apps(host_ip)
+        return sys + store_apps
 
     async def get_app(self, app_id: str) -> AppDetail:
+        if app_id == "lemonade":
+            host_ip = await network.get_host_ip()
+            return system_apps.get_lemonade_app(host_ip)
         meta = store.get_app_meta(app_id)
         if meta is None:
             raise HTTPException(status_code=404, detail=f"App '{app_id}' not found in store")
@@ -504,6 +551,7 @@ class LxdControlPlane:
             bootstrap_error=info.bootstrap_error,
             oobe_complete=is_oobe_complete(),
             online=online,
+            appstore_visible=settings.appstore_visible,
         ))
 
     async def restart_system(self) -> dict:

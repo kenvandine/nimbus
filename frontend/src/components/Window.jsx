@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 
-export default function Window({ title, onClose, children }) {
+export default function Window({ title, onClose, children, noPad = false }) {
   useEffect(() => {
     function handleKeyDown(event) {
       if (event.key === 'Escape') {
@@ -24,7 +24,7 @@ export default function Window({ title, onClose, children }) {
             </svg>
           </button>
         </div>
-        <div style={styles.content}>{children}</div>
+        <div style={{ ...styles.content, ...(noPad ? styles.contentNoPad : {}) }}>{children}</div>
       </div>
     </div>
   )
@@ -88,5 +88,11 @@ const styles = {
     flex: 1,
     overflowY: 'auto',
     padding: '20px 24px',
+  },
+  contentNoPad: {
+    padding: 0,
+    overflow: 'hidden',
+    display: 'flex',
+    flexDirection: 'column',
   },
 }

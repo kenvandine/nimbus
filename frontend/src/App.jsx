@@ -4,6 +4,7 @@ import Dock from './components/Dock.jsx'
 import Window from './components/Window.jsx'
 import AppStore from './components/AppStore.jsx'
 import DeviceInfo from './components/DeviceInfo.jsx'
+import FileBrowser from './components/FileBrowser.jsx'
 import Settings from './components/Settings.jsx'
 import AppModal from './components/AppModal.jsx'
 import Oobe from './components/Oobe.jsx'
@@ -287,12 +288,18 @@ export default function App() {
       <Dock
         onOpen={setOpenWindow}
         updatableCount={updatableCount}
+        appstoreVisible={stats?.appstore_visible !== false}
       />
 
       {/* App windows */}
       {openWindow === 'appstore' && (
         <Window title="App Store" onClose={() => setOpenWindow(null)}>
           <AppStore apps={apps} onRefresh={fetchAll} onOpenDetail={setDetailApp} activeInstalls={activeInstalls} />
+        </Window>
+      )}
+      {openWindow === 'files' && (
+        <Window title="Files" onClose={() => setOpenWindow(null)} noPad>
+          <FileBrowser />
         </Window>
       )}
       {openWindow === 'deviceinfo' && (
@@ -325,13 +332,19 @@ export default function App() {
               Open ↗
             </button>
           )}
-          <button style={styles.ctxItem} onClick={() => { setDetailApp(contextMenu.app); setContextMenu(null) }}>
-            View Info
-          </button>
-          <div style={styles.ctxDivider} />
-          <button style={{ ...styles.ctxItem, ...styles.ctxItemDanger }} onClick={() => handleUninstall(contextMenu.app)}>
-            Uninstall
-          </button>
+          {!contextMenu.app.is_system && (
+            <button style={styles.ctxItem} onClick={() => { setDetailApp(contextMenu.app); setContextMenu(null) }}>
+              View Info
+            </button>
+          )}
+          {!contextMenu.app.is_system && (
+            <>
+              <div style={styles.ctxDivider} />
+              <button style={{ ...styles.ctxItem, ...styles.ctxItemDanger }} onClick={() => handleUninstall(contextMenu.app)}>
+                Uninstall
+              </button>
+            </>
+          )}
         </div>
       )}
 

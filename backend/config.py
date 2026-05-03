@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -10,6 +10,12 @@ def _env_bool(name: str, default: bool) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _parse_pressed_apps(env_val: str | None) -> list[str]:
+    if not env_val:
+        return []
+    return [app_id.strip() for app_id in env_val.split(",") if app_id.strip()]
 
 
 @dataclass(frozen=True)
@@ -34,6 +40,12 @@ class Settings:
     lxd_agent_bind_host: str
     lxd_agent_token: str | None
     lxd_publish_host: str
+    # Pressed apps: auto-installed on first run (comma-separated Umbrel app IDs)
+    pressed_apps: list[str] = field(default_factory=list)
+    # When True, the App Store UI is hidden (defaults to True when pressed_apps set)
+    appstore_visible: bool = True
+    # Root directory exposed by the file browser
+    files_root: Path = field(default_factory=lambda: Path.home())
 
 
 def _build_settings() -> Settings:
@@ -44,6 +56,16 @@ def _build_settings() -> Settings:
     remote_base_url = os.getenv("NIMBUS_REMOTE_BASE_URL")
     if remote_base_url:
         remote_base_url = remote_base_url.rstrip("/")
+
+    pressed_apps = _parse_pressed_apps(os.getenv("NIMBUS_PRESSED_APPS"))
+
+    # App Store is visible unless explicitly disabled, or pressed_apps is set
+    # and NIMBUS_APPSTORE_VISIBLE is not overridden.
+    _appstore_default = len(pressed_apps) == 0
+    appstore_visible = _env_bool("NIMBUS_APPSTORE_VISIBLE", _appstore_default)
+
+    files_root_env = os.getenv("NIMBUS_FILES_ROOT")
+    files_root = Path(files_root_env) if files_root_env else Path.home()
 
     return Settings(
         control_mode=control_mode,
@@ -74,6 +96,9 @@ def _build_settings() -> Settings:
         lxd_agent_bind_host=os.getenv("NIMBUS_LXD_AGENT_BIND_HOST", "127.0.0.1"),
         lxd_agent_token=os.getenv("NIMBUS_LXD_AGENT_TOKEN") or os.getenv("NIMBUS_API_TOKEN"),
         lxd_publish_host=os.getenv("NIMBUS_LXD_PUBLISH_HOST", "0.0.0.0"),
+        pressed_apps=pressed_apps,
+        appstore_visible=appstore_visible,
+        files_root=files_root,
     )
 
 

@@ -38,6 +38,14 @@ apps:
       NIMBUS_LXD_AUTO_BOOTSTRAP: "true"
       NIMBUS_LXD_CONTAINER_NAME: nimbus
       NIMBUS_LXD_PROFILE_NAME: nimbus-hosting
+      # Comma-separated Umbrel app IDs to auto-install on first run.
+      # When set, the App Store UI is hidden by default.
+      # Example: NIMBUS_PRESSED_APPS: "nextcloud,home-assistant"
+      NIMBUS_PRESSED_APPS: ""
+      # Set to "true" to show the App Store even when NIMBUS_PRESSED_APPS is set.
+      NIMBUS_APPSTORE_VISIBLE: ""
+      # Root directory exposed by the file browser (defaults to $HOME = $SNAP_COMMON).
+      NIMBUS_FILES_ROOT: ""
 
 parts:
   frontend:
