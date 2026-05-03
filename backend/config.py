@@ -46,6 +46,9 @@ class Settings:
     appstore_visible: bool = True
     # Root directory exposed by the file browser
     files_root: Path = field(default_factory=lambda: Path.home())
+    # Directory containing nimbus-shipped overlay files for Umbrel apps
+    # (e.g. openclaw-overlay/setup-wrapper.cjs).
+    overlay_dir: Path = field(default_factory=lambda: Path("/usr/share/nimbus"))
 
 
 def _build_settings() -> Settings:
@@ -65,6 +68,16 @@ def _build_settings() -> Settings:
 
     files_root_env = os.getenv("NIMBUS_FILES_ROOT")
     files_root = Path(files_root_env) if files_root_env else Path.home()
+
+    # In a snap, $SNAP/share is the natural home for shipped data assets;
+    # outside the snap, default to the in-tree location for dev runs.
+    overlay_env = os.getenv("NIMBUS_OVERLAY_DIR")
+    if overlay_env:
+        overlay_dir = Path(overlay_env)
+    elif os.getenv("SNAP"):
+        overlay_dir = Path(os.environ["SNAP"]) / "share"
+    else:
+        overlay_dir = Path(__file__).resolve().parent.parent
 
     return Settings(
         control_mode=control_mode,
@@ -98,6 +111,7 @@ def _build_settings() -> Settings:
         pressed_apps=pressed_apps,
         appstore_visible=appstore_visible,
         files_root=files_root,
+        overlay_dir=overlay_dir,
     )
 
 

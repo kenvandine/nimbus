@@ -85,8 +85,9 @@ parts:
       mkdir -p "$CRAFT_PART_BUILD/backend/static"
       cp -r "$CRAFT_STAGE/web-static/." "$CRAFT_PART_BUILD/backend/static/"
       craftctl default
-      mkdir -p "$CRAFT_PART_INSTALL/backend" "$CRAFT_PART_INSTALL/setup" "$CRAFT_PART_INSTALL/bin"
+      mkdir -p "$CRAFT_PART_INSTALL/backend" "$CRAFT_PART_INSTALL/setup" "$CRAFT_PART_INSTALL/bin" "$CRAFT_PART_INSTALL/share/openclaw-overlay"
       cp -a "$CRAFT_PART_BUILD/backend/." "$CRAFT_PART_INSTALL/backend/"
       cp -a setup/. "$CRAFT_PART_INSTALL/setup/"
+      cp -a openclaw-overlay/. "$CRAFT_PART_INSTALL/share/openclaw-overlay/"
       cp snap/local/nimbus-launch "$CRAFT_PART_INSTALL/bin/nimbus-launch"
       chmod +x "$CRAFT_PART_INSTALL/bin/nimbus-launch"

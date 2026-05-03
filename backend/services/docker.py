@@ -83,8 +83,24 @@ def installed_app_ids() -> list[str]:
     return [d.name for d in INSTALLED_DIR.iterdir() if d.is_dir()]
 
 
-def _prepare_compose_data(app_id: str, compose_src: Path) -> dict:
-    """Return compose data patched for standalone (non-Umbrel) use."""
+def _prepare_compose_data(
+    app_id: str,
+    compose_src: Path,
+    *,
+    overlay_dir: Optional[Path] = None,
+    host_gateway_ip: Optional[str] = None,
+) -> dict:
+    """Return compose data patched for standalone (non-Umbrel) use.
+
+    overlay_dir is the directory whose contents will be visible to the docker
+    daemon at runtime. In local-docker mode that's the host snap's
+    openclaw-overlay/ folder; in LXD mode the LXD manager pushes the same
+    contents into a known path inside the container and passes that path here.
+
+    host_gateway_ip overrides the special "host-gateway" magic alias for
+    extra_hosts. Required in LXD mode because docker's host-gateway resolves
+    to the LXC container, not the physical host where Lemonade lives.
+    """
     data = yaml.safe_load(compose_src.read_text())
     services = data.get("services", {})
 
@@ -134,10 +150,56 @@ def _prepare_compose_data(app_id: str, compose_src: Path) -> dict:
     # Replace Umbrel-branded values (usernames, domain names) with Nimbus equivalents.
     _rewrite_umbrel_values(services)
 
+    # App-specific overlays (e.g. branding + Lemonade preselection for openclaw).
+    if app_id == "openclaw":
+        resolved_overlay = overlay_dir or (settings.overlay_dir / "openclaw-overlay")
+        _apply_openclaw_overlay(services, resolved_overlay, host_gateway_ip)
+
     data["services"] = services
     # Drop obsolete version key to silence docker compose warnings.
     data.pop("version", None)
     return data
+
+
+def _apply_openclaw_overlay(
+    services: dict,
+    overlay_dir: Path,
+    host_gateway_ip: Optional[str] = None,
+) -> None:
+    """Inject Nimbus's setup-wrapper.cjs and host.docker.internal into the
+    openclaw 'gateway' service.
+
+    The wrapper rebrands setup.html, preselects the Lemonade provider in the
+    onboarding wizard, and tunes openclaw.json after the wizard exits. Lemonade
+    runs as a host snap on localhost:13305; host.docker.internal lets the
+    container reach it.
+
+    overlay_dir is the path where the docker daemon can see the wrapper at
+    bind-mount time. In LXD mode the caller has already pushed the wrapper
+    into the container at this path.
+    """
+    gateway = services.get("gateway")
+    if not isinstance(gateway, dict):
+        return
+
+    wrapper_path = overlay_dir / "setup-wrapper.cjs"
+
+    extra_hosts = list(gateway.get("extra_hosts") or [])
+    target = host_gateway_ip or "host-gateway"
+    host_alias = f"host.docker.internal:{target}"
+    if not any(h.startswith("host.docker.internal:") for h in extra_hosts):
+        extra_hosts.append(host_alias)
+    gateway["extra_hosts"] = extra_hosts
+
+    volumes = list(gateway.get("volumes") or [])
+    mount = f"{wrapper_path}:/app/setup-wrapper.cjs:ro"
+    if mount not in volumes:
+        volumes.append(mount)
+    gateway["volumes"] = volumes
+
+    # Override CMD so node loads our wrapper, which then require()s the
+    # upstream /app/setup-server.cjs.
+    gateway["command"] = ["node", "/app/setup-wrapper.cjs"]
 
 
 def _prepare_compose(app_id: str, compose_src: Path, app_dir: Path) -> Path:
@@ -428,6 +490,8 @@ def build_app_bundle(
     *,
     installed_dir: Path = INSTALLED_DIR,
     env_text: str | None = None,
+    overlay_dir: Optional[Path] = None,
+    host_gateway_ip: Optional[str] = None,
 ) -> PreparedAppBundle:
     compose_src = get_app_compose_path(app_id)
     if compose_src is None:
@@ -448,7 +512,12 @@ def build_app_bundle(
         )
 
     env_vars = _parse_env_text(env_text)
-    compose_data = _prepare_compose_data(app_id, compose_src)
+    compose_data = _prepare_compose_data(
+        app_id,
+        compose_src,
+        overlay_dir=overlay_dir,
+        host_gateway_ip=host_gateway_ip,
+    )
     volume_paths = _collect_volume_paths(compose_data, env_vars)
     meta = get_app_meta(app_id)
 

@@ -20,6 +20,7 @@ from services import docker
 logger = logging.getLogger(__name__)
 
 CONTAINER_INSTALLED_DIR = Path("/var/lib/nimbus/installed")
+CONTAINER_OVERLAY_DIR = Path("/opt/nimbus/openclaw-overlay")
 BOOTSTRAP_MARKER = Path("/var/lib/nimbus/.agent-bootstrap-version")
 BOOTSTRAP_VERSION = "1"
 BACKEND_SOURCE_DIR = Path(__file__).resolve().parents[1]
@@ -657,6 +658,37 @@ print(json.dumps(apps), end='')
         port = data.get("port") if data else None
         return int(port) if isinstance(port, int) else None
 
+    def _push_openclaw_overlay(self, instance) -> None:
+        """Push nimbus's openclaw-overlay/ from the host snap into the LXC
+        container at CONTAINER_OVERLAY_DIR. Done before docker compose up so
+        the bind-mount source is visible to dockerd inside the container."""
+        src = settings.overlay_dir / "openclaw-overlay"
+        if not src.exists():
+            logger.warning(
+                "openclaw overlay missing at %s — installing without Lemonade preselection",
+                src,
+            )
+            return
+        self._run(instance, ["mkdir", "-p", str(CONTAINER_OVERLAY_DIR)])
+        instance.files.recursive_put(str(src), str(CONTAINER_OVERLAY_DIR))
+
+    def _container_default_gateway(self, instance) -> str | None:
+        """Ask the LXC container what its default gateway is.
+
+        That gateway IS the physical host (lxdbr0's interface), which is
+        where the lemonade snap binds. Docker-in-LXC's host-gateway alias
+        would resolve to the LXC container itself instead, so we pass this
+        IP explicitly as extra_hosts: host.docker.internal:<ip>.
+        """
+        rc, out, _ = self._run(
+            instance,
+            ["sh", "-c", "ip -4 route show default | awk '{print $3}' | head -n1"],
+        )
+        if rc != 0:
+            return None
+        ip = out.strip()
+        return ip or None
+
     def _prepare_volume_paths(self, instance, bundle: docker.PreparedAppBundle) -> None:
         self._run(instance, ["mkdir", "-p", str(bundle.app_dir), str(bundle.data_dir)])
         self._run(instance, ["chmod", "777", str(bundle.data_dir)])
@@ -674,7 +706,21 @@ print(json.dumps(apps), end='')
     def install_app(self, app_id: str) -> None:
         self.ensure_bootstrapped()
         instance = self.ensure_started()
-        bundle = docker.build_app_bundle(app_id, installed_dir=CONTAINER_INSTALLED_DIR)
+        host_gateway_ip: str | None = None
+        if app_id == "openclaw":
+            self._push_openclaw_overlay(instance)
+            host_gateway_ip = self._container_default_gateway(instance)
+            if not host_gateway_ip:
+                logger.warning(
+                    "Could not resolve LXC default gateway — openclaw will use docker's "
+                    "host-gateway, which may not reach lemonade on the physical host."
+                )
+        bundle = docker.build_app_bundle(
+            app_id,
+            installed_dir=CONTAINER_INSTALLED_DIR,
+            overlay_dir=CONTAINER_OVERLAY_DIR,
+            host_gateway_ip=host_gateway_ip,
+        )
         self._prepare_volume_paths(instance, bundle)
         self._write_file(instance, f"{bundle.app_dir}/docker-compose.yml", bundle.compose_text)
         self._write_file(instance, f"{bundle.app_dir}/.env", bundle.env_text, mode=0o600)
@@ -706,10 +752,16 @@ print(json.dumps(apps), end='')
         if not env_text:
             raise RuntimeError(f"App '{app_id}' has no saved environment")
         instance = self.ensure_started()
+        host_gateway_ip: str | None = None
+        if app_id == "openclaw":
+            self._push_openclaw_overlay(instance)
+            host_gateway_ip = self._container_default_gateway(instance)
         bundle = docker.build_app_bundle(
             app_id,
             installed_dir=CONTAINER_INSTALLED_DIR,
             env_text=env_text,
+            overlay_dir=CONTAINER_OVERLAY_DIR,
+            host_gateway_ip=host_gateway_ip,
         )
         self._prepare_volume_paths(instance, bundle)
         self._write_file(instance, f"{bundle.app_dir}/docker-compose.yml", bundle.compose_text)

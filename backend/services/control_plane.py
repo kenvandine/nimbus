@@ -14,7 +14,7 @@ from pylxd.exceptions import ClientConnectionFailed, LXDAPIException
 from config import settings
 from models import AppDetail, AppStatus, SystemStats
 from services.device import get_device_manager, is_oobe_complete
-from services import docker, network, store, system_apps
+from services import docker, lemonade, network, store, system_apps
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +155,12 @@ class LocalControlPlane:
         self._installing.add(app_id)
         try:
             await docker.install_app(app_id)
+            if app_id == "openclaw":
+                # Pre-pull the OpenClaw default model on Lemonade in the
+                # background so the install state isn't blocked on a
+                # multi-GB download. Safe to fire-and-forget — the function
+                # logs and skips if Lemonade isn't reachable.
+                lemonade.ensure_default_model_task()
         except Exception as exc:
             logger.error("Install failed for %s: %s", app_id, exc)
         finally:

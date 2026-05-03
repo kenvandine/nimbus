@@ -17,6 +17,8 @@ const STATUS_LABEL = {
   unknown: '',
 }
 
+const PULL_ACTIVE = new Set(['checking', 'pulling', 'loading'])
+
 export default function OpenClawWidget() {
   const [status, setStatus] = useState(null)
   const [collapsed, setCollapsed] = useState(false)
@@ -34,20 +36,36 @@ export default function OpenClawWidget() {
     return () => { alive = false; clearInterval(id) }
   }, [])
 
-  // Don't render until we've heard back, and hide if openclaw has never been reachable
   if (!status) return null
-  if (!status.reachable && !status.last_ok) return null
+
+  const lemonade = status.lemonade || { status: 'idle' }
+  const pullActive = PULL_ACTIVE.has(lemonade.status)
+  const pullFailed = lemonade.status === 'failed'
+
+  // Hide widget only if openclaw has never been reachable AND there's no
+  // pull activity to surface. During install we want to show the progress
+  // bar even before openclaw's gateway answers.
+  if (!status.reachable && !status.last_ok && !pullActive && !pullFailed) return null
 
   const agents = status.agents || []
   const sessions = status.sessions || []
   const activeSessions = sessions.filter(s => s.status === 'active')
 
+  const headerDotColor = pullActive
+    ? '#ffb74d'
+    : pullFailed
+      ? '#ef5350'
+      : status.reachable ? '#4caf50' : '#ef5350'
+
   return (
     <div style={styles.widget}>
       <button style={styles.header} onClick={() => setCollapsed(c => !c)}>
-        <span style={{ ...styles.dot, background: status.reachable ? '#4caf50' : '#ef5350' }} />
+        <span style={{ ...styles.dot, background: headerDotColor }} />
         <span style={styles.title}>OpenClaw</span>
-        {activeSessions.length > 0 && (
+        {pullActive && (
+          <span style={styles.pullBadge}>{Math.round(lemonade.percent || 0)}%</span>
+        )}
+        {!pullActive && activeSessions.length > 0 && (
           <span style={styles.activeBadge}>{activeSessions.length} active</span>
         )}
         <span style={styles.chevron}>{collapsed ? '▲' : '▼'}</span>
@@ -55,17 +73,27 @@ export default function OpenClawWidget() {
 
       {!collapsed && (
         <div style={styles.body}>
-          {!status.reachable && (
+          {pullActive && (
+            <PullProgress lemonade={lemonade} />
+          )}
+
+          {pullFailed && (
+            <div style={styles.errorMsg}>
+              Model download failed{lemonade.error ? `: ${lemonade.error}` : ''}
+            </div>
+          )}
+
+          {!pullActive && !status.reachable && (
             <div style={styles.offlineMsg}>
               {status.auth_required ? 'Auth required' : 'Connecting…'}
             </div>
           )}
 
-          {agents.length === 0 && status.reachable && (
+          {!pullActive && agents.length === 0 && status.reachable && (
             <div style={styles.emptyMsg}>No agents found</div>
           )}
 
-          {agents.map(agent => {
+          {!pullActive && agents.map(agent => {
             const agentSessions = sessions.filter(s => s.agent_id === agent.id)
             return (
               <div key={agent.id} style={styles.agentBlock}>
@@ -94,7 +122,7 @@ export default function OpenClawWidget() {
           })}
 
           {/* Sessions whose agent isn't in the agents list */}
-          {sessions.filter(s => !agents.find(a => a.id === s.agent_id)).map(sess => (
+          {!pullActive && sessions.filter(s => !agents.find(a => a.id === s.agent_id)).map(sess => (
             <div key={sess.id} style={styles.sessionRow}>
               <span style={{ ...styles.sessionDot, background: STATUS_COLOR[sess.status] || STATUS_COLOR.unknown }} />
               <div style={styles.sessionInfo}>
@@ -108,6 +136,34 @@ export default function OpenClawWidget() {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function PullProgress({ lemonade }) {
+  const pct = Math.max(0, Math.min(100, Number(lemonade.percent) || 0))
+  const label =
+    lemonade.status === 'checking' ? 'Preparing model…'
+    : lemonade.status === 'loading' ? 'Loading model into memory…'
+    : 'Downloading model'
+  const fileMeta =
+    lemonade.total_files > 0
+      ? `file ${lemonade.file_index || 1}/${lemonade.total_files}`
+      : ''
+  return (
+    <div style={styles.pullBlock}>
+      <div style={styles.pullLabel}>{label}</div>
+      {lemonade.model && <div style={styles.pullModel}>{lemonade.model}</div>}
+      <div style={styles.pullBarTrack}>
+        <div style={{ ...styles.pullBarFill, width: `${pct}%` }} />
+      </div>
+      <div style={styles.pullMeta}>
+        <span>{Math.round(pct)}%</span>
+        {fileMeta && <span>{fileMeta}</span>}
+      </div>
+      <div style={styles.pullHint}>
+        OpenClaw will be unable to respond until the model is ready.
+      </div>
     </div>
   )
 }
@@ -159,6 +215,68 @@ const styles = {
     background: 'rgba(76,175,80,0.25)',
     color: '#81c784',
     letterSpacing: '0.02em',
+  },
+  pullBadge: {
+    fontSize: '10px',
+    fontWeight: 700,
+    padding: '1px 6px',
+    borderRadius: '999px',
+    background: 'rgba(255,183,77,0.22)',
+    color: '#ffcc80',
+    letterSpacing: '0.02em',
+    fontVariantNumeric: 'tabular-nums',
+  },
+  pullBlock: {
+    padding: '6px 2px 2px',
+  },
+  pullLabel: {
+    fontSize: '12px',
+    fontWeight: 600,
+    color: 'rgba(255,255,255,0.88)',
+    marginBottom: '2px',
+  },
+  pullModel: {
+    fontSize: '10px',
+    color: 'rgba(255,255,255,0.45)',
+    fontFamily: 'ui-monospace, "SF Mono", monospace',
+    marginBottom: '8px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  pullBarTrack: {
+    width: '100%',
+    height: '6px',
+    background: 'rgba(255,255,255,0.08)',
+    borderRadius: '999px',
+    overflow: 'hidden',
+  },
+  pullBarFill: {
+    height: '100%',
+    background: 'linear-gradient(90deg, #ff9800, #ffcc80)',
+    borderRadius: '999px',
+    transition: 'width 0.4s ease-out',
+  },
+  pullMeta: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    fontSize: '10px',
+    color: 'rgba(255,255,255,0.55)',
+    marginTop: '4px',
+    fontVariantNumeric: 'tabular-nums',
+  },
+  pullHint: {
+    fontSize: '10px',
+    color: 'rgba(255,255,255,0.35)',
+    marginTop: '8px',
+    lineHeight: 1.35,
+    fontStyle: 'italic',
+  },
+  errorMsg: {
+    fontSize: '11px',
+    color: '#ef9a9a',
+    padding: '6px 2px 8px',
+    lineHeight: 1.35,
   },
   chevron: {
     fontSize: '9px',
