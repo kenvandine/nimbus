@@ -37,10 +37,14 @@ const MAX_TOKENS = parseInt(
 // ---------------------------------------------------------------------------
 const BANNER_HTML = `
 <div id="nimbus-model-banner" style="display:none;padding:10px 14px;background:linear-gradient(90deg,#ff9800,#ffcc80);color:#1a1a1a;font-size:13px;font-weight:600;text-align:center;position:relative;z-index:100;box-shadow:0 1px 4px rgba(0,0,0,0.25);">
-  <span id="nimbus-model-banner-text">Lemonade model is still downloading.</span>
+  <span id="nimbus-model-banner-text">Lemonade model is not ready yet.</span>
 </div>
 `;
 
+// The wrapper only knows whether the model is registered in Lemonade
+// (present in /api/v1/models), not whether a pull is actively in progress.
+// So the banner deliberately says "not ready yet" rather than "downloading"
+// — it covers both "never pulled" and "still pulling" without lying.
 const BANNER_SCRIPT = `
 <script>
 (function(){
@@ -56,15 +60,15 @@ const BANNER_SCRIPT = `
       if(j.ready){
         if(lastReady!==true){
           banner.style.background='linear-gradient(90deg,#4caf50,#81c784)';
-          text.textContent='Model ready — OpenClaw can now respond.';
+          text.textContent='Model ready \\u2014 OpenClaw can now respond.';
           banner.style.display='block';
           setTimeout(function(){banner.style.display='none';},4000);
           lastReady=true;
         }
       }else{
         text.textContent=j.model
-          ? 'Downloading "'+j.model+'" — OpenClaw won\\u2019t respond until it finishes.'
-          : 'Lemonade model is still downloading.';
+          ? 'Lemonade model "'+j.model+'" is not ready yet \\u2014 OpenClaw won\\u2019t respond until it is installed and loaded.'
+          : 'Lemonade model is not ready yet \\u2014 OpenClaw won\\u2019t respond until it is installed and loaded.';
         banner.style.background='linear-gradient(90deg,#ff9800,#ffcc80)';
         banner.style.display='block';
         lastReady=false;

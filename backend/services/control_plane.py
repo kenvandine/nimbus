@@ -468,6 +468,12 @@ class LxdControlPlane:
                 try:
                     await asyncio.to_thread(self.manager.install_app, app_id)
                     logger.info("Install completed for %s", app_id)
+                    if app_id == "openclaw":
+                        # Pre-pull the OpenClaw default model on Lemonade in
+                        # the background so the user doesn't have to wait on
+                        # a multi-GB download to use the wizard. Logs and
+                        # skips on failure — see services/lemonade.py.
+                        lemonade.ensure_default_model_task()
                     return
                 except Exception as exc:
                     if attempt < 3 and self._is_network_error(exc):

@@ -107,7 +107,7 @@ async def is_model_installed(model_name: str) -> bool:
 
 async def pull_model(spec: dict) -> None:
     """POST /v1/pull with SSE streaming. Logs progress + updates pull state."""
-    url = f"{LEMONADE_BASE_URL}/v1/pull"
+    url = f"{LEMONADE_BASE_URL}/api/v1/pull"
     body = {**spec, "stream": True}
     name = spec.get("model_name", "")
     logger.info("Lemonade: pulling model %s", name)
@@ -153,7 +153,7 @@ async def pull_model(spec: dict) -> None:
 
 async def load_model(model_name: str) -> None:
     """POST /v1/load — explicitly load the model into memory."""
-    url = f"{LEMONADE_BASE_URL}/v1/load"
+    url = f"{LEMONADE_BASE_URL}/api/v1/load"
     async with httpx.AsyncClient(timeout=120.0) as client:
         r = await client.post(url, json={"model_name": model_name})
     if r.status_code != 200:
