@@ -337,6 +337,59 @@ async def uninstall_app(app_id: str) -> None:
     logger.info("Uninstalled %s", app_id)
 
 
+async def get_container_names(app_id: str) -> list[str]:
+    rc, stdout, _ = await _run(
+        "docker", "ps",
+        "--filter", f"label=com.docker.compose.project={app_id}",
+        "--format", "{{.Names}}",
+    )
+    if rc != 0 or not stdout.strip():
+        return []
+    return [n for n in stdout.strip().splitlines() if n]
+
+
+async def stream_app_logs(app_id: str, tail: int = 200):
+    """Async generator yielding decoded log lines from all containers of app_id."""
+    names = await get_container_names(app_id)
+    if not names:
+        return
+
+    queue: asyncio.Queue[str | None] = asyncio.Queue()
+    procs: list[asyncio.subprocess.Process] = []
+
+    async def _drain(proc: asyncio.subprocess.Process) -> None:
+        assert proc.stdout is not None
+        try:
+            async for raw in proc.stdout:
+                await queue.put(raw.decode(errors="replace").rstrip())
+        finally:
+            await queue.put(None)
+
+    try:
+        for name in names:
+            proc = await asyncio.create_subprocess_exec(
+                "docker", "logs", "--follow", f"--tail={tail}", "--timestamps", name,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            procs.append(proc)
+            asyncio.create_task(_drain(proc))
+
+        exhausted = 0
+        while exhausted < len(procs):
+            item = await queue.get()
+            if item is None:
+                exhausted += 1
+            else:
+                yield item
+    finally:
+        for proc in procs:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+
+
 async def is_running(app_id: str) -> bool:
     # Query docker directly using the compose project label — avoids docker compose
     # ps --filter quirks that differ across compose v2 versions.

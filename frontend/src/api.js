@@ -63,3 +63,6 @@ export const readFile = (path) => {
     })
 }
 export const writeFile = (path, content) => json('POST', '/files/write', { path, content })
+
+// OpenClaw agent gateway
+export const getOpenClawStatus = () => request('/openclaw/status')

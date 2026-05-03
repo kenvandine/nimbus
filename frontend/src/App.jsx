@@ -5,6 +5,8 @@ import Window from './components/Window.jsx'
 import AppStore from './components/AppStore.jsx'
 import DeviceInfo from './components/DeviceInfo.jsx'
 import FileBrowser from './components/FileBrowser.jsx'
+import AppLogViewer from './components/AppLogViewer.jsx'
+import OpenClawWidget from './components/OpenClawWidget.jsx'
 import Settings from './components/Settings.jsx'
 import AppModal from './components/AppModal.jsx'
 import Oobe from './components/Oobe.jsx'
@@ -67,6 +69,7 @@ export default function App() {
   const [powerMenuOpen, setPowerMenuOpen] = useState(false)
   const [powerBusy, setPowerBusy] = useState(null)
   const [systemNotice, setSystemNotice] = useState(null)
+  const [logApp, setLogApp] = useState(null) // app whose logs are shown
   const [oobeComplete, setOobeComplete] = useState(true)
   // null = unknown (checking), { configured, authenticated, username } = known
   const [authStatus, setAuthStatus] = useState(null)
@@ -253,6 +256,9 @@ export default function App() {
         </div>
       </div>
 
+      {/* OpenClaw agent widget */}
+      <OpenClawWidget />
+
       {/* Desktop app icons — running apps */}
       <div style={styles.desktopArea}>
         {loading && <div style={styles.loadingMsg}>Loading…</div>}
@@ -313,6 +319,13 @@ export default function App() {
         </Window>
       )}
 
+      {/* App log viewer */}
+      {logApp && (
+        <Window title={`Logs — ${logApp.name}`} onClose={() => setLogApp(null)} noPad>
+          <AppLogViewer appId={logApp.id} />
+        </Window>
+      )}
+
       {/* App detail modal */}
       <AppModal
         app={detailApp}
@@ -335,6 +348,11 @@ export default function App() {
           {!contextMenu.app.is_system && (
             <button style={styles.ctxItem} onClick={() => { setDetailApp(contextMenu.app); setContextMenu(null) }}>
               View Info
+            </button>
+          )}
+          {!contextMenu.app.is_system && (
+            <button style={styles.ctxItem} onClick={() => { setLogApp(contextMenu.app); setContextMenu(null) }}>
+              View Logs
             </button>
           )}
           {!contextMenu.app.is_system && (
