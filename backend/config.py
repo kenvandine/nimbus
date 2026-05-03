@@ -40,9 +40,9 @@ class Settings:
     lxd_agent_bind_host: str
     lxd_agent_token: str | None
     lxd_publish_host: str
-    # Pressed apps: auto-installed on first run (comma-separated Umbrel app IDs)
+    # Pressed apps: auto-installed on first run; always includes openclaw
     pressed_apps: list[str] = field(default_factory=list)
-    # When True, the App Store UI is hidden (defaults to True when pressed_apps set)
+    # Whether the App Store UI is shown (default True; set NIMBUS_APPSTORE_VISIBLE=false to hide)
     appstore_visible: bool = True
     # Root directory exposed by the file browser
     files_root: Path = field(default_factory=lambda: Path.home())
@@ -57,12 +57,11 @@ def _build_settings() -> Settings:
     if remote_base_url:
         remote_base_url = remote_base_url.rstrip("/")
 
-    pressed_apps = _parse_pressed_apps(os.getenv("NIMBUS_PRESSED_APPS"))
+    # openclaw is always preseeded; user-supplied apps are appended after it
+    _user_apps = _parse_pressed_apps(os.getenv("NIMBUS_PRESSED_APPS"))
+    pressed_apps = ["openclaw"] + [a for a in _user_apps if a != "openclaw"]
 
-    # App Store is visible unless explicitly disabled, or pressed_apps is set
-    # and NIMBUS_APPSTORE_VISIBLE is not overridden.
-    _appstore_default = len(pressed_apps) == 0
-    appstore_visible = _env_bool("NIMBUS_APPSTORE_VISIBLE", _appstore_default)
+    appstore_visible = _env_bool("NIMBUS_APPSTORE_VISIBLE", True)
 
     files_root_env = os.getenv("NIMBUS_FILES_ROOT")
     files_root = Path(files_root_env) if files_root_env else Path.home()
