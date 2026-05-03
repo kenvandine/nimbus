@@ -36,6 +36,23 @@ def _save_pressed_state(data_dir: Path, queued: set[str]) -> None:
         logger.warning("Could not write pressed-apps state: %s", exc)
 
 
+async def _maybe_ensure_lemonade_model(cp: ControlPlane) -> None:
+    """If openclaw is installed, fire the Lemonade model pre-pull in the
+    background. ensure_default_model is idempotent — it skips the pull if
+    the model is already registered, so this is a cheap safety net at
+    every nimbus boot (covers cases where the install hook never ran:
+    fresh container, manual cleanup, prior pull failure)."""
+    try:
+        apps = await cp.list_apps()
+    except Exception as exc:
+        logger.debug("Skipping lemonade ensure: %s", exc)
+        return
+    for app in apps:
+        if app.id == "openclaw" and getattr(app.status, "installed", False):
+            lemonade.ensure_default_model_task()
+            return
+
+
 async def _maybe_install_pressed_apps(cp: ControlPlane) -> None:
     """Queue installs for any pressed apps not yet seen on this device."""
     if not settings.pressed_apps:
@@ -97,6 +114,7 @@ class LocalControlPlane:
 
     async def initialize(self) -> None:
         await _maybe_install_pressed_apps(self)
+        await _maybe_ensure_lemonade_model(self)
 
     async def _status_for(self, app_id: str, meta=None) -> AppStatus:
         installed = app_id in docker.installed_app_ids()
@@ -352,6 +370,7 @@ class LxdControlPlane:
             logger.info("Network is up, starting LXD bootstrap")
         await asyncio.to_thread(self.manager.ensure_bootstrapped)
         await _maybe_install_pressed_apps(self)
+        await _maybe_ensure_lemonade_model(self)
 
     def _raise_manager_error(self, exc: Exception) -> HTTPException:
         return HTTPException(status_code=500, detail=str(exc))

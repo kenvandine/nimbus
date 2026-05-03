@@ -14,7 +14,15 @@ import Login from './components/Login.jsx'
 
 const POLL_INTERVAL = 5000
 
-function describeSetupState(stats) {
+// openclaw is a pressed (always-installed) app. Treat the appliance as
+// "still setting up" until openclaw is installed AND running, so the dock
+// doesn't show a non-functional OpenClaw icon during first boot.
+function isOpenClawReady(apps) {
+  const oc = apps?.find(a => a.id === 'openclaw')
+  return !!(oc && oc.status?.installed && oc.status?.running)
+}
+
+function describeSetupState(stats, apps, activeInstalls) {
   if (!stats || stats.control_mode !== 'lxd') return null
   if (stats.bootstrap_error) {
     return {
@@ -24,7 +32,25 @@ function describeSetupState(stats) {
       error: true,
     }
   }
-  if (stats.container_bootstrapped && stats.container_status === 'running' && stats.bootstrap_state === 'ready') {
+  const lxdReady =
+    stats.container_bootstrapped && stats.container_status === 'running' && stats.bootstrap_state === 'ready'
+  if (lxdReady) {
+    if (activeInstalls?.includes('openclaw')) {
+      return {
+        title: 'Installing OpenClaw',
+        message: 'Setting up the OpenClaw agent. This can take a couple of minutes on first boot.',
+        ready: false,
+        error: false,
+      }
+    }
+    if (!isOpenClawReady(apps)) {
+      return {
+        title: 'Starting OpenClaw',
+        message: 'Waiting for the OpenClaw agent to come online.',
+        ready: false,
+        error: false,
+      }
+    }
     return { ready: true }
   }
 
@@ -200,7 +226,7 @@ export default function App() {
   const n = runningApps.length
   const cols = n === 0 ? 1 : n <= 3 ? n : Math.ceil(Math.sqrt(n))
   const errorMessage = error?.startsWith('Cannot reach backend') ? error : `Cannot reach backend — ${error}`
-  const setupState = describeSetupState(stats)
+  const setupState = describeSetupState(stats, apps, activeInstalls)
 
   return (
     <div style={{ ...styles.desktop, background: `linear-gradient(145deg, hsl(${hue},75%,${light}%) 0%, hsl(${hue + 10},60%,${light + 8}%) 60%, hsl(200,55%,${light + 22}%) 100%)` }}>

@@ -1,23 +1,31 @@
 // Nimbus overlay around the upstream openclaw-umbrel setup server.
 //
-// Four things:
+// Five things, in order at startup:
 //   1. Replace the "OpenClaw on Umbrel" branding string in setup.html with
 //      "OpenClaw on AI Lab", and inject a model-pull banner.
 //   2. Add an HTTP route /api/nimbus/lemonade-status that the banner polls
 //      to know when the Lemonade model is registered + downloaded.
-//   3. Hijack node-pty's spawn so the onboarding wizard PTY launches with
-//      Lemonade preselection flags. The user still drives the wizard; the
-//      provider/model fields are pre-answered.
-//   4. After a clean wizard exit, patch /data/.openclaw/openclaw.json with
-//      Nimbus-specific tuning (context window, model max tokens, cost zeros).
+//   3. Hijack node-pty's spawn so that IF the wizard ever runs (fallback
+//      when non-interactive onboard fails) it launches with Lemonade
+//      preselection flags.
+//   4. Run `openclaw onboard --non-interactive ...` synchronously if we
+//      have not already onboarded. With this in place, isConfigured()
+//      returns true on the first request, the wizard never appears, and
+//      the user is redirected straight to the gateway.
+//   5. Patch /data/.openclaw/openclaw.json with Nimbus-specific tuning
+//      (context window, model max tokens, cost zeros). Idempotent — runs
+//      every boot so config values stay aligned with env overrides.
 //
 // We require() the upstream /app/setup-server.cjs at the bottom rather than
 // duplicating its contents, so upstream image bumps don't drift out of sync.
 
 const fs = require("fs");
+const { spawnSync } = require("child_process");
 
 const SETUP_HTML = "/app/setup.html";
-const CONFIG_FILE = "/data/.openclaw/openclaw.json";
+const CONFIG_DIR = "/data/.openclaw";
+const CONFIG_FILE = `${CONFIG_DIR}/openclaw.json`;
+const GATEWAY_PORT = "18790"; // matches OPENCLAW_PORT in upstream setup-server.cjs
 const PROVIDER_ID = "lemonade";
 const LEMONADE_BASE_URL =
   process.env.NIMBUS_LEMONADE_BASE_URL || "http://host.docker.internal:13305";
@@ -214,6 +222,18 @@ function autoTuneConfig() {
   const cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"));
   const modelRef = `${PROVIDER_ID}/${MODEL_ID}`;
 
+  // Upstream's isConfigured() returns false unless cfg.wizard exists, in
+  // which case it skips the boot-time startOpenclaw() call and the gateway
+  // never comes up. Non-interactive onboard does not always write this
+  // section, so we plant a minimal marker ourselves.
+  if (!cfg.wizard) {
+    cfg.wizard = {
+      completed: true,
+      completedAt: new Date().toISOString(),
+      source: "nimbus-overlay",
+    };
+  }
+
   cfg.agents = cfg.agents || {};
   const defaults = (cfg.agents.defaults = cfg.agents.defaults || {});
   if (typeof defaults.model === "string" || !defaults.model) {
@@ -246,6 +266,77 @@ function autoTuneConfig() {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Delegate to upstream
+// 4. Non-interactive onboard at startup
+// ---------------------------------------------------------------------------
+function isAlreadyOnboarded() {
+  try {
+    if (!fs.existsSync(CONFIG_FILE)) return false;
+    const cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, "utf8"));
+    return !!(cfg && cfg.wizard);
+  } catch {
+    return false;
+  }
+}
+
+function runNonInteractiveOnboard() {
+  fs.mkdirSync(CONFIG_DIR, { recursive: true });
+  const args = [
+    "onboard",
+    "--non-interactive",
+    "--accept-risk",
+    "--mode", "local",
+    "--flow", "quickstart",
+    "--skip-channels",
+    "--skip-skills",
+    "--skip-search",
+    "--skip-daemon",
+    "--skip-ui",
+    "--skip-health",
+    "--auth-choice", "custom-api-key",
+    "--custom-base-url", `${LEMONADE_BASE_URL}/api/v1`,
+    "--custom-model-id", MODEL_ID,
+    "--custom-provider-id", PROVIDER_ID,
+    "--custom-compatibility", "openai",
+    "--custom-api-key", PROVIDER_ID, // lemonade ignores the value but the field is required
+    "--secret-input-mode", "plaintext",
+    "--gateway-port", GATEWAY_PORT,
+  ];
+  console.log("[nimbus-overlay] Running non-interactive openclaw onboard...");
+  const r = spawnSync("openclaw", args, {
+    cwd: CONFIG_DIR,
+    env: { ...process.env, HOME: "/data" },
+    stdio: "inherit",
+    timeout: 60_000,
+  });
+  if (r.error) throw r.error;
+  if (r.status !== 0) {
+    throw new Error(`openclaw onboard exited with code ${r.status}`);
+  }
+}
+
+if (isAlreadyOnboarded()) {
+  console.log("[nimbus-overlay] openclaw.json already has wizard section, skipping onboard");
+} else {
+  try {
+    runNonInteractiveOnboard();
+    console.log("[nimbus-overlay] non-interactive onboard complete");
+  } catch (e) {
+    console.error(
+      "[nimbus-overlay] non-interactive onboard failed; the user will see the wizard as a fallback:",
+      e.message
+    );
+  }
+}
+
+// Always run the tune — idempotent; ensures contextTokens / maxTokens stay
+// aligned with current env overrides even across container restarts.
+try {
+  autoTuneConfig();
+} catch (e) {
+  console.error("[nimbus-overlay] auto-tune failed:", e.message);
+}
+
+// ---------------------------------------------------------------------------
+// 5. Delegate to upstream
 // ---------------------------------------------------------------------------
 require("/app/setup-server.cjs");
