@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+from pathlib import Path
 from typing import Protocol
 
 import httpx
@@ -15,6 +17,41 @@ from services.device import get_device_manager, is_oobe_complete
 from services import docker, network, store, system_apps
 
 logger = logging.getLogger(__name__)
+
+_PRESSED_STATE = ".pressed_apps_state"
+
+
+def _load_pressed_state(data_dir: Path) -> set[str]:
+    try:
+        return set(json.loads((data_dir / _PRESSED_STATE).read_text()))
+    except Exception:
+        return set()
+
+
+def _save_pressed_state(data_dir: Path, queued: set[str]) -> None:
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+        (data_dir / _PRESSED_STATE).write_text(json.dumps(sorted(queued)))
+    except OSError as exc:
+        logger.warning("Could not write pressed-apps state: %s", exc)
+
+
+async def _maybe_install_pressed_apps(cp: ControlPlane) -> None:
+    """Queue installs for any pressed apps not yet seen on this device."""
+    if not settings.pressed_apps:
+        return
+    data_dir = settings.installed_dir.parent
+    already = _load_pressed_state(data_dir)
+    new_apps = [a for a in settings.pressed_apps if a not in already]
+    if not new_apps:
+        return
+    logger.info("Queuing install for new pressed apps: %s", new_apps)
+    for app_id in new_apps:
+        try:
+            await cp.request_install(app_id)
+        except Exception as exc:
+            logger.warning("Failed to queue pressed app %s: %s", app_id, exc)
+    _save_pressed_state(data_dir, already | set(new_apps))
 
 
 class ControlPlane(Protocol):
@@ -59,24 +96,7 @@ class LocalControlPlane:
         self._updating: set[str] = set()
 
     async def initialize(self) -> None:
-        if settings.pressed_apps:
-            await self._maybe_install_pressed_apps()
-
-    async def _maybe_install_pressed_apps(self) -> None:
-        sentinel = settings.installed_dir.parent / ".pressed_apps_done"
-        if sentinel.exists():
-            return
-        logger.info("Installing pressed apps on first run: %s", settings.pressed_apps)
-        for app_id in settings.pressed_apps:
-            try:
-                await self.request_install(app_id)
-            except Exception as exc:
-                logger.warning("Failed to queue pressed app %s: %s", app_id, exc)
-        try:
-            sentinel.parent.mkdir(parents=True, exist_ok=True)
-            sentinel.touch()
-        except OSError as exc:
-            logger.warning("Could not write pressed-apps sentinel: %s", exc)
+        await _maybe_install_pressed_apps(self)
 
     async def _status_for(self, app_id: str, meta=None) -> AppStatus:
         installed = app_id in docker.installed_app_ids()
@@ -315,24 +335,6 @@ class LxdControlPlane:
         if settings.lxd_auto_bootstrap and self._bootstrap_task is None:
             self._bootstrap_task = asyncio.create_task(self._bootstrap_when_online())
 
-    async def _maybe_install_pressed_apps(self) -> None:
-        if not settings.pressed_apps:
-            return
-        sentinel = settings.installed_dir.parent / ".pressed_apps_done"
-        if sentinel.exists():
-            return
-        logger.info("Installing pressed apps on first run: %s", settings.pressed_apps)
-        for app_id in settings.pressed_apps:
-            try:
-                await self.request_install(app_id)
-            except Exception as exc:
-                logger.warning("Failed to queue pressed app %s: %s", app_id, exc)
-        try:
-            sentinel.parent.mkdir(parents=True, exist_ok=True)
-            sentinel.touch()
-        except OSError as exc:
-            logger.warning("Could not write pressed-apps sentinel: %s", exc)
-
     async def _bootstrap_when_online(self) -> None:
         from services.network import is_online
         if not await asyncio.to_thread(is_online):
@@ -343,7 +345,7 @@ class LxdControlPlane:
             self._waiting_for_network = False
             logger.info("Network is up, starting LXD bootstrap")
         await asyncio.to_thread(self.manager.ensure_bootstrapped)
-        await self._maybe_install_pressed_apps()
+        await _maybe_install_pressed_apps(self)
 
     def _raise_manager_error(self, exc: Exception) -> HTTPException:
         return HTTPException(status_code=500, detail=str(exc))
