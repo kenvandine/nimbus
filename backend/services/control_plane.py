@@ -36,6 +36,43 @@ def _save_pressed_state(data_dir: Path, queued: set[str]) -> None:
         logger.warning("Could not write pressed-apps state: %s", exc)
 
 
+def _ensure_openclaw_workspace_link() -> None:
+    """Expose the OpenClaw workspace dir to the file browser at
+    <files_root>/openclaw-workspace.
+
+    Local mode: create a symlink to <INSTALLED_DIR>/openclaw/data/data/
+    .openclaw/workspace where the openclaw container writes.
+
+    LXD mode: create a real directory. The LXD manager separately attaches
+    that host directory as a bind-mount inside the LXC at the workspace
+    path, so the file browser (host) and the openclaw container (inside
+    docker, inside LXC) see the same files. The LXD-side device add lives
+    in services/lxd.py because pylxd is required.
+    """
+    import os
+    link = settings.files_root / "openclaw-workspace"
+    try:
+        link.parent.mkdir(parents=True, exist_ok=True)
+        if settings.control_mode == "lxd":
+            # Bind-mount source: must be a real directory the LXD daemon
+            # can mount into the LXC. Replace any stale symlink.
+            if link.is_symlink():
+                link.unlink()
+            link.mkdir(exist_ok=True)
+            try:
+                os.chmod(link, 0o777)
+            except OSError:
+                pass
+            return
+        target = settings.installed_dir / "openclaw" / "data" / "data" / ".openclaw" / "workspace"
+        if link.is_symlink() or link.exists():
+            return
+        link.symlink_to(target)
+        logger.info("Created file-browser symlink %s -> %s", link, target)
+    except OSError as exc:
+        logger.warning("Could not set up openclaw-workspace link: %s", exc)
+
+
 async def _maybe_ensure_lemonade_model(cp: ControlPlane) -> None:
     """If openclaw is installed, fire the Lemonade model pre-pull in the
     background. ensure_default_model is idempotent — it skips the pull if
@@ -48,7 +85,7 @@ async def _maybe_ensure_lemonade_model(cp: ControlPlane) -> None:
         logger.debug("Skipping lemonade ensure: %s", exc)
         return
     for app in apps:
-        if app.id == "openclaw" and getattr(app.status, "installed", False):
+        if app.id == "openclaw" and getattr(app, "installed", False):
             lemonade.ensure_default_model_task()
             return
 
@@ -113,6 +150,7 @@ class LocalControlPlane:
         self._updating: set[str] = set()
 
     async def initialize(self) -> None:
+        _ensure_openclaw_workspace_link()
         await _maybe_install_pressed_apps(self)
         await _maybe_ensure_lemonade_model(self)
 
@@ -369,6 +407,7 @@ class LxdControlPlane:
             self._waiting_for_network = False
             logger.info("Network is up, starting LXD bootstrap")
         await asyncio.to_thread(self.manager.ensure_bootstrapped)
+        _ensure_openclaw_workspace_link()
         await _maybe_install_pressed_apps(self)
         await _maybe_ensure_lemonade_model(self)
 

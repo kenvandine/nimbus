@@ -280,18 +280,16 @@ function isAlreadyOnboarded() {
 
 function runNonInteractiveOnboard() {
   fs.mkdirSync(CONFIG_DIR, { recursive: true });
+  // Matches meghsat's known-working flag set against openclaw 2026.4.x.
+  // Earlier we added --flow/--skip-channels/--skip-skills/--skip-search/
+  // --skip-daemon/--skip-ui — even though they're documented, the CLI's
+  // commander parser rejected the combination ("too many arguments").
   const args = [
     "onboard",
     "--non-interactive",
     "--accept-risk",
-    "--mode", "local",
-    "--flow", "quickstart",
-    "--skip-channels",
-    "--skip-skills",
-    "--skip-search",
-    "--skip-daemon",
-    "--skip-ui",
     "--skip-health",
+    "--mode", "local",
     "--auth-choice", "custom-api-key",
     "--custom-base-url", `${LEMONADE_BASE_URL}/api/v1`,
     "--custom-model-id", MODEL_ID,

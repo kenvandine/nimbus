@@ -19,7 +19,7 @@ const POLL_INTERVAL = 5000
 // doesn't show a non-functional OpenClaw icon during first boot.
 function isOpenClawReady(apps) {
   const oc = apps?.find(a => a.id === 'openclaw')
-  return !!(oc && oc.status?.installed && oc.status?.running)
+  return !!(oc && oc.installed && oc.running)
 }
 
 function describeSetupState(stats, apps, activeInstalls) {

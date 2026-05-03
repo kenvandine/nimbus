@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 
 CONTAINER_INSTALLED_DIR = Path("/var/lib/nimbus/installed")
 CONTAINER_OVERLAY_DIR = Path("/opt/nimbus/openclaw-overlay")
+# Where the openclaw container's workspace lives inside the LXC. The host
+# snap bind-mounts <files_root>/openclaw-workspace to this path so the
+# file browser and the agent see the same files.
+CONTAINER_OPENCLAW_WORKSPACE = "/var/lib/nimbus/installed/openclaw/data/data/.openclaw/workspace"
 BOOTSTRAP_MARKER = Path("/var/lib/nimbus/.agent-bootstrap-version")
 BOOTSTRAP_VERSION = "1"
 BACKEND_SOURCE_DIR = Path(__file__).resolve().parents[1]
@@ -658,6 +662,58 @@ print(json.dumps(apps), end='')
         port = data.get("port") if data else None
         return int(port) if isinstance(port, int) else None
 
+    def _ensure_openclaw_workspace_device(self, instance) -> None:
+        """Bind-mount <files_root>/openclaw-workspace from the host into the
+        LXC at the openclaw workspace path. Lets the host snap's file
+        browser show files written by the openclaw agent. Idempotent."""
+        src = settings.files_root / "openclaw-workspace"
+        try:
+            src.mkdir(parents=True, exist_ok=True)
+            try:
+                import os
+                os.chmod(src, 0o777)
+            except OSError:
+                pass
+        except OSError as exc:
+            logger.warning("Could not prepare openclaw-workspace bind source %s: %s", src, exc)
+            return
+
+        # Ensure the parent path exists inside the LXC so LXD can attach,
+        # and that it's writable by the openclaw container (uid 1000) — we
+        # are creating .openclaw/ here as LXC-root, so without the chown
+        # the container can't write openclaw.json into it.
+        parent = str(Path(CONTAINER_OPENCLAW_WORKSPACE).parent)
+        self._run(instance, ["mkdir", "-p", parent])
+        self._run(instance, ["chown", "1000:1000", parent])
+        self._run(instance, ["chmod", "775", parent])
+
+        devname = "openclaw-workspace"
+        desired = {
+            "type": "disk",
+            "source": str(src),
+            "path": CONTAINER_OPENCLAW_WORKSPACE,
+            # Idmapped mount so files written by the openclaw container
+            # (uid 1000 inside docker) appear with the right ownership on
+            # the host snap side too. Requires kernel idmap support.
+            "shift": "true",
+        }
+        current = dict(instance.devices.get(devname) or {})
+        if current == desired:
+            return
+        instance.devices[devname] = desired
+        try:
+            instance.save(wait=True)
+            logger.info("Attached openclaw-workspace bind: host %s -> lxc %s", src, CONTAINER_OPENCLAW_WORKSPACE)
+        except LXDAPIException as exc:
+            # Fall back to no-shift if the kernel/storage backend rejects it.
+            if "shift" in str(exc).lower():
+                logger.warning("LXD rejected shift=true; retrying without it")
+                desired.pop("shift")
+                instance.devices[devname] = desired
+                instance.save(wait=True)
+            else:
+                raise
+
     def _push_openclaw_overlay(self, instance) -> None:
         """Push nimbus's openclaw-overlay/ from the host snap into the LXC
         container at CONTAINER_OVERLAY_DIR. Done before docker compose up so
@@ -709,6 +765,7 @@ print(json.dumps(apps), end='')
         host_gateway_ip: str | None = None
         if app_id == "openclaw":
             self._push_openclaw_overlay(instance)
+            self._ensure_openclaw_workspace_device(instance)
             host_gateway_ip = self._container_default_gateway(instance)
             if not host_gateway_ip:
                 logger.warning(
@@ -755,6 +812,7 @@ print(json.dumps(apps), end='')
         host_gateway_ip: str | None = None
         if app_id == "openclaw":
             self._push_openclaw_overlay(instance)
+            self._ensure_openclaw_workspace_device(instance)
             host_gateway_ip = self._container_default_gateway(instance)
         bundle = docker.build_app_bundle(
             app_id,

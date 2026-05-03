@@ -19,12 +19,18 @@ router = APIRouter(
 
 
 def _safe_path(rel: str) -> Path:
-    """Resolve *rel* inside files_root, rejecting traversals."""
+    """Resolve *rel* inside files_root, rejecting `..`-style traversals.
+
+    Lexical (pre-symlink) check: we reject paths that climb above files_root
+    using ``..`` but allow symlinks inside files_root to point outside (e.g.
+    a curated symlink to an app's workspace directory). File ops follow the
+    symlink naturally; only the user-supplied path is validated.
+    """
     root = settings.files_root.resolve()
-    target = (root / rel.lstrip("/")).resolve()
-    if not str(target).startswith(str(root)):
+    norm = os.path.normpath(rel.lstrip("/"))
+    if norm == ".." or norm.startswith("../") or os.path.isabs(norm):
         raise HTTPException(status_code=403, detail="Path is outside the allowed directory")
-    return target
+    return root / norm
 
 
 class FileEntry(BaseModel):
