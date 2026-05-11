@@ -1,0 +1,3 @@
+livefs-edit
+PyYAML
+python-debian
