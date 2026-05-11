@@ -1,6 +1,6 @@
 name: nimbus
 base: core24
-version: "0.1.0"
+version: "0.1.1"
 summary: Nimbus LXD application controller
 description: |
   Nimbus is a host-side controller for an Ubuntu Core appliance that manages a
@@ -8,7 +8,7 @@ description: |
   the Nimbus UI and API outside the container, talks to LXD through the lxd
   interface using pylxd, and bootstraps an in-container Nimbus agent for bounded
   future operations.
-grade: devel
+grade: stable
 confinement: strict
 
 apps:
