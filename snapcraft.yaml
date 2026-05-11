@@ -38,6 +38,14 @@ apps:
       NIMBUS_LXD_AUTO_BOOTSTRAP: "true"
       NIMBUS_LXD_CONTAINER_NAME: nimbus
       NIMBUS_LXD_PROFILE_NAME: nimbus-hosting
+      # Additional Umbrel app IDs to auto-install on first run (comma-separated).
+      # openclaw is always preseeded automatically.
+      # Example: NIMBUS_PRESSED_APPS: "nextcloud,home-assistant"
+      NIMBUS_PRESSED_APPS: ""
+      # Set to "false" to hide the App Store button in the dock.
+      NIMBUS_APPSTORE_VISIBLE: ""
+      # Root directory exposed by the file browser (defaults to $HOME = $SNAP_COMMON).
+      NIMBUS_FILES_ROOT: ""
 
 parts:
   frontend:
@@ -77,8 +85,9 @@ parts:
       mkdir -p "$CRAFT_PART_BUILD/backend/static"
       cp -r "$CRAFT_STAGE/web-static/." "$CRAFT_PART_BUILD/backend/static/"
       craftctl default
-      mkdir -p "$CRAFT_PART_INSTALL/backend" "$CRAFT_PART_INSTALL/setup" "$CRAFT_PART_INSTALL/bin"
+      mkdir -p "$CRAFT_PART_INSTALL/backend" "$CRAFT_PART_INSTALL/setup" "$CRAFT_PART_INSTALL/bin" "$CRAFT_PART_INSTALL/share/openclaw-overlay"
       cp -a "$CRAFT_PART_BUILD/backend/." "$CRAFT_PART_INSTALL/backend/"
       cp -a setup/. "$CRAFT_PART_INSTALL/setup/"
+      cp -a openclaw-overlay/. "$CRAFT_PART_INSTALL/share/openclaw-overlay/"
       cp snap/local/nimbus-launch "$CRAFT_PART_INSTALL/bin/nimbus-launch"
       chmod +x "$CRAFT_PART_INSTALL/bin/nimbus-launch"

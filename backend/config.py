@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -10,6 +10,12 @@ def _env_bool(name: str, default: bool) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _parse_pressed_apps(env_val: str | None) -> list[str]:
+    if not env_val:
+        return []
+    return [app_id.strip() for app_id in env_val.split(",") if app_id.strip()]
 
 
 @dataclass(frozen=True)
@@ -34,6 +40,15 @@ class Settings:
     lxd_agent_bind_host: str
     lxd_agent_token: str | None
     lxd_publish_host: str
+    # Pressed apps: auto-installed on first run; always includes openclaw
+    pressed_apps: list[str] = field(default_factory=list)
+    # Whether the App Store UI is shown (default True; set NIMBUS_APPSTORE_VISIBLE=false to hide)
+    appstore_visible: bool = True
+    # Root directory exposed by the file browser
+    files_root: Path = field(default_factory=lambda: Path.home())
+    # Directory containing nimbus-shipped overlay files for Umbrel apps
+    # (e.g. openclaw-overlay/setup-wrapper.cjs).
+    overlay_dir: Path = field(default_factory=lambda: Path("/usr/share/nimbus"))
 
 
 def _build_settings() -> Settings:
@@ -44,6 +59,25 @@ def _build_settings() -> Settings:
     remote_base_url = os.getenv("NIMBUS_REMOTE_BASE_URL")
     if remote_base_url:
         remote_base_url = remote_base_url.rstrip("/")
+
+    # openclaw is always preseeded; user-supplied apps are appended after it
+    _user_apps = _parse_pressed_apps(os.getenv("NIMBUS_PRESSED_APPS"))
+    pressed_apps = ["openclaw"] + [a for a in _user_apps if a != "openclaw"]
+
+    appstore_visible = _env_bool("NIMBUS_APPSTORE_VISIBLE", True)
+
+    files_root_env = os.getenv("NIMBUS_FILES_ROOT")
+    files_root = Path(files_root_env) if files_root_env else Path.home()
+
+    # In a snap, $SNAP/share is the natural home for shipped data assets;
+    # outside the snap, default to the in-tree location for dev runs.
+    overlay_env = os.getenv("NIMBUS_OVERLAY_DIR")
+    if overlay_env:
+        overlay_dir = Path(overlay_env)
+    elif os.getenv("SNAP"):
+        overlay_dir = Path(os.environ["SNAP"]) / "share"
+    else:
+        overlay_dir = Path(__file__).resolve().parent.parent
 
     return Settings(
         control_mode=control_mode,
@@ -74,6 +108,10 @@ def _build_settings() -> Settings:
         lxd_agent_bind_host=os.getenv("NIMBUS_LXD_AGENT_BIND_HOST", "127.0.0.1"),
         lxd_agent_token=os.getenv("NIMBUS_LXD_AGENT_TOKEN") or os.getenv("NIMBUS_API_TOKEN"),
         lxd_publish_host=os.getenv("NIMBUS_LXD_PUBLISH_HOST", "0.0.0.0"),
+        pressed_apps=pressed_apps,
+        appstore_visible=appstore_visible,
+        files_root=files_root,
+        overlay_dir=overlay_dir,
     )
 
 

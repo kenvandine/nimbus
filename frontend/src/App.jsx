@@ -5,6 +5,9 @@ import Dock from './components/Dock.jsx'
 import Window from './components/Window.jsx'
 import AppStore from './components/AppStore.jsx'
 import DeviceInfo from './components/DeviceInfo.jsx'
+import FileBrowser from './components/FileBrowser.jsx'
+import AppLogViewer from './components/AppLogViewer.jsx'
+import OpenClawWidget from './components/OpenClawWidget.jsx'
 import Settings from './components/Settings.jsx'
 import AppModal from './components/AppModal.jsx'
 import Oobe from './components/Oobe.jsx'
@@ -12,7 +15,15 @@ import Login from './components/Login.jsx'
 
 const POLL_INTERVAL = 5000
 
-function describeSetupState(stats) {
+// openclaw is a pressed (always-installed) app. Treat the appliance as
+// "still setting up" until openclaw is installed AND running, so the dock
+// doesn't show a non-functional OpenClaw icon during first boot.
+function isOpenClawReady(apps) {
+  const oc = apps?.find(a => a.id === 'openclaw')
+  return !!(oc && oc.installed && oc.running)
+}
+
+function describeSetupState(stats, apps, activeInstalls) {
   if (!stats || stats.control_mode !== 'lxd') return null
   if (stats.bootstrap_error) {
     return {
@@ -22,7 +33,25 @@ function describeSetupState(stats) {
       error: true,
     }
   }
-  if (stats.container_bootstrapped && stats.container_status === 'running' && stats.bootstrap_state === 'ready') {
+  const lxdReady =
+    stats.container_bootstrapped && stats.container_status === 'running' && stats.bootstrap_state === 'ready'
+  if (lxdReady) {
+    if (activeInstalls?.includes('openclaw')) {
+      return {
+        title: 'Installing OpenClaw',
+        message: 'Setting up the OpenClaw agent. This can take a couple of minutes on first boot.',
+        ready: false,
+        error: false,
+      }
+    }
+    if (!isOpenClawReady(apps)) {
+      return {
+        title: 'Starting OpenClaw',
+        message: 'Waiting for the OpenClaw agent to come online.',
+        ready: false,
+        error: false,
+      }
+    }
     return { ready: true }
   }
 
@@ -68,6 +97,7 @@ export default function App() {
   const [powerMenuOpen, setPowerMenuOpen] = useState(false)
   const [powerBusy, setPowerBusy] = useState(null)
   const [systemNotice, setSystemNotice] = useState(null)
+  const [logApp, setLogApp] = useState(null) // app whose logs are shown
   const [oobeComplete, setOobeComplete] = useState(true)
   // null = unknown (checking), { configured, authenticated, username } = known
   const [authStatus, setAuthStatus] = useState(null)
@@ -199,7 +229,7 @@ export default function App() {
   const n = runningApps.length
   const cols = n === 0 ? 1 : n <= 3 ? n : Math.ceil(Math.sqrt(n))
   const errorMessage = error?.startsWith('Cannot reach backend') ? error : `Cannot reach backend — ${error}`
-  const setupState = describeSetupState(stats)
+  const setupState = describeSetupState(stats, apps, activeInstalls)
 
   return (
     <div style={{ ...styles.desktop, background: `linear-gradient(145deg, hsl(${hue},75%,${light}%) 0%, hsl(${hue + 10},60%,${light + 8}%) 60%, hsl(200,55%,${light + 22}%) 100%)` }}>
@@ -255,6 +285,9 @@ export default function App() {
         </div>
       </div>
 
+      {/* OpenClaw agent widget */}
+      <OpenClawWidget />
+
       {/* Desktop app icons — running apps */}
       <div style={styles.desktopArea}>
         {loading && <div style={styles.loadingMsg}>Loading…</div>}
@@ -290,12 +323,18 @@ export default function App() {
       <Dock
         onOpen={setOpenWindow}
         updatableCount={updatableCount}
+        appstoreVisible={stats?.appstore_visible !== false}
       />
 
       {/* App windows */}
       {openWindow === 'appstore' && (
         <Window title="App Store" onClose={() => setOpenWindow(null)}>
           <AppStore apps={apps} onRefresh={fetchAll} onOpenDetail={setDetailApp} activeInstalls={activeInstalls} />
+        </Window>
+      )}
+      {openWindow === 'files' && (
+        <Window title="Files" onClose={() => setOpenWindow(null)} noPad>
+          <FileBrowser />
         </Window>
       )}
       {openWindow === 'deviceinfo' && (
@@ -306,6 +345,13 @@ export default function App() {
       {openWindow === 'settings' && (
         <Window title="Settings" onClose={() => setOpenWindow(null)}>
           <Settings stats={stats} onRefresh={fetchAll} />
+        </Window>
+      )}
+
+      {/* App log viewer */}
+      {logApp && (
+        <Window title={`Logs — ${logApp.name}`} onClose={() => setLogApp(null)} noPad>
+          <AppLogViewer appId={logApp.id} />
         </Window>
       )}
 
@@ -328,13 +374,24 @@ export default function App() {
               Open ↗
             </button>
           )}
-          <button style={styles.ctxItem} onClick={() => { setDetailApp(contextMenu.app); setContextMenu(null) }}>
-            View Info
-          </button>
-          <div style={styles.ctxDivider} />
-          <button style={{ ...styles.ctxItem, ...styles.ctxItemDanger }} onClick={() => handleUninstall(contextMenu.app)}>
-            Uninstall
-          </button>
+          {!contextMenu.app.is_system && (
+            <button style={styles.ctxItem} onClick={() => { setDetailApp(contextMenu.app); setContextMenu(null) }}>
+              View Info
+            </button>
+          )}
+          {!contextMenu.app.is_system && (
+            <button style={styles.ctxItem} onClick={() => { setLogApp(contextMenu.app); setContextMenu(null) }}>
+              View Logs
+            </button>
+          )}
+          {!contextMenu.app.is_system && (
+            <>
+              <div style={styles.ctxDivider} />
+              <button style={{ ...styles.ctxItem, ...styles.ctxItemDanger }} onClick={() => handleUninstall(contextMenu.app)}>
+                Uninstall
+              </button>
+            </>
+          )}
         </div>
       )}
 

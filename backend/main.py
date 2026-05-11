@@ -12,9 +12,12 @@ from fastapi.staticfiles import StaticFiles
 from config import settings
 from routers.apps import router as apps_router
 from routers.auth import router as auth_router
+from routers.files import router as files_router
 from routers.network import router as network_router
+from routers.openclaw import router as openclaw_router
 from routers.system import router as system_router
 from services.control_plane import get_control_plane
+from services import openclaw as openclaw_service
 from services.store import ensure_store, refresh_store
 
 
@@ -76,6 +79,7 @@ async def lifespan(app: FastAPI):
             logger.warning("Store refresh failed (continuing anyway): %s", exc)
         store_task = asyncio.create_task(ensure_store())
     await get_control_plane().initialize()
+    openclaw_service.start()
     yield
     if store_task and not store_task.done():
         store_task.cancel()
@@ -96,7 +100,9 @@ app.add_middleware(
 
 app.include_router(auth_router)  # no auth dependency — handles login/logout/setup
 app.include_router(apps_router)
+app.include_router(files_router)
 app.include_router(network_router)
+app.include_router(openclaw_router)
 app.include_router(system_router)
 
 if settings.serve_frontend and STATIC_DIR.exists():

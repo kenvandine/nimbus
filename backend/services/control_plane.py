@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+from pathlib import Path
 from typing import Protocol
 
 import httpx
@@ -12,9 +14,98 @@ from pylxd.exceptions import ClientConnectionFailed, LXDAPIException
 from config import settings
 from models import AppDetail, AppStatus, SystemStats
 from services.device import get_device_manager, is_oobe_complete
-from services import docker, network, store
+from services import docker, lemonade, network, store, system_apps
 
 logger = logging.getLogger(__name__)
+
+_PRESSED_STATE = ".pressed_apps_state"
+
+
+def _load_pressed_state(data_dir: Path) -> set[str]:
+    try:
+        return set(json.loads((data_dir / _PRESSED_STATE).read_text()))
+    except Exception:
+        return set()
+
+
+def _save_pressed_state(data_dir: Path, queued: set[str]) -> None:
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+        (data_dir / _PRESSED_STATE).write_text(json.dumps(sorted(queued)))
+    except OSError as exc:
+        logger.warning("Could not write pressed-apps state: %s", exc)
+
+
+def _ensure_openclaw_workspace_link() -> None:
+    """Expose the OpenClaw workspace dir to the file browser at
+    <files_root>/openclaw-workspace.
+
+    Local mode: create a symlink to <INSTALLED_DIR>/openclaw/data/data/
+    .openclaw/workspace where the openclaw container writes.
+
+    LXD mode: create a real directory. The LXD manager separately attaches
+    that host directory as a bind-mount inside the LXC at the workspace
+    path, so the file browser (host) and the openclaw container (inside
+    docker, inside LXC) see the same files. The LXD-side device add lives
+    in services/lxd.py because pylxd is required.
+    """
+    import os
+    link = settings.files_root / "openclaw-workspace"
+    try:
+        link.parent.mkdir(parents=True, exist_ok=True)
+        if settings.control_mode == "lxd":
+            # Bind-mount source: must be a real directory the LXD daemon
+            # can mount into the LXC. Replace any stale symlink.
+            if link.is_symlink():
+                link.unlink()
+            link.mkdir(exist_ok=True)
+            try:
+                os.chmod(link, 0o777)
+            except OSError:
+                pass
+            return
+        target = settings.installed_dir / "openclaw" / "data" / "data" / ".openclaw" / "workspace"
+        if link.is_symlink() or link.exists():
+            return
+        link.symlink_to(target)
+        logger.info("Created file-browser symlink %s -> %s", link, target)
+    except OSError as exc:
+        logger.warning("Could not set up openclaw-workspace link: %s", exc)
+
+
+async def _maybe_ensure_lemonade_model(cp: ControlPlane) -> None:
+    """If openclaw is installed, fire the Lemonade model pre-pull in the
+    background. ensure_default_model is idempotent — it skips the pull if
+    the model is already registered, so this is a cheap safety net at
+    every nimbus boot (covers cases where the install hook never ran:
+    fresh container, manual cleanup, prior pull failure)."""
+    try:
+        apps = await cp.list_apps()
+    except Exception as exc:
+        logger.debug("Skipping lemonade ensure: %s", exc)
+        return
+    for app in apps:
+        if app.id == "openclaw" and getattr(app, "installed", False):
+            lemonade.ensure_default_model_task()
+            return
+
+
+async def _maybe_install_pressed_apps(cp: ControlPlane) -> None:
+    """Queue installs for any pressed apps not yet seen on this device."""
+    if not settings.pressed_apps:
+        return
+    data_dir = settings.installed_dir.parent
+    already = _load_pressed_state(data_dir)
+    new_apps = [a for a in settings.pressed_apps if a not in already]
+    if not new_apps:
+        return
+    logger.info("Queuing install for new pressed apps: %s", new_apps)
+    for app_id in new_apps:
+        try:
+            await cp.request_install(app_id)
+        except Exception as exc:
+            logger.warning("Failed to queue pressed app %s: %s", app_id, exc)
+    _save_pressed_state(data_dir, already | set(new_apps))
 
 
 class ControlPlane(Protocol):
@@ -59,7 +150,9 @@ class LocalControlPlane:
         self._updating: set[str] = set()
 
     async def initialize(self) -> None:
-        return None
+        _ensure_openclaw_workspace_link()
+        await _maybe_install_pressed_apps(self)
+        await _maybe_ensure_lemonade_model(self)
 
     async def _status_for(self, app_id: str, meta=None) -> AppStatus:
         installed = app_id in docker.installed_app_ids()
@@ -100,9 +193,14 @@ class LocalControlPlane:
     async def list_apps(self) -> list[AppDetail]:
         metas = store.list_apps()
         statuses = await asyncio.gather(*[self._status_for(m.id, m) for m in metas])
-        return [self._build_detail(m, s) for m, s in zip(metas, statuses)]
+        host_ip = await network.get_host_ip()
+        sys_apps = await system_apps.get_system_apps(host_ip)
+        return sys_apps + [self._build_detail(m, s) for m, s in zip(metas, statuses)]
 
     async def get_app(self, app_id: str) -> AppDetail:
+        if app_id == "lemonade":
+            host_ip = await network.get_host_ip()
+            return system_apps.get_lemonade_app(host_ip)
         meta = store.get_app_meta(app_id)
         if meta is None:
             raise HTTPException(status_code=404, detail=f"App '{app_id}' not found in store")
@@ -113,6 +211,12 @@ class LocalControlPlane:
         self._installing.add(app_id)
         try:
             await docker.install_app(app_id)
+            if app_id == "openclaw":
+                # Pre-pull the OpenClaw default model on Lemonade in the
+                # background so the install state isn't blocked on a
+                # multi-GB download. Safe to fire-and-forget — the function
+                # logs and skips if Lemonade isn't reachable.
+                lemonade.ensure_default_model_task()
         except Exception as exc:
             logger.error("Install failed for %s: %s", app_id, exc)
         finally:
@@ -162,6 +266,7 @@ class LocalControlPlane:
             app_count=len(docker.installed_app_ids()),
             oobe_complete=True,
             online=True,
+            appstore_visible=settings.appstore_visible,
         ))
 
     async def restart_system(self) -> dict:
@@ -302,6 +407,9 @@ class LxdControlPlane:
             self._waiting_for_network = False
             logger.info("Network is up, starting LXD bootstrap")
         await asyncio.to_thread(self.manager.ensure_bootstrapped)
+        _ensure_openclaw_workspace_link()
+        await _maybe_install_pressed_apps(self)
+        await _maybe_ensure_lemonade_model(self)
 
     def _raise_manager_error(self, exc: Exception) -> HTTPException:
         return HTTPException(status_code=500, detail=str(exc))
@@ -369,9 +477,14 @@ class LxdControlPlane:
 
     async def list_apps(self) -> list[AppDetail]:
         host_ip = await network.get_host_ip()
-        return await self._call_manager(self._list_apps_sync, host_ip)
+        store_apps = await self._call_manager(self._list_apps_sync, host_ip)
+        sys = await system_apps.get_system_apps(host_ip)
+        return sys + store_apps
 
     async def get_app(self, app_id: str) -> AppDetail:
+        if app_id == "lemonade":
+            host_ip = await network.get_host_ip()
+            return system_apps.get_lemonade_app(host_ip)
         meta = store.get_app_meta(app_id)
         if meta is None:
             raise HTTPException(status_code=404, detail=f"App '{app_id}' not found in store")
@@ -413,6 +526,12 @@ class LxdControlPlane:
                 try:
                     await asyncio.to_thread(self.manager.install_app, app_id)
                     logger.info("Install completed for %s", app_id)
+                    if app_id == "openclaw":
+                        # Pre-pull the OpenClaw default model on Lemonade in
+                        # the background so the user doesn't have to wait on
+                        # a multi-GB download to use the wizard. Logs and
+                        # skips on failure — see services/lemonade.py.
+                        lemonade.ensure_default_model_task()
                     return
                 except Exception as exc:
                     if attempt < 3 and self._is_network_error(exc):
@@ -504,6 +623,7 @@ class LxdControlPlane:
             bootstrap_error=info.bootstrap_error,
             oobe_complete=is_oobe_complete(),
             online=online,
+            appstore_visible=settings.appstore_visible,
         ))
 
     async def restart_system(self) -> dict:

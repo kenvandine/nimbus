@@ -51,3 +51,18 @@ export const getAuthStatus = () => request('/auth/status')
 export const setupAccount = (username, password) => json('POST', '/auth/setup', { username, password })
 export const login = (username, password) => json('POST', '/auth/login', { username, password })
 export const logout = () => request('/auth/logout', { method: 'POST' })
+
+// File browser
+export const listFiles = (path = '/') => request(`/files/list?path=${encodeURIComponent(path)}`)
+export const readFile = (path) => {
+  const base = import.meta.env.VITE_API_BASE ?? '/api'
+  return fetch(`${base}/files/read?path=${encodeURIComponent(path)}`, { credentials: 'same-origin' })
+    .then(res => {
+      if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`)
+      return res.text()
+    })
+}
+export const writeFile = (path, content) => json('POST', '/files/write', { path, content })
+
+// OpenClaw agent gateway
+export const getOpenClawStatus = () => request('/openclaw/status')

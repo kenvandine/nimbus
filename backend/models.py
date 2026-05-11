@@ -29,7 +29,8 @@ class AppStatus(BaseModel):
 
 
 class AppDetail(AppMeta, AppStatus):
-    pass
+    # True for built-in system apps (e.g. Lemonade) that cannot be uninstalled
+    is_system: bool = False
 
 
 class SystemStats(BaseModel):
@@ -53,3 +54,5 @@ class SystemStats(BaseModel):
     system_restart_required: bool = False
     oobe_complete: bool = True
     online: bool = True
+    # Whether the App Store UI should be shown
+    appstore_visible: bool = True
