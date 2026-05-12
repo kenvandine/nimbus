@@ -18,6 +18,13 @@ def _parse_pressed_apps(env_val: str | None) -> list[str]:
     return [app_id.strip() for app_id in env_val.split(",") if app_id.strip()]
 
 
+# Supported values for NIMBUS_MODEL_PROVIDER. Drives which local-LLM backend
+# OpenClaw is wired up against.
+MODEL_PROVIDER_LEMONADE = "lemonade-server"
+MODEL_PROVIDER_GEMMA4 = "inference-snap-gemma4"
+MODEL_PROVIDERS = {MODEL_PROVIDER_LEMONADE, MODEL_PROVIDER_GEMMA4}
+
+
 @dataclass(frozen=True)
 class Settings:
     control_mode: str
@@ -49,6 +56,9 @@ class Settings:
     # Directory containing nimbus-shipped overlay files for Umbrel apps
     # (e.g. openclaw-overlay/setup-wrapper.cjs).
     overlay_dir: Path = field(default_factory=lambda: Path("/usr/share/nimbus"))
+    # Local-LLM backend OpenClaw is configured against. One of
+    # MODEL_PROVIDER_LEMONADE, MODEL_PROVIDER_GEMMA4.
+    model_provider: str = MODEL_PROVIDER_LEMONADE
 
 
 def _build_settings() -> Settings:
@@ -78,6 +88,12 @@ def _build_settings() -> Settings:
         overlay_dir = Path(os.environ["SNAP"]) / "share"
     else:
         overlay_dir = Path(__file__).resolve().parent.parent
+
+    model_provider = os.getenv("NIMBUS_MODEL_PROVIDER", MODEL_PROVIDER_LEMONADE).strip().lower()
+    if model_provider not in MODEL_PROVIDERS:
+        raise ValueError(
+            f"NIMBUS_MODEL_PROVIDER must be one of: {', '.join(sorted(MODEL_PROVIDERS))}"
+        )
 
     return Settings(
         control_mode=control_mode,
@@ -112,6 +128,7 @@ def _build_settings() -> Settings:
         appstore_visible=appstore_visible,
         files_root=files_root,
         overlay_dir=overlay_dir,
+        model_provider=model_provider,
     )
 
 

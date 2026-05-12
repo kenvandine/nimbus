@@ -18,6 +18,23 @@ export GIT_EXEC_PATH="${SNAP}/usr/lib/git-core"
 export GIT_TEMPLATE_DIR="${SNAP}/usr/share/git-core/templates"
 export PATH="${SNAP}/usr/lib/git-core:${SNAP}/usr/bin:${SNAP}/bin${PATH:+:$PATH}"
 
+# Pull model-provider from snap config when present; otherwise inherit the
+# default baked into snapcraft.yaml. Validation lives in snap/hooks/configure
+# so a bad value is rejected at `snap set` time.
+if command -v snapctl >/dev/null 2>&1; then
+  provider="$(snapctl get model-provider 2>/dev/null || true)"
+  if [ -n "$provider" ]; then
+    export NIMBUS_MODEL_PROVIDER="$provider"
+  fi
+fi
+
+# Marker the configure hook checks before issuing a snapctl restart, so we
+# avoid restarts during the first-install boot when the daemon isn't up yet.
+if [ -n "${SNAP_DATA:-}" ]; then
+  mkdir -p "$SNAP_DATA" 2>/dev/null || true
+  : > "$SNAP_DATA/.daemon-started" 2>/dev/null || true
+fi
+
 exec "${SNAP}/bin/python3" -m uvicorn main:app \
   --app-dir "${SNAP}/backend" \
   --host "${NIMBUS_BIND_HOST:-0.0.0.0}" \

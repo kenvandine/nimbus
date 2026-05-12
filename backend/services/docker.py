@@ -152,8 +152,14 @@ def _prepare_compose_data(
 
     # App-specific overlays (e.g. branding + Lemonade preselection for openclaw).
     if app_id == "openclaw":
+        from services.model_provider import gateway_environment
         resolved_overlay = overlay_dir or (settings.overlay_dir / "openclaw-overlay")
-        _apply_openclaw_overlay(services, resolved_overlay, host_gateway_ip)
+        _apply_openclaw_overlay(
+            services,
+            resolved_overlay,
+            host_gateway_ip,
+            gateway_environment(),
+        )
 
     data["services"] = services
     # Drop obsolete version key to silence docker compose warnings.
@@ -165,18 +171,20 @@ def _apply_openclaw_overlay(
     services: dict,
     overlay_dir: Path,
     host_gateway_ip: Optional[str] = None,
+    extra_env: Optional[dict[str, str]] = None,
 ) -> None:
     """Inject Nimbus's setup-wrapper.cjs and host.docker.internal into the
     openclaw 'gateway' service.
 
-    The wrapper rebrands setup.html, preselects the Lemonade provider in the
-    onboarding wizard, and tunes openclaw.json after the wizard exits. Lemonade
-    runs as a host snap on localhost:13305; host.docker.internal lets the
-    container reach it.
+    The wrapper rebrands setup.html, preselects the configured model provider
+    in the onboarding wizard, and tunes openclaw.json after the wizard exits.
+    The provider runs as a host snap; host.docker.internal lets the container
+    reach it.
 
     overlay_dir is the path where the docker daemon can see the wrapper at
     bind-mount time. In LXD mode the caller has already pushed the wrapper
-    into the container at this path.
+    into the container at this path. extra_env carries the provider-specific
+    NIMBUS_OPENCLAW_* settings produced by model_provider.gateway_environment().
     """
     gateway = services.get("gateway")
     if not isinstance(gateway, dict):
@@ -200,6 +208,17 @@ def _apply_openclaw_overlay(
     # Override CMD so node loads our wrapper, which then require()s the
     # upstream /app/setup-server.cjs.
     gateway["command"] = ["node", "/app/setup-wrapper.cjs"]
+
+    if extra_env:
+        existing = gateway.get("environment")
+        if isinstance(existing, list):
+            existing_dict = dict(e.split("=", 1) for e in existing if "=" in e)
+            existing_dict.update(extra_env)
+            gateway["environment"] = [f"{k}={v}" for k, v in existing_dict.items()]
+        else:
+            env_dict = dict(existing) if isinstance(existing, dict) else {}
+            env_dict.update(extra_env)
+            gateway["environment"] = env_dict
 
 
 def _prepare_compose(app_id: str, compose_src: Path, app_dir: Path) -> Path:

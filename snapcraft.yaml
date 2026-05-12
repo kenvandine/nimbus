@@ -46,6 +46,11 @@ apps:
       NIMBUS_APPSTORE_VISIBLE: ""
       # Root directory exposed by the file browser (defaults to $HOME = $SNAP_COMMON).
       NIMBUS_FILES_ROOT: ""
+      # Local-LLM backend OpenClaw is configured against. Overridden at launch
+      # from `snap get nimbus model-provider` if set. Supported values:
+      #   lemonade-server         (default — needs the lemonade-server snap)
+      #   inference-snap-gemma4   (needs the gemma4 snap preseeded in the model)
+      NIMBUS_MODEL_PROVIDER: "lemonade-server"
 
 parts:
   frontend:
@@ -91,3 +96,8 @@ parts:
       cp -a openclaw-overlay/. "$CRAFT_PART_INSTALL/share/openclaw-overlay/"
       cp snap/local/nimbus-launch "$CRAFT_PART_INSTALL/bin/nimbus-launch"
       chmod +x "$CRAFT_PART_INSTALL/bin/nimbus-launch"
+
+hooks:
+  configure:
+    plugs:
+      - network

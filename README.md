@@ -129,6 +129,32 @@ In controller mode:
 - Docker apps run **inside** the managed `nimbus` container
 - published app URLs should use the **host LAN IP**, not the container bridge IP
 
+### Model provider
+
+OpenClaw is preconfigured against a local-LLM backend running as a host snap.
+The backend is selected at runtime via a snap option:
+
+```bash
+# Default — uses the lemonade-server snap on localhost:13305
+sudo snap set nimbus model-provider=lemonade-server
+
+# Alternative — uses the gemma4 inference snap; nimbus discovers the chat port
+# from /var/snap/gemma4/common/status.json (or `gemma4 status` if reachable)
+sudo snap set nimbus model-provider=inference-snap-gemma4
+```
+
+Whichever provider is selected must be preseeded in the appliance image (the
+Ubuntu Core model.json) — nimbus does not install snaps on demand. Switching
+the option causes the snap configure hook to validate the value and restart
+the nimbus service so OpenClaw gets re-wired on next boot.
+
+The wiring is delivered to OpenClaw through env vars on the gateway container
+(`NIMBUS_OPENCLAW_BASE_URL`, `NIMBUS_OPENCLAW_MODEL_ID`,
+`NIMBUS_OPENCLAW_PROVIDER_ID`, `NIMBUS_OPENCLAW_COMPATIBILITY`) read by
+`openclaw-overlay/setup-wrapper.cjs`. For dev runs you can override any of
+them, plus `NIMBUS_GEMMA4_BASE_URL` if you want to point gemma4 at a custom
+port.
+
 ## Quick start
 
 ### Option A: strict snap controller mode

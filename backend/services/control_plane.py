@@ -14,7 +14,7 @@ from pylxd.exceptions import ClientConnectionFailed, LXDAPIException
 from config import settings
 from models import AppDetail, AppStatus, SystemStats
 from services.device import get_device_manager, is_oobe_complete
-from services import docker, lemonade, network, store, system_apps
+from services import docker, model_provider, network, store, system_apps
 
 logger = logging.getLogger(__name__)
 
@@ -73,20 +73,20 @@ def _ensure_openclaw_workspace_link() -> None:
         logger.warning("Could not set up openclaw-workspace link: %s", exc)
 
 
-async def _maybe_ensure_lemonade_model(cp: ControlPlane) -> None:
-    """If openclaw is installed, fire the Lemonade model pre-pull in the
-    background. ensure_default_model is idempotent — it skips the pull if
-    the model is already registered, so this is a cheap safety net at
-    every nimbus boot (covers cases where the install hook never ran:
-    fresh container, manual cleanup, prior pull failure)."""
+async def _maybe_ensure_model_provider(cp: ControlPlane) -> None:
+    """If openclaw is installed, fire the configured model-provider's prep
+    task in the background. The underlying ensure routines are idempotent —
+    lemonade skips the pull if the model is already registered, gemma4 just
+    polls until reachable — so this is a cheap safety net at every nimbus
+    boot (covers cases where the install hook never ran)."""
     try:
         apps = await cp.list_apps()
     except Exception as exc:
-        logger.debug("Skipping lemonade ensure: %s", exc)
+        logger.debug("Skipping model-provider ensure: %s", exc)
         return
     for app in apps:
         if app.id == "openclaw" and getattr(app, "installed", False):
-            lemonade.ensure_default_model_task()
+            model_provider.ensure_ready_task()
             return
 
 
@@ -152,7 +152,7 @@ class LocalControlPlane:
     async def initialize(self) -> None:
         _ensure_openclaw_workspace_link()
         await _maybe_install_pressed_apps(self)
-        await _maybe_ensure_lemonade_model(self)
+        await _maybe_ensure_model_provider(self)
 
     async def _status_for(self, app_id: str, meta=None) -> AppStatus:
         installed = app_id in docker.installed_app_ids()
@@ -201,6 +201,9 @@ class LocalControlPlane:
         if app_id == "lemonade":
             host_ip = await network.get_host_ip()
             return system_apps.get_lemonade_app(host_ip)
+        if app_id == "gemma4":
+            host_ip = await network.get_host_ip()
+            return system_apps.get_gemma4_app(host_ip)
         meta = store.get_app_meta(app_id)
         if meta is None:
             raise HTTPException(status_code=404, detail=f"App '{app_id}' not found in store")
@@ -212,11 +215,11 @@ class LocalControlPlane:
         try:
             await docker.install_app(app_id)
             if app_id == "openclaw":
-                # Pre-pull the OpenClaw default model on Lemonade in the
-                # background so the install state isn't blocked on a
-                # multi-GB download. Safe to fire-and-forget — the function
-                # logs and skips if Lemonade isn't reachable.
-                lemonade.ensure_default_model_task()
+                # Pre-prep the configured model provider in the background so
+                # the install state isn't blocked on a multi-GB download
+                # (lemonade) or snap warm-up (gemma4). Safe to fire-and-forget
+                # — the underlying ensure routines log and skip on failure.
+                model_provider.ensure_ready_task()
         except Exception as exc:
             logger.error("Install failed for %s: %s", app_id, exc)
         finally:
@@ -409,7 +412,7 @@ class LxdControlPlane:
         await asyncio.to_thread(self.manager.ensure_bootstrapped)
         _ensure_openclaw_workspace_link()
         await _maybe_install_pressed_apps(self)
-        await _maybe_ensure_lemonade_model(self)
+        await _maybe_ensure_model_provider(self)
 
     def _raise_manager_error(self, exc: Exception) -> HTTPException:
         return HTTPException(status_code=500, detail=str(exc))
@@ -485,6 +488,9 @@ class LxdControlPlane:
         if app_id == "lemonade":
             host_ip = await network.get_host_ip()
             return system_apps.get_lemonade_app(host_ip)
+        if app_id == "gemma4":
+            host_ip = await network.get_host_ip()
+            return system_apps.get_gemma4_app(host_ip)
         meta = store.get_app_meta(app_id)
         if meta is None:
             raise HTTPException(status_code=404, detail=f"App '{app_id}' not found in store")
@@ -527,11 +533,11 @@ class LxdControlPlane:
                     await asyncio.to_thread(self.manager.install_app, app_id)
                     logger.info("Install completed for %s", app_id)
                     if app_id == "openclaw":
-                        # Pre-pull the OpenClaw default model on Lemonade in
-                        # the background so the user doesn't have to wait on
-                        # a multi-GB download to use the wizard. Logs and
-                        # skips on failure — see services/lemonade.py.
-                        lemonade.ensure_default_model_task()
+                        # Pre-prep the configured model provider so the user
+                        # doesn't wait on a model pull or snap warm-up before
+                        # the wizard can talk to it. Logs and skips on
+                        # failure — see services/model_provider.py.
+                        model_provider.ensure_ready_task()
                     return
                 except Exception as exc:
                     if attempt < 3 and self._is_network_error(exc):

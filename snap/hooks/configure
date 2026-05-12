@@ -1,0 +1,29 @@
+#!/bin/sh
+# Snap configure hook for the nimbus appliance controller.
+#
+# Validates the model-provider snap option and restarts the nimbus daemon so
+# the new setting takes effect. The daemon reads `snapctl get model-provider`
+# at launch (see snap/local/nimbus-launch) and exports NIMBUS_MODEL_PROVIDER.
+set -eu
+
+provider="$(snapctl get model-provider 2>/dev/null || true)"
+
+# Allow clearing the option to fall back to the env default in snapcraft.yaml.
+if [ -z "$provider" ]; then
+    exit 0
+fi
+
+case "$provider" in
+    lemonade-server|inference-snap-gemma4)
+        ;;
+    *)
+        echo "Unsupported model-provider '$provider'. Valid values: lemonade-server, inference-snap-gemma4" >&2
+        exit 1
+        ;;
+esac
+
+# Don't restart on first install — snapd is still wiring up the service. The
+# daemon will pick up the value on its first start.
+if [ -n "${SNAP_DATA:-}" ] && [ -e "$SNAP_DATA/.daemon-started" ]; then
+    snapctl restart "$SNAP_INSTANCE_NAME.nimbus" || true
+fi
