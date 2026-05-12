@@ -28,10 +28,12 @@ sudo env -u SUDO_UID -u SUDO_GID -u SUDO_USER \
     ubuntu-image snap nimbus-model.model \
     --snap ../../pc-amd64-gadget/pc_24-0.2_amd64.snap \
     --image-size=10G \
+    --assertion ./user.assert \
     --preseed --preseed-sign-key my-key
 
 cp pc.img appliance.img
 sudo chown "$(id -un):$(id -gn)" pc.img appliance.img
 # Optimize for the smallest .xz output; this is slower than the default preset.
 #xz -v -9e -T1 pc.img
+rm pc.img.xz
 xz -v -7 -T0 pc.img

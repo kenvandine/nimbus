@@ -103,7 +103,7 @@ What the script does, in order:
 2. Detects block devices via `lsblk -d -n -o NAME,TYPE,TRAN`, filtering
    for `TYPE=disk` and `TRAN!=usb` (so loop, ROM, and the USB boot
    stick are skipped). If zero or more than one disk matches, shows the
-   error in a dialog and offers reboot/poweroff.
+   error in a dialog, waits 10 seconds with a countdown, then powers off.
 3. Displays the target device, its size, and model, then prompts for
    confirmation (default = No).
 4. On confirm, streams `xzcat pc.img.xz | dd of=<disk> bs=4M
@@ -112,9 +112,8 @@ What the script does, in order:
 5. Verifies the final byte count against the xz file's uncompressed
    size (so a truncated decompression is caught even if `dd` returned
    0).
-6. Shows success or failure, then prompts the operator to reboot or
-   power off; the script `exec`s into `/sbin/reboot` or `/sbin/poweroff`
-   accordingly.
+6. Shows success or failure, then waits 10 seconds with a countdown
+   before the script `exec`s into `/sbin/poweroff`.
 
 `install.sh` resolves `pc.img.xz` relative to its own directory, so the
 same script works whether it's invoked from `/cdrom/install.sh` at boot
@@ -122,11 +121,9 @@ or from a working copy alongside a local image.
 
 ## Customizing
 
-- **Default action after install**: the TUI prompts for reboot or power
-  off at the end, so there's nothing to edit in the unit. If you want a
-  non-interactive run (e.g. for factory provisioning), replace the
-  `post_action_menu` calls in `install.sh` with a hard-coded
-  `exec /sbin/poweroff` (or `reboot`).
+- **Default action after install**: the TUI always counts down for 10
+  seconds and powers off at the end. If you want a different delay or a
+  different action, edit `poweroff_countdown()` in `install.sh`.
 - **Installer colors**: `install.sh` now sets a dark `whiptail` /
   `newt` palette by default so the TUI looks closer to Ubuntu's console
   styling, including the gauge colors used by the progress bar. To
@@ -176,8 +173,9 @@ qemu-system-x86_64 \
 
 The VM should boot through the grub menu ("Install Your AI
 Appliance"), drop straight into the whiptail TUI, write the
-decompressed `pc.img.xz` to the virtual disk, and on success offer
-reboot or poweroff. After install you can boot the written disk on
+decompressed `pc.img.xz` to the virtual disk, and on success count down
+for 10 seconds before powering off. After install you can boot the
+written disk on
 its own:
 
 ```sh
@@ -202,7 +200,7 @@ If your distro keeps OVMF in a different location, adjust the
   `install.sh`.
 - **No checksum verification**. If you need to be sure the image wrote
   correctly, follow the `dd` with a `cmp` or `sha256sum` pass before the
-  reboot/poweroff menu.
+  automatic poweroff countdown.
 - **whiptail dependency**. The TUI assumes `whiptail` (from the
   `whiptail` / `libnewt0.52` packages) is in the booted live filesystem.
   It is, on Ubuntu Server 26.04 — present from the

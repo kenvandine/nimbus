@@ -31,18 +31,27 @@ fullscale=white,brown
 '
 fi
 
-post_action_menu() {
+poweroff_countdown() {
     local title="$1"
-    local choice
-    choice=$(whiptail --title "$title" --notags --menu \
-        "What would you like to do?" 12 60 2 \
-        reboot   "Reboot the system" \
-        poweroff "Power off the system" \
-        3>&1 1>&2 2>&3) || choice=poweroff
-    case "$choice" in
-        reboot) exec /sbin/reboot ;;
-        *)      exec /sbin/poweroff ;;
-    esac
+    local message="$2"
+    local seconds
+    local label
+
+    for ((seconds=10; seconds>0; seconds--)); do
+        if [ "$seconds" -eq 1 ]; then
+            label="second"
+        else
+            label="seconds"
+        fi
+
+        whiptail --title "$title" --infobox \
+"$message
+
+The system will power off in $seconds $label." 20 72
+        sleep 1
+    done
+
+    exec /sbin/poweroff
 }
 
 whiptail --title "Nimbus Appliance Installer" --msgbox \
@@ -57,11 +66,10 @@ mapfile -t DRIVES < <(lsblk -d -n -o NAME,TYPE,TRAN \
     | awk '$2 == "disk" && $3 != "usb" && $1 !~ /^fd[0-9]/ { print $1 }')
 
 if [ "${#DRIVES[@]}" -eq 0 ]; then
-    whiptail --title "No Disk Found" --msgbox \
+    poweroff_countdown "No Disk Found" \
 "No non-USB hard drive was detected on this machine.
 
-Installation cannot proceed." 10 60
-    post_action_menu "No Disk Found"
+Installation cannot proceed."
 fi
 
 if [ "${#DRIVES[@]}" -gt 1 ]; then
@@ -69,13 +77,12 @@ if [ "${#DRIVES[@]}" -gt 1 ]; then
     for d in "${DRIVES[@]}"; do
         LIST+="  - /dev/$d"$'\n'
     done
-    whiptail --title "Multiple Disks Found" --msgbox \
+    poweroff_countdown "Multiple Disks Found" \
 "More than one non-USB disk was detected:
 
 $LIST
 The appliance installer refuses to choose between them. Remove \
-the extra drive(s) and try again." 16 70
-    post_action_menu "Multiple Disks Found"
+the extra drive(s) and try again."
 fi
 
 DEVICE="/dev/${DRIVES[0]}"
@@ -93,40 +100,36 @@ Nimbus appliance OS image:
   Model:  $MODEL
 
 This operation cannot be undone. Continue?" 16 72; then
-    whiptail --title "Cancelled" --msgbox \
-"Installation cancelled. No changes were made to $DEVICE." 8 60
-    post_action_menu "Cancelled"
+    poweroff_countdown "Cancelled" \
+"Installation cancelled. No changes were made to $DEVICE."
 fi
 
 if [ ! -f "$IMAGE" ]; then
-    whiptail --title "Missing Image" --msgbox \
+    poweroff_countdown "Missing Image" \
 "The appliance image was not found:
 
   $IMAGE
 
-Installation cannot proceed." 12 70
-    post_action_menu "Missing Image"
+Installation cannot proceed."
 fi
 
 TOTAL=$(xz --robot --list "$IMAGE" 2>/dev/null | awk '/^totals/ {print $5}')
 TOTAL=${TOTAL:-0}
 
 if [ "$TOTAL" -le 0 ]; then
-    whiptail --title "Bad Image" --msgbox \
+    poweroff_countdown "Bad Image" \
 "Could not determine the uncompressed size of $IMAGE. The file may be \
-corrupt or not a valid xz archive." 10 70
-    post_action_menu "Bad Image"
+corrupt or not a valid xz archive."
 fi
 
 if [ "$TOTAL" -gt "$SIZE_BYTES" ]; then
-    whiptail --title "Disk Too Small" --msgbox \
+    poweroff_countdown "Disk Too Small" \
 "The appliance image is larger than the target disk:
 
   Image (uncompressed): $(numfmt --to=iec --suffix=B "$TOTAL")
   Disk:                 $SIZE_HUMAN
 
-Installation cannot proceed." 14 70
-    post_action_menu "Disk Too Small"
+Installation cannot proceed."
 fi
 
 LOG=$(mktemp)
@@ -174,21 +177,19 @@ if [ "$RESULT" -eq 0 ] && [ "$TOTAL" -gt 0 ] && [ "$DD_BYTES" -lt "$TOTAL" ]; th
 fi
 
 if [ "$RESULT" -eq 0 ]; then
-    whiptail --title "Installation Complete" --msgbox \
+    poweroff_countdown "Installation Complete" \
 "The Nimbus appliance OS was written to $DEVICE successfully.
 
   Bytes written: $(numfmt --to=iec --suffix=B "$DD_BYTES")
 
-You can now remove the installation media." 14 70
-    post_action_menu "Installation Complete"
+Installation is complete. You can now remove the installation media."
 else
     DD_ERR=$(tail -c 1500 "$LOG" 2>/dev/null)
-    whiptail --title "Installation Failed" --msgbox \
+    poweroff_countdown "Installation Failed" \
 "Installation FAILED (exit code $RESULT).
 
   Wrote $DD_BYTES of $TOTAL bytes.
 
 Last output from dd:
-$DD_ERR" 20 72
-    post_action_menu "Installation Failed"
+$DD_ERR"
 fi
