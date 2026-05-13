@@ -1,4 +1,37 @@
+#!/bin/sh
+
 set -eu
+
+if [ "$#" -ne 1 ]; then
+    echo "usage: $0 nimbus-lemonade|nimbus-gemma4" >&2
+    exit 1
+fi
+
+TARGET_MODEL=$1
+MODEL_JSON=$TARGET_MODEL.json
+MODEL_ASSERTION=$TARGET_MODEL.model
+OUTPUT_DIR=$TARGET_MODEL
+
+case "$TARGET_MODEL" in
+    nimbus-lemonade)
+        EXTRA_SNAP=../../../../lemonade-sdk/lemonade-server-snap/lemonade-server_v10.4.0-7-g7c001dc5fc_amd64.snap
+        GADGET_SNAP=../../pc-amd64-gadget/pc_lemonade-24-0.2_amd64.snap
+        ;;
+    nimbus-gemma4)
+        EXTRA_SNAP=
+        GADGET_SNAP=../../pc-amd64-gadget/pc_gemma4-24-0.2_amd64.snap
+        ;;
+    *)
+        echo "unsupported model: $TARGET_MODEL" >&2
+        echo "supported models: nimbus-lemonade, nimbus-gemma4" >&2
+        exit 1
+        ;;
+esac
+
+if [ ! -f "$MODEL_JSON" ]; then
+    echo "missing model file: $MODEL_JSON" >&2
+    exit 1
+fi
 
 NIMBUS_SNAP=$(ls ../nimbus*.snap | head -n1)
 SNAP_GNUPG_HOME=${SNAP_GNUPG_HOME:-"$HOME/.snap/gnupg"}
@@ -17,23 +50,55 @@ cp -a "$SNAP_GNUPG_HOME"/. "$ROOT_GNUPG_HOME"/
 find "$ROOT_GNUPG_HOME" \( -type s -o -name '*.lock' \) -delete
 sudo chown -R root:root "$ROOT_GNUPG_HOME"
 
-snap sign -k my-key nimbus-model.json > nimbus-model.model
+snap sign -k my-key "$MODEL_JSON" > "$MODEL_ASSERTION"
+
+if [ -f ./user.json ]; then
+    snap sign -k my-key ./user.json > ./user.assert
+elif [ ! -f ./user.assert ]; then
+    echo "missing user assertion: create user.json or user.assert" >&2
+    exit 1
+fi
 
 # ubuntu-image only accepts extra assertions such as system-user here.
 # snap-declaration and snap-revision assertions are rejected, so a local snap
 # passed via --snap will still seed as x1. Use a Store-published revision if
 # you need an asserted snap revision in the image.
-sudo env -u SUDO_UID -u SUDO_GID -u SUDO_USER \
-    SNAP_GNUPG_HOME="$ROOT_GNUPG_HOME" \
-    ubuntu-image snap nimbus-model.model \
-    --snap ../../pc-amd64-gadget/pc_24-0.2_amd64.snap \
-    --image-size=10G \
-    --assertion ./user.assert \
-    --preseed --preseed-sign-key my-key
+if [ -n "$EXTRA_SNAP" ]; then
+    sudo env -u SUDO_UID -u SUDO_GID -u SUDO_USER \
+        SNAP_GNUPG_HOME="$ROOT_GNUPG_HOME" \
+        ubuntu-image snap "$MODEL_ASSERTION" \
+        --snap "$GADGET_SNAP" \
+        --snap "$NIMBUS_SNAP" \
+        --snap "$EXTRA_SNAP" \
+        --image-size=10G \
+        --assertion ./user.assert \
+        --preseed --preseed-sign-key my-key
+else
+    sudo env -u SUDO_UID -u SUDO_GID -u SUDO_USER \
+        SNAP_GNUPG_HOME="$ROOT_GNUPG_HOME" \
+        ubuntu-image snap "$MODEL_ASSERTION" \
+        --snap "$GADGET_SNAP" \
+        --snap "$NIMBUS_SNAP" \
+        --image-size=10G \
+        --assertion ./user.assert \
+        --preseed --preseed-sign-key my-key
+fi
 
-cp pc.img appliance.img
-sudo chown "$(id -un):$(id -gn)" pc.img appliance.img
+for artifact in pc.img seed.manifest; do
+    if [ -e "$artifact" ]; then
+        sudo chown "$(id -un):$(id -gn)" "$artifact"
+    fi
+done
 # Optimize for the smallest .xz output; this is slower than the default preset.
 #xz -v -9e -T1 pc.img
-rm pc.img.xz
+rm -f pc.img.xz
 xz -v -7 -T0 pc.img
+
+mkdir -p "$OUTPUT_DIR"
+
+for artifact in "$MODEL_ASSERTION" pc.img.xz seed.manifest; do
+    if [ -e "$artifact" ]; then
+        rm -f "$OUTPUT_DIR/$artifact"
+        mv "$artifact" "$OUTPUT_DIR/$artifact"
+    fi
+done
