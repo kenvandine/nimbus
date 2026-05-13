@@ -1,26 +1,44 @@
 #!/bin/sh
 # Snap configure hook for the nimbus appliance controller.
 #
-# Validates the model-provider snap option and restarts the nimbus daemon so
-# the new setting takes effect. The daemon reads `snapctl get model-provider`
-# at launch (see snap/local/nimbus-launch) and exports NIMBUS_MODEL_PROVIDER.
+# Validates the model-provider and openai-url snap options and restarts the
+# nimbus daemon so the new settings take effect. The daemon reads these via
+# `snapctl get ...` at launch (see snap/local/nimbus-launch) and exports
+# NIMBUS_MODEL_PROVIDER / NIMBUS_OPENAI_URL.
 set -eu
 
 provider="$(snapctl get model-provider 2>/dev/null || true)"
+openai_url="$(snapctl get openai-url 2>/dev/null || true)"
 
-# Allow clearing the option to fall back to the env default in snapcraft.yaml.
-if [ -z "$provider" ]; then
-    exit 0
+# Validate model-provider if set; clearing it falls back to the env default.
+if [ -n "$provider" ]; then
+    case "$provider" in
+        lemonade-server|inference-snap-gemma4)
+            ;;
+        *)
+            echo "Unsupported model-provider '$provider'. Valid values: lemonade-server, inference-snap-gemma4" >&2
+            exit 1
+            ;;
+    esac
 fi
 
-case "$provider" in
-    lemonade-server|inference-snap-gemma4)
-        ;;
-    *)
-        echo "Unsupported model-provider '$provider'. Valid values: lemonade-server, inference-snap-gemma4" >&2
-        exit 1
-        ;;
-esac
+# Validate openai-url if set; clearing it falls back to the per-provider
+# default baked into the backend (see config.DEFAULT_OPENAI_URL).
+if [ -n "$openai_url" ]; then
+    case "$openai_url" in
+        http://*|https://*)
+            ;;
+        *)
+            echo "Invalid openai-url '$openai_url'. Must start with http:// or https://" >&2
+            exit 1
+            ;;
+    esac
+fi
+
+# Nothing changed at the snap-option layer, or first install — don't restart.
+if [ -z "$provider" ] && [ -z "$openai_url" ]; then
+    exit 0
+fi
 
 # Don't restart on first install — snapd is still wiring up the service. The
 # daemon will pick up the value on its first start.

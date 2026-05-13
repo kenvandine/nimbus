@@ -92,32 +92,38 @@ def _port_from_status_file() -> int | None:
 
 
 def _port_from_status_cmd() -> int | None:
-    """Best-effort `gemma4 status` invocation. Will typically fail in strict
-    confinement; the caller falls through to other discovery methods."""
+    """Best-effort `gemma4 status --format json` invocation. Will typically
+    fail in strict confinement; the caller falls through to other discovery
+    methods."""
     try:
         proc = subprocess.run(
-            ["gemma4", "status"],
+            ["gemma4", "status", "--format", "json"],
             capture_output=True,
             text=True,
             timeout=5,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, PermissionError):
         return None
-    output = (proc.stdout or "") + "\n" + (proc.stderr or "")
-    for line in output.splitlines():
-        line = line.strip()
-        if line.startswith("{"):
-            try:
-                obj = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            port = obj.get("port")
-            if isinstance(port, (int, str)) and str(port).isdigit():
-                return int(port)
-    m = _PORT_RE.search(output)
-    if m:
-        return int(m.group(1))
-    return None
+    try:
+        obj = json.loads(proc.stdout or "")
+    except json.JSONDecodeError:
+        # Fall back to scraping the textual output for a port number.
+        output = (proc.stdout or "") + "\n" + (proc.stderr or "")
+        m = _PORT_RE.search(output)
+        return int(m.group(1)) if m else None
+    endpoints = obj.get("endpoints") if isinstance(obj, dict) else None
+    openai_url = endpoints.get("openai") if isinstance(endpoints, dict) else None
+    if isinstance(openai_url, str):
+        from urllib.parse import urlparse
+        try:
+            port = urlparse(openai_url).port
+        except ValueError:
+            port = None
+        if port:
+            return int(port)
+    # Older shape: top-level "port" field.
+    port = obj.get("port") if isinstance(obj, dict) else None
+    return int(port) if isinstance(port, (int, str)) and str(port).isdigit() else None
 
 
 def discover_port() -> int | None:
@@ -133,9 +139,27 @@ def discover_port() -> int | None:
 
 
 def base_url() -> str:
-    """Return the URL for gemma4's chat API root (no trailing slash)."""
+    """Return the URL for gemma4's chat API root (no trailing slash).
+
+    Strict-confinement runs (the nimbus snap) can't shell out to
+    `gemma4 status`, so the operator-supplied openai-url setting wins over
+    discovery. The discovery + default-port path still helps unconfined dev
+    runs that haven't set NIMBUS_OPENAI_URL.
+    """
     if GEMMA4_BASE_URL_OVERRIDE:
         return GEMMA4_BASE_URL_OVERRIDE.rstrip("/")
+    try:
+        from config import settings
+        configured = (settings.openai_url or "").rstrip("/")
+        if configured:
+            # Strip a trailing /v1 or /api/v1 so this returns just the server
+            # root, matching the contract older callers expect.
+            for suffix in ("/api/v1", "/v1"):
+                if configured.endswith(suffix):
+                    return configured[: -len(suffix)]
+            return configured
+    except Exception:
+        pass
     port = discover_port() or GEMMA4_DEFAULT_PORT
     return f"http://localhost:{port}"
 

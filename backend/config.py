@@ -24,6 +24,15 @@ MODEL_PROVIDER_LEMONADE = "lemonade-server"
 MODEL_PROVIDER_GEMMA4 = "inference-snap-gemma4"
 MODEL_PROVIDERS = {MODEL_PROVIDER_LEMONADE, MODEL_PROVIDER_GEMMA4}
 
+# Per-provider default OpenAI-compatible endpoint. Used when NIMBUS_OPENAI_URL
+# is unset; the nimbus snap can't run `gemma4 status` (strict confinement), so
+# the operator points the snap setting at the right URL instead of relying on
+# in-process discovery.
+DEFAULT_OPENAI_URL = {
+    MODEL_PROVIDER_LEMONADE: "http://127.0.0.1:13305/api/v1",
+    MODEL_PROVIDER_GEMMA4: "http://127.0.0.1:8336/v1",
+}
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -59,6 +68,10 @@ class Settings:
     # Local-LLM backend OpenClaw is configured against. One of
     # MODEL_PROVIDER_LEMONADE, MODEL_PROVIDER_GEMMA4.
     model_provider: str = MODEL_PROVIDER_LEMONADE
+    # Full OpenAI-compatible API URL (including /v1 or /api/v1 suffix) that
+    # OpenClaw will be pointed at. Defaults derived from model_provider when
+    # NIMBUS_OPENAI_URL is unset.
+    openai_url: str = DEFAULT_OPENAI_URL[MODEL_PROVIDER_LEMONADE]
 
 
 def _build_settings() -> Settings:
@@ -95,6 +108,9 @@ def _build_settings() -> Settings:
             f"NIMBUS_MODEL_PROVIDER must be one of: {', '.join(sorted(MODEL_PROVIDERS))}"
         )
 
+    openai_url_env = (os.getenv("NIMBUS_OPENAI_URL") or "").strip()
+    openai_url = (openai_url_env or DEFAULT_OPENAI_URL[model_provider]).rstrip("/")
+
     return Settings(
         control_mode=control_mode,
         store_dir=Path(os.getenv("NIMBUS_STORE_DIR", "/var/lib/nimbus/store")),
@@ -129,6 +145,7 @@ def _build_settings() -> Settings:
         files_root=files_root,
         overlay_dir=overlay_dir,
         model_provider=model_provider,
+        openai_url=openai_url,
     )
 
 

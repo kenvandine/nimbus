@@ -18,13 +18,18 @@ export GIT_EXEC_PATH="${SNAP}/usr/lib/git-core"
 export GIT_TEMPLATE_DIR="${SNAP}/usr/share/git-core/templates"
 export PATH="${SNAP}/usr/lib/git-core:${SNAP}/usr/bin:${SNAP}/bin${PATH:+:$PATH}"
 
-# Pull model-provider from snap config when present; otherwise inherit the
-# default baked into snapcraft.yaml. Validation lives in snap/hooks/configure
-# so a bad value is rejected at `snap set` time.
+# Pull model-provider / openai-url from snap config when present; otherwise
+# inherit defaults from snapcraft.yaml + per-provider defaults in config.py.
+# Validation lives in snap/hooks/configure so bad values are rejected at
+# `snap set` time.
 if command -v snapctl >/dev/null 2>&1; then
   provider="$(snapctl get model-provider 2>/dev/null || true)"
   if [ -n "$provider" ]; then
     export NIMBUS_MODEL_PROVIDER="$provider"
+  fi
+  openai_url="$(snapctl get openai-url 2>/dev/null || true)"
+  if [ -n "$openai_url" ]; then
+    export NIMBUS_OPENAI_URL="$openai_url"
   fi
 fi
 

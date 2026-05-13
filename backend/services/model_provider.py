@@ -2,14 +2,14 @@
 
 Two providers are supported, selected by NIMBUS_MODEL_PROVIDER:
 
-  * "lemonade-server" (default) — talk to the lemonade-server snap on
-    http://localhost:13305, model preloaded by services/lemonade.py.
-  * "inference-snap-gemma4" — talk to the gemma4 snap on a dynamic port
-    discovered by services/gemma4.py.
+  * "lemonade-server" (default) — talk to the lemonade-server snap.
+  * "inference-snap-gemma4" — talk to the gemma4 snap.
 
-The openclaw setup wrapper reads NIMBUS_OPENCLAW_BASE_URL / MODEL_ID /
-PROVIDER_ID env vars produced by gateway_environment() and wires them into
-the openclaw onboard flow.
+The OpenAI-compatible endpoint OpenClaw is pointed at is set via the
+`openai-url` snap setting (NIMBUS_OPENAI_URL), with per-provider defaults
+in config.DEFAULT_OPENAI_URL. The openclaw setup wrapper reads
+NIMBUS_OPENCLAW_BASE_URL / API_PATH / MODEL_ID / PROVIDER_ID env vars
+produced by gateway_environment() and wires them into the onboard flow.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Optional
+from urllib.parse import urlparse, urlunparse
 
 from config import MODEL_PROVIDER_GEMMA4, MODEL_PROVIDER_LEMONADE, settings
 from services import gemma4, lemonade
@@ -51,12 +52,12 @@ class ProviderState:
 # ---------------------------------------------------------------------------
 
 def _lemonade_config() -> ProviderConfig:
-    # Lemonade expects its OpenAI-compatible endpoint under /api/v1.
-    # base_url here is the *prefix* the openclaw wrapper hands to onboard;
-    # the wrapper appends /api/v1 itself when shaping the wizard args.
+    # base_url is the full OpenAI-compatible endpoint (with /api/v1) the
+    # operator configured via the `openai-url` snap setting; gateway_environment
+    # splits it into prefix + path for the openclaw wrapper.
     return ProviderConfig(
         provider_id="lemonade",
-        base_url=lemonade.LEMONADE_BASE_URL.rstrip("/"),
+        base_url=settings.openai_url,
         model_id=lemonade.DEFAULT_MODEL["model_name"],
     )
 
@@ -79,9 +80,12 @@ def _lemonade_state() -> ProviderState:
 # ---------------------------------------------------------------------------
 
 def _gemma4_config() -> ProviderConfig:
+    # The nimbus snap can't reach `gemma4 status` under confinement, so we
+    # trust the operator-supplied openai-url (or its provider default) rather
+    # than trying to discover the port at runtime.
     return ProviderConfig(
         provider_id="gemma4",
-        base_url=gemma4.base_url(),
+        base_url=settings.openai_url,
         model_id=gemma4.GEMMA4_MODEL_ID,
     )
 
@@ -123,10 +127,17 @@ def gateway_environment() -> dict[str, str]:
     # In LXD mode the gateway runs inside docker-in-LXC and reaches the host
     # via host.docker.internal — rewrite localhost in the base URL to that
     # alias so the openclaw wizard records a URL the container can resolve.
-    container_base = cfg.base_url.replace("localhost", "host.docker.internal")
-    container_base = container_base.replace("127.0.0.1", "host.docker.internal")
+    container_url = cfg.base_url.replace("localhost", "host.docker.internal")
+    container_url = container_url.replace("127.0.0.1", "host.docker.internal")
+    # The wrapper concatenates NIMBUS_OPENCLAW_BASE_URL + NIMBUS_OPENCLAW_API_PATH;
+    # split the configured full URL so the operator's path (e.g. /v1 vs /api/v1)
+    # wins over the wrapper's provider-keyed default.
+    parsed = urlparse(container_url)
+    prefix = urlunparse((parsed.scheme, parsed.netloc, "", "", "", ""))
+    api_path = parsed.path or ""
     return {
-        "NIMBUS_OPENCLAW_BASE_URL": container_base,
+        "NIMBUS_OPENCLAW_BASE_URL": prefix,
+        "NIMBUS_OPENCLAW_API_PATH": api_path,
         "NIMBUS_OPENCLAW_MODEL_ID": cfg.model_id,
         "NIMBUS_OPENCLAW_PROVIDER_ID": cfg.provider_id,
         "NIMBUS_OPENCLAW_COMPATIBILITY": cfg.compatibility,
