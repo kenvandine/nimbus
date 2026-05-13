@@ -70,7 +70,7 @@ if [ -n "$EXTRA_SNAP" ]; then
         --snap "$GADGET_SNAP" \
         --snap "$NIMBUS_SNAP" \
         --snap "$EXTRA_SNAP" \
-        --image-size=10G \
+        --image-size=18G \
         --assertion ./user.assert \
         --preseed --preseed-sign-key my-key
 else
@@ -79,7 +79,7 @@ else
         ubuntu-image snap "$MODEL_ASSERTION" \
         --snap "$GADGET_SNAP" \
         --snap "$NIMBUS_SNAP" \
-        --image-size=10G \
+        --image-size=18G \
         --assertion ./user.assert \
         --preseed --preseed-sign-key my-key
 fi

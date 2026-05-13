@@ -104,7 +104,9 @@
             "default-channel": "latest/stable",
             "id": "nNbuN9gyZsgtKYLNk7bCdDFJrSkGZpLm",
             "components": {
-                "llamacpp": "required"
+                "llamacpp": "required",
+                "model-e4b-q4-k-m-gguf": "required",
+                "mmproj-e4b-q8-0-gguf": "required"
             }
         }
     ],
