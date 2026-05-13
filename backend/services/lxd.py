@@ -73,6 +73,11 @@ class LxdManager:
         safe = re.sub(r"[^a-zA-Z0-9-]", "-", app_id)
         return f"nimbus-app-{safe}"
 
+    # Single LXD proxy device that surfaces the host-side model service
+    # (gemma4 / lemonade bound to 127.0.0.1) inside the nimbus LXC, where the
+    # openclaw container can reach it via docker's host-gateway alias.
+    _PROVIDER_PROXY_DEVICE_NAME = "nimbus-provider-fwd"
+
     def _bootstrap_in_progress(self) -> bool:
         return self._bootstrap_state in {
             "ensuring-daemon",
@@ -328,6 +333,36 @@ class LxdManager:
             "listen": f"tcp:{settings.lxd_publish_host}:{port}",
             "connect": f"tcp:127.0.0.1:{port}",
         }
+
+    def _provider_proxy_device(self, port: int) -> dict[str, str]:
+        # bind=container: listener runs in the LXC's netns (visible on docker
+        # bridge too); connector runs in the host's netns so it reaches the
+        # model snap's 127.0.0.1 listener.
+        return {
+            "type": "proxy",
+            "bind": "container",
+            "listen": f"tcp:0.0.0.0:{port}",
+            "connect": f"tcp:127.0.0.1:{port}",
+        }
+
+    def _configure_provider_proxy(self, instance) -> None:
+        """Sync the host-loopback bridge device against the current openai-url.
+        Adds / updates the device when the URL points at a loopback port, and
+        removes it otherwise (e.g. operator pointed at an off-host server)."""
+        from services import model_provider
+        devices = self._instance_devices(instance)
+        name = self._PROVIDER_PROXY_DEVICE_NAME
+        port = model_provider.loopback_listen_port()
+        if not port:
+            if name in devices:
+                devices.pop(name, None)
+                self._save_instance_devices(instance, devices)
+            return
+        desired = self._provider_proxy_device(port)
+        if devices.get(name) == desired:
+            return
+        devices[name] = desired
+        self._save_instance_devices(instance, devices)
 
     def _configure_app_proxy(self, instance, app_id: str, port: int | None) -> None:
         devices = self._instance_devices(instance)
@@ -635,6 +670,7 @@ print(json.dumps(apps), end='')
             captured_at=time.monotonic(),
         )
         self._reconcile_app_proxies(instance, snapshot.installed)
+        self._configure_provider_proxy(instance)
         with self._snapshot_lock:
             self._snapshot_cache = snapshot
         return snapshot
@@ -728,23 +764,6 @@ print(json.dumps(apps), end='')
         self._run(instance, ["mkdir", "-p", str(CONTAINER_OVERLAY_DIR)])
         instance.files.recursive_put(str(src), str(CONTAINER_OVERLAY_DIR))
 
-    def _container_default_gateway(self, instance) -> str | None:
-        """Ask the LXC container what its default gateway is.
-
-        That gateway IS the physical host (lxdbr0's interface), which is
-        where the lemonade snap binds. Docker-in-LXC's host-gateway alias
-        would resolve to the LXC container itself instead, so we pass this
-        IP explicitly as extra_hosts: host.docker.internal:<ip>.
-        """
-        rc, out, _ = self._run(
-            instance,
-            ["sh", "-c", "ip -4 route show default | awk '{print $3}' | head -n1"],
-        )
-        if rc != 0:
-            return None
-        ip = out.strip()
-        return ip or None
-
     def _prepare_volume_paths(self, instance, bundle: docker.PreparedAppBundle) -> None:
         self._run(instance, ["mkdir", "-p", str(bundle.app_dir), str(bundle.data_dir)])
         self._run(instance, ["chmod", "777", str(bundle.data_dir)])
@@ -762,21 +781,17 @@ print(json.dumps(apps), end='')
     def install_app(self, app_id: str) -> None:
         self.ensure_bootstrapped()
         instance = self.ensure_started()
-        host_gateway_ip: str | None = None
         if app_id == "openclaw":
             self._push_openclaw_overlay(instance)
             self._ensure_openclaw_workspace_device(instance)
-            host_gateway_ip = self._container_default_gateway(instance)
-            if not host_gateway_ip:
-                logger.warning(
-                    "Could not resolve LXC default gateway — openclaw will use docker's "
-                    "host-gateway, which may not reach lemonade on the physical host."
-                )
+            # Install the LXD proxy device that bridges the host's loopback
+            # model service into the LXC before docker compose comes up, so
+            # the openclaw gateway can reach it on its first request.
+            self._configure_provider_proxy(instance)
         bundle = docker.build_app_bundle(
             app_id,
             installed_dir=CONTAINER_INSTALLED_DIR,
             overlay_dir=CONTAINER_OVERLAY_DIR,
-            host_gateway_ip=host_gateway_ip,
         )
         self._prepare_volume_paths(instance, bundle)
         self._write_file(instance, f"{bundle.app_dir}/docker-compose.yml", bundle.compose_text)
@@ -809,17 +824,15 @@ print(json.dumps(apps), end='')
         if not env_text:
             raise RuntimeError(f"App '{app_id}' has no saved environment")
         instance = self.ensure_started()
-        host_gateway_ip: str | None = None
         if app_id == "openclaw":
             self._push_openclaw_overlay(instance)
             self._ensure_openclaw_workspace_device(instance)
-            host_gateway_ip = self._container_default_gateway(instance)
+            self._configure_provider_proxy(instance)
         bundle = docker.build_app_bundle(
             app_id,
             installed_dir=CONTAINER_INSTALLED_DIR,
             env_text=env_text,
             overlay_dir=CONTAINER_OVERLAY_DIR,
-            host_gateway_ip=host_gateway_ip,
         )
         self._prepare_volume_paths(instance, bundle)
         self._write_file(instance, f"{bundle.app_dir}/docker-compose.yml", bundle.compose_text)

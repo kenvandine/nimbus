@@ -108,6 +108,20 @@ def current_provider() -> str:
     return settings.model_provider
 
 
+def loopback_listen_port() -> int | None:
+    """Return the host TCP port if `openai-url` points at the host's loopback,
+    else None. Used by services/lxd.py to decide whether to install an LXD
+    proxy device that bridges the openclaw container to a host-bound service.
+    """
+    try:
+        parsed = urlparse(settings.openai_url)
+    except ValueError:
+        return None
+    if parsed.hostname not in ("127.0.0.1", "localhost"):
+        return None
+    return parsed.port
+
+
 def get_provider_config() -> ProviderConfig:
     if settings.model_provider == MODEL_PROVIDER_GEMMA4:
         return _gemma4_config()

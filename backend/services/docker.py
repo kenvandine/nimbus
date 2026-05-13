@@ -88,7 +88,6 @@ def _prepare_compose_data(
     compose_src: Path,
     *,
     overlay_dir: Optional[Path] = None,
-    host_gateway_ip: Optional[str] = None,
 ) -> dict:
     """Return compose data patched for standalone (non-Umbrel) use.
 
@@ -97,9 +96,10 @@ def _prepare_compose_data(
     openclaw-overlay/ folder; in LXD mode the LXD manager pushes the same
     contents into a known path inside the container and passes that path here.
 
-    host_gateway_ip overrides the special "host-gateway" magic alias for
-    extra_hosts. Required in LXD mode because docker's host-gateway resolves
-    to the LXC container, not the physical host where Lemonade lives.
+    host.docker.internal resolves to docker's `host-gateway` alias (the docker
+    bridge IP from inside the container). In LXD mode that's the nimbus LXC's
+    docker bridge, where the LXD provider-proxy device listens — bridging
+    requests to the model snap on the host's 127.0.0.1.
     """
     data = yaml.safe_load(compose_src.read_text())
     services = data.get("services", {})
@@ -157,7 +157,6 @@ def _prepare_compose_data(
         _apply_openclaw_overlay(
             services,
             resolved_overlay,
-            host_gateway_ip,
             gateway_environment(),
         )
 
@@ -170,7 +169,6 @@ def _prepare_compose_data(
 def _apply_openclaw_overlay(
     services: dict,
     overlay_dir: Path,
-    host_gateway_ip: Optional[str] = None,
     extra_env: Optional[dict[str, str]] = None,
 ) -> None:
     """Inject Nimbus's setup-wrapper.cjs and host.docker.internal into the
@@ -178,8 +176,10 @@ def _apply_openclaw_overlay(
 
     The wrapper rebrands setup.html, preselects the configured model provider
     in the onboarding wizard, and tunes openclaw.json after the wizard exits.
-    The provider runs as a host snap; host.docker.internal lets the container
-    reach it.
+    host.docker.internal uses docker's default host-gateway alias; in LXD
+    mode that lands on the LXC's docker bridge where the LxdManager's
+    provider-proxy device listens and forwards to the host's loopback model
+    service.
 
     overlay_dir is the path where the docker daemon can see the wrapper at
     bind-mount time. In LXD mode the caller has already pushed the wrapper
@@ -193,8 +193,7 @@ def _apply_openclaw_overlay(
     wrapper_path = overlay_dir / "setup-wrapper.cjs"
 
     extra_hosts = list(gateway.get("extra_hosts") or [])
-    target = host_gateway_ip or "host-gateway"
-    host_alias = f"host.docker.internal:{target}"
+    host_alias = "host.docker.internal:host-gateway"
     if not any(h.startswith("host.docker.internal:") for h in extra_hosts):
         extra_hosts.append(host_alias)
     gateway["extra_hosts"] = extra_hosts
@@ -510,7 +509,6 @@ def build_app_bundle(
     installed_dir: Path = INSTALLED_DIR,
     env_text: str | None = None,
     overlay_dir: Optional[Path] = None,
-    host_gateway_ip: Optional[str] = None,
 ) -> PreparedAppBundle:
     compose_src = get_app_compose_path(app_id)
     if compose_src is None:
@@ -535,7 +533,6 @@ def build_app_bundle(
         app_id,
         compose_src,
         overlay_dir=overlay_dir,
-        host_gateway_ip=host_gateway_ip,
     )
     volume_paths = _collect_volume_paths(compose_data, env_vars)
     meta = get_app_meta(app_id)
