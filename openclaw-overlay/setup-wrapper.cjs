@@ -144,6 +144,12 @@ async function probeModelsEndpoint() {
   // Lemonade and OpenAI-compatible servers expose <base>/models — if that
   // returns 200 we treat the provider as reachable. We separately check
   // whether MODEL_ID is in the list for the banner's "model ready" signal.
+  //
+  // Response shapes seen in the wild:
+  //   OpenAI:   {"data":   [{"id":   "<name>", ...}]}
+  //   gemma4:   {"models": [{"name": "<name>", "model": "<name>", ...}]}
+  //   bare:     [{...}]
+  // Normalise all three into a list of candidate id strings.
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 3000);
   try {
@@ -151,12 +157,17 @@ async function probeModelsEndpoint() {
     clearTimeout(t);
     if (!r.ok) return { reachable: false, ready: false, error: `HTTP ${r.status}` };
     const data = await r.json().catch(() => null);
-    const models = Array.isArray(data) ? data : data && data.data;
+    const list = Array.isArray(data)
+      ? data
+      : (data && (data.data || data.models)) || null;
     let ready = true;
-    if (Array.isArray(models)) {
-      // If we got an explicit list, gate "ready" on the configured model
-      // showing up in it. If the list is empty we still mark reachable.
-      ready = models.length === 0 || models.some((m) => m && m.id === MODEL_ID);
+    if (Array.isArray(list)) {
+      ready =
+        list.length === 0 ||
+        list.some(
+          (m) =>
+            m && (m.id === MODEL_ID || m.name === MODEL_ID || m.model === MODEL_ID)
+        );
     }
     return { reachable: true, ready, error: null };
   } catch (e) {

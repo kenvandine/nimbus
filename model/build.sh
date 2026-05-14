@@ -63,6 +63,25 @@ fi
 # snap-declaration and snap-revision assertions are rejected, so a local snap
 # passed via --snap will still seed as x1. Use a Store-published revision if
 # you need an asserted snap revision in the image.
+#
+# --workdir keeps the intermediate seed/rootfs around so a failed component
+# download or seed-too-small error can be diagnosed by inspecting
+# build-workdir/. --debug surfaces ubuntu-image's per-step progress and any
+# warnings (especially for component fetches).
+#
+# If the workdir already has ubuntu-image state from a previous interrupted
+# run, resume instead of starting over — re-downloading the 5 GB gemma4
+# model component on every retry is otherwise the slow path.
+BUILD_WORKDIR="$(pwd)/build-workdir-$TARGET_MODEL"
+RESUME_FLAG=""
+if [ -d "$BUILD_WORKDIR" ] && [ -n "$(sudo ls -A "$BUILD_WORKDIR" 2>/dev/null)" ]; then
+    echo "Resuming from existing workdir: $BUILD_WORKDIR"
+    RESUME_FLAG="--resume"
+else
+    mkdir -p "$BUILD_WORKDIR"
+    sudo chown root:root "$BUILD_WORKDIR"
+fi
+
 if [ -n "$EXTRA_SNAP" ]; then
     sudo env -u SUDO_UID -u SUDO_GID -u SUDO_USER \
         SNAP_GNUPG_HOME="$ROOT_GNUPG_HOME" \
@@ -70,8 +89,11 @@ if [ -n "$EXTRA_SNAP" ]; then
         --snap "$GADGET_SNAP" \
         --snap "$NIMBUS_SNAP" \
         --snap "$EXTRA_SNAP" \
-        --image-size=18G \
+        --image-size=22G \
         --assertion ./user.assert \
+        --workdir "$BUILD_WORKDIR" \
+        --debug \
+        $RESUME_FLAG \
         --preseed --preseed-sign-key my-key
 else
     sudo env -u SUDO_UID -u SUDO_GID -u SUDO_USER \
@@ -79,12 +101,21 @@ else
         ubuntu-image snap "$MODEL_ASSERTION" \
         --snap "$GADGET_SNAP" \
         --snap "$NIMBUS_SNAP" \
-        --image-size=18G \
+        --image-size=22G \
         --assertion ./user.assert \
+        --workdir "$BUILD_WORKDIR" \
+        --debug \
+        $RESUME_FLAG \
         --preseed --preseed-sign-key my-key
 fi
 
+# With --workdir, ubuntu-image drops the final pc.img + seed.manifest into the
+# workdir rather than cwd. Move them out and reclaim ownership before
+# compressing.
 for artifact in pc.img seed.manifest; do
+    if [ -e "$BUILD_WORKDIR/$artifact" ]; then
+        sudo mv "$BUILD_WORKDIR/$artifact" "./$artifact"
+    fi
     if [ -e "$artifact" ]; then
         sudo chown "$(id -un):$(id -gn)" "$artifact"
     fi

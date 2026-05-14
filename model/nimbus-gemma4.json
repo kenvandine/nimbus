@@ -101,12 +101,12 @@
         {
             "name": "gemma4",
             "type": "app",
-            "default-channel": "latest/stable",
+            "default-channel": "latest/beta",
             "id": "nNbuN9gyZsgtKYLNk7bCdDFJrSkGZpLm",
             "components": {
                 "llamacpp": "required",
-                "model-e4b-q4-k-m-gguf": "required",
-                "mmproj-e4b-q8-0-gguf": "required"
+                "model-e2b-q4-k-m-gguf": "required",
+                "mmproj-e2b-bf16-gguf": "required"
             }
         }
     ],

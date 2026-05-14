@@ -41,8 +41,11 @@ GEMMA4_BASE_URL_OVERRIDE = os.getenv("NIMBUS_GEMMA4_BASE_URL")
 # can correct it via NIMBUS_GEMMA4_BASE_URL after first boot.
 GEMMA4_DEFAULT_PORT = int(os.getenv("NIMBUS_GEMMA4_DEFAULT_PORT", "8080"))
 # Default model id served by gemma4. Overridable so the openclaw config can
-# follow a future model rename without a code change.
-GEMMA4_MODEL_ID = os.getenv("NIMBUS_GEMMA4_MODEL_ID", "gemma-3-4b-it")
+# follow a future model rename without a code change. The snap derives this
+# from the loaded model component name (`model-<variant>-<quant>-gguf` →
+# `gemma4-<variant>-<quant>`), so the default has to match whichever
+# component the model assertion seeds — currently model-e2b-q4-k-m-gguf.
+GEMMA4_MODEL_ID = os.getenv("NIMBUS_GEMMA4_MODEL_ID", "gemma4-e2b-q4-k-m")
 
 
 @dataclass
