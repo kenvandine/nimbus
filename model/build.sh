@@ -2,53 +2,71 @@
 
 set -eu
 
-if [ "$#" -ne 1 ]; then
-    echo "usage: $0 nimbus-lemonade|nimbus-gemma4" >&2
-    exit 1
-fi
+usage() {
+    cat >&2 <<EOF
+usage: $0 nimbus-lemonade|nimbus-gemma4 [--preseed|--no-preseed]
 
+Defaults:
+  nimbus-lemonade  preseed ON  (lemonade install hook is preseed-safe)
+  nimbus-gemma4    preseed OFF (gemma4 install hook fails during preseed
+                                — runs a hardware/RAM check in a cgroup-
+                                constrained snap-preseed sandbox)
+EOF
+    exit 1
+}
+
+[ "$#" -ge 1 ] || usage
 TARGET_MODEL=$1
+shift
+
 MODEL_JSON=$TARGET_MODEL.json
 MODEL_ASSERTION=$TARGET_MODEL.model
 OUTPUT_DIR=$TARGET_MODEL
 
 case "$TARGET_MODEL" in
     nimbus-lemonade)
-        EXTRA_SNAP=../../../../lemonade-sdk/lemonade-server-snap/lemonade-server_v10.4.0-7-g7c001dc5fc_amd64.snap
+        EXTRA_SNAP=
         GADGET_SNAP=../../pc-amd64-gadget/pc_lemonade-24-0.2_amd64.snap
+        PRESEED_DEFAULT=1
         ;;
     nimbus-gemma4)
         EXTRA_SNAP=
         GADGET_SNAP=../../pc-amd64-gadget/pc_gemma4-24-0.2_amd64.snap
+        PRESEED_DEFAULT=0
         ;;
     *)
         echo "unsupported model: $TARGET_MODEL" >&2
-        echo "supported models: nimbus-lemonade, nimbus-gemma4" >&2
-        exit 1
+        usage
         ;;
 esac
+
+PRESEED=$PRESEED_DEFAULT
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --preseed)    PRESEED=1 ;;
+        --no-preseed) PRESEED=0 ;;
+        *)            echo "unknown flag: $1" >&2; usage ;;
+    esac
+    shift
+done
 
 if [ ! -f "$MODEL_JSON" ]; then
     echo "missing model file: $MODEL_JSON" >&2
     exit 1
 fi
 
-NIMBUS_SNAP=$(ls ../nimbus*.snap | head -n1)
-SNAP_GNUPG_HOME=${SNAP_GNUPG_HOME:-"$HOME/.snap/gnupg"}
-ROOT_GNUPG_HOME=$(mktemp -d)
-
-cleanup() {
-    rm -rf "$ROOT_GNUPG_HOME"
-}
-
-trap cleanup EXIT
-
-# ubuntu-image runs with sudo for image creation, so preseed signing also runs
-# as root. GnuPG refuses to use the user-owned snap keyring in that case, so
-# provide a root-owned copy just for this invocation.
-cp -a "$SNAP_GNUPG_HOME"/. "$ROOT_GNUPG_HOME"/
-find "$ROOT_GNUPG_HOME" \( -type s -o -name '*.lock' \) -delete
-sudo chown -R root:root "$ROOT_GNUPG_HOME"
+# When preseeding, ubuntu-image runs `snap-preseed sign` as root and snapd
+# refuses to use the user-owned snap keyring in that case. Provide a root-
+# owned copy of the keyring just for the preseed call. Skipped when
+# preseed is off — model.json and user.json signing run as the user.
+if [ "$PRESEED" -eq 1 ]; then
+    SNAP_GNUPG_HOME=${SNAP_GNUPG_HOME:-"$HOME/.snap/gnupg"}
+    ROOT_GNUPG_HOME=$(mktemp -d)
+    trap 'rm -rf "$ROOT_GNUPG_HOME"' EXIT
+    cp -a "$SNAP_GNUPG_HOME"/. "$ROOT_GNUPG_HOME"/
+    find "$ROOT_GNUPG_HOME" \( -type s -o -name '*.lock' \) -delete
+    sudo chown -R root:root "$ROOT_GNUPG_HOME"
+fi
 
 snap sign -k my-key "$MODEL_JSON" > "$MODEL_ASSERTION"
 
@@ -72,7 +90,7 @@ fi
 # If the workdir already has ubuntu-image state from a previous interrupted
 # run, resume instead of starting over — re-downloading the 5 GB gemma4
 # model component on every retry is otherwise the slow path.
-BUILD_WORKDIR="$(pwd)/build-workdir-$TARGET_MODEL"
+BUILD_WORKDIR="$(pwd)/../../build-workdir-$TARGET_MODEL"
 RESUME_FLAG=""
 if [ -d "$BUILD_WORKDIR" ] && [ -n "$(sudo ls -A "$BUILD_WORKDIR" 2>/dev/null)" ]; then
     echo "Resuming from existing workdir: $BUILD_WORKDIR"
@@ -82,32 +100,32 @@ else
     sudo chown root:root "$BUILD_WORKDIR"
 fi
 
-if [ -n "$EXTRA_SNAP" ]; then
-    sudo env -u SUDO_UID -u SUDO_GID -u SUDO_USER \
-        SNAP_GNUPG_HOME="$ROOT_GNUPG_HOME" \
-        ubuntu-image snap "$MODEL_ASSERTION" \
-        --snap "$GADGET_SNAP" \
-        --snap "$NIMBUS_SNAP" \
-        --snap "$EXTRA_SNAP" \
-        --image-size=22G \
-        --assertion ./user.assert \
-        --workdir "$BUILD_WORKDIR" \
-        --debug \
-        $RESUME_FLAG \
-        --preseed --preseed-sign-key my-key
+PRESEED_FLAGS=""
+ENV_VARS=""
+if [ "$PRESEED" -eq 1 ]; then
+    echo "Building with --preseed (signing key: my-key)"
+    PRESEED_FLAGS="--preseed --preseed-sign-key my-key"
+    ENV_VARS="SNAP_GNUPG_HOME=$ROOT_GNUPG_HOME"
 else
-    sudo env -u SUDO_UID -u SUDO_GID -u SUDO_USER \
-        SNAP_GNUPG_HOME="$ROOT_GNUPG_HOME" \
-        ubuntu-image snap "$MODEL_ASSERTION" \
-        --snap "$GADGET_SNAP" \
-        --snap "$NIMBUS_SNAP" \
-        --image-size=22G \
-        --assertion ./user.assert \
-        --workdir "$BUILD_WORKDIR" \
-        --debug \
-        $RESUME_FLAG \
-        --preseed --preseed-sign-key my-key
+    echo "Building without preseed — snaps will install on first boot"
 fi
+
+EXTRA_SNAP_FLAG=""
+if [ -n "$EXTRA_SNAP" ]; then
+    EXTRA_SNAP_FLAG="--snap $EXTRA_SNAP"
+fi
+
+sudo env -u SUDO_UID -u SUDO_GID -u SUDO_USER \
+    $ENV_VARS \
+    ubuntu-image snap "$MODEL_ASSERTION" \
+    --snap "$GADGET_SNAP" \
+    $EXTRA_SNAP_FLAG \
+    --image-size=22G \
+    --assertion ./user.assert \
+    --workdir "$BUILD_WORKDIR" \
+    --debug \
+    $RESUME_FLAG \
+    $PRESEED_FLAGS
 
 # With --workdir, ubuntu-image drops the final pc.img + seed.manifest into the
 # workdir rather than cwd. Move them out and reclaim ownership before
