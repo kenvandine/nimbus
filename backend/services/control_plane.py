@@ -18,22 +18,22 @@ from services import docker, model_provider, network, store, system_apps
 
 logger = logging.getLogger(__name__)
 
-_PRESSED_STATE = ".pressed_apps_state"
+_PRESEED_STATE = ".preseed_apps_state"
 
 
-def _load_pressed_state(data_dir: Path) -> set[str]:
+def _load_preseed_state(data_dir: Path) -> set[str]:
     try:
-        return set(json.loads((data_dir / _PRESSED_STATE).read_text()))
+        return set(json.loads((data_dir / _PRESEED_STATE).read_text()))
     except Exception:
         return set()
 
 
-def _save_pressed_state(data_dir: Path, queued: set[str]) -> None:
+def _save_preseed_state(data_dir: Path, queued: set[str]) -> None:
     try:
         data_dir.mkdir(parents=True, exist_ok=True)
-        (data_dir / _PRESSED_STATE).write_text(json.dumps(sorted(queued)))
+        (data_dir / _PRESEED_STATE).write_text(json.dumps(sorted(queued)))
     except OSError as exc:
-        logger.warning("Could not write pressed-apps state: %s", exc)
+        logger.warning("Could not write preseed-apps state: %s", exc)
 
 
 def _ensure_openclaw_workspace_link() -> None:
@@ -90,22 +90,22 @@ async def _maybe_ensure_model_provider(cp: ControlPlane) -> None:
             return
 
 
-async def _maybe_install_pressed_apps(cp: ControlPlane) -> None:
-    """Queue installs for any pressed apps not yet seen on this device."""
-    if not settings.pressed_apps:
+async def _maybe_install_preseed_apps(cp: ControlPlane) -> None:
+    """Queue installs for any preseed apps not yet seen on this device."""
+    if not settings.preseed_apps:
         return
     data_dir = settings.installed_dir.parent
-    already = _load_pressed_state(data_dir)
-    new_apps = [a for a in settings.pressed_apps if a not in already]
+    already = _load_preseed_state(data_dir)
+    new_apps = [a for a in settings.preseed_apps if a not in already]
     if not new_apps:
         return
-    logger.info("Queuing install for new pressed apps: %s", new_apps)
+    logger.info("Queuing install for new preseed apps: %s", new_apps)
     for app_id in new_apps:
         try:
             await cp.request_install(app_id)
         except Exception as exc:
-            logger.warning("Failed to queue pressed app %s: %s", app_id, exc)
-    _save_pressed_state(data_dir, already | set(new_apps))
+            logger.warning("Failed to queue preseed app %s: %s", app_id, exc)
+    _save_preseed_state(data_dir, already | set(new_apps))
 
 
 class ControlPlane(Protocol):
@@ -151,7 +151,7 @@ class LocalControlPlane:
 
     async def initialize(self) -> None:
         _ensure_openclaw_workspace_link()
-        await _maybe_install_pressed_apps(self)
+        await _maybe_install_preseed_apps(self)
         await _maybe_ensure_model_provider(self)
 
     async def _status_for(self, app_id: str, meta=None) -> AppStatus:
@@ -411,7 +411,7 @@ class LxdControlPlane:
             logger.info("Network is up, starting LXD bootstrap")
         await asyncio.to_thread(self.manager.ensure_bootstrapped)
         _ensure_openclaw_workspace_link()
-        await _maybe_install_pressed_apps(self)
+        await _maybe_install_preseed_apps(self)
         await _maybe_ensure_model_provider(self)
 
     def _raise_manager_error(self, exc: Exception) -> HTTPException:

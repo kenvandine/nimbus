@@ -31,6 +31,16 @@ if command -v snapctl >/dev/null 2>&1; then
   if [ -n "$openai_url" ]; then
     export NIMBUS_OPENAI_URL="$openai_url"
   fi
+  appstore_visible="$(snapctl get appstore-visible 2>/dev/null || true)"
+  if [ "$appstore_visible" = "true" ]; then
+    export NIMBUS_APPSTORE_VISIBLE=true
+  else
+    export NIMBUS_APPSTORE_VISIBLE=false
+  fi
+  preseed_apps="$(snapctl get preseed-apps 2>/dev/null || true)"
+  if [ -n "$preseed_apps" ]; then
+    export NIMBUS_PRESEED_APPS="$preseed_apps"
+  fi
 fi
 
 # Marker the configure hook checks before issuing a snapctl restart, so we

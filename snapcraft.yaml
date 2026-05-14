@@ -39,10 +39,12 @@ apps:
       NIMBUS_LXD_CONTAINER_NAME: nimbus
       NIMBUS_LXD_PROFILE_NAME: nimbus-hosting
       # Additional Umbrel app IDs to auto-install on first run (comma-separated).
-      # openclaw is always preseeded automatically.
-      # Example: NIMBUS_PRESSED_APPS: "nextcloud,home-assistant"
-      NIMBUS_PRESSED_APPS: ""
-      # Set to "false" to hide the App Store button in the dock.
+      # openclaw is always preseeded automatically. Overridden at launch from
+      # `snap get nimbus preseed-apps` if set.
+      # Example: NIMBUS_PRESEED_APPS: "nextcloud,home-assistant"
+      NIMBUS_PRESEED_APPS: ""
+      # Controls App Store visibility. Overridden at launch from
+      # `snap get nimbus appstore-visible` if set (true/false; default false).
       NIMBUS_APPSTORE_VISIBLE: ""
       # Root directory exposed by the file browser (defaults to $HOME = $SNAP_COMMON).
       NIMBUS_FILES_ROOT: ""

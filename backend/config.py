@@ -12,7 +12,7 @@ def _env_bool(name: str, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _parse_pressed_apps(env_val: str | None) -> list[str]:
+def _parse_preseed_apps(env_val: str | None) -> list[str]:
     if not env_val:
         return []
     return [app_id.strip() for app_id in env_val.split(",") if app_id.strip()]
@@ -57,7 +57,7 @@ class Settings:
     lxd_agent_token: str | None
     lxd_publish_host: str
     # Pressed apps: auto-installed on first run; always includes openclaw
-    pressed_apps: list[str] = field(default_factory=list)
+    preseed_apps: list[str] = field(default_factory=list)
     # Whether the App Store UI is shown (default True; set NIMBUS_APPSTORE_VISIBLE=false to hide)
     appstore_visible: bool = True
     # Root directory exposed by the file browser
@@ -84,10 +84,10 @@ def _build_settings() -> Settings:
         remote_base_url = remote_base_url.rstrip("/")
 
     # openclaw is always preseeded; user-supplied apps are appended after it
-    _user_apps = _parse_pressed_apps(os.getenv("NIMBUS_PRESSED_APPS"))
-    pressed_apps = ["openclaw"] + [a for a in _user_apps if a != "openclaw"]
+    _user_apps = _parse_preseed_apps(os.getenv("NIMBUS_PRESEED_APPS"))
+    preseed_apps = ["openclaw"] + [a for a in _user_apps if a != "openclaw"]
 
-    appstore_visible = _env_bool("NIMBUS_APPSTORE_VISIBLE", True)
+    appstore_visible = _env_bool("NIMBUS_APPSTORE_VISIBLE", False)
 
     files_root_env = os.getenv("NIMBUS_FILES_ROOT")
     files_root = Path(files_root_env) if files_root_env else Path.home()
@@ -140,7 +140,7 @@ def _build_settings() -> Settings:
         lxd_agent_bind_host=os.getenv("NIMBUS_LXD_AGENT_BIND_HOST", "127.0.0.1"),
         lxd_agent_token=os.getenv("NIMBUS_LXD_AGENT_TOKEN") or os.getenv("NIMBUS_API_TOKEN"),
         lxd_publish_host=os.getenv("NIMBUS_LXD_PUBLISH_HOST", "0.0.0.0"),
-        pressed_apps=pressed_apps,
+        preseed_apps=preseed_apps,
         appstore_visible=appstore_visible,
         files_root=files_root,
         overlay_dir=overlay_dir,
