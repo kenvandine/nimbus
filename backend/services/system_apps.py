@@ -67,5 +67,5 @@ def get_gemma4_app(host_ip: str | None) -> AppDetail:
 
 async def get_system_apps(host_ip: str | None) -> list[AppDetail]:
     if settings.model_provider == MODEL_PROVIDER_GEMMA4:
-        return [get_gemma4_app(host_ip)]
+        return []
     return [get_lemonade_app(host_ip)]
