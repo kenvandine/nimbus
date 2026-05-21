@@ -1,13 +1,14 @@
 """nimbus reset — remove all installed apps and re-trigger initialization.
 
 Removes every docker-compose app from the LXD container and clears the
-preseed state so the nimbus daemon reinstalls them on its next startup.
+preseed state so apps are reinstalled on the next startup.
 The LXD container and its bootstrap (docker, python, agent) are preserved;
 only app data is wiped.
 """
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 
 
@@ -105,13 +106,26 @@ def main() -> None:
         except OSError as exc:
             print(f"  Warning: could not remove host preseed state: {exc}")
 
-    print("Restarting nimbus service...")
-    rc = os.system("snapctl restart nimbus")
-    if rc != 0:
-        print("  Warning: snapctl restart returned non-zero; the daemon may need a manual restart.")
+    # Restart the nimbus agent inside the LXC. The agent runs LocalControlPlane
+    # which calls _maybe_install_preseed_apps on startup — this is what actually
+    # drives the docker install. Without restarting the agent the preseed never
+    # re-fires even though we cleared the state files.
+    print("Restarting nimbus agent (container)...")
+    _run(instance, ["systemctl", "restart", "nimbus"], acceptable={0, 1})
+
+    # Also restart the host daemon so it picks up the clean state. Use the
+    # fully-qualified service name to match how the configure hook does it.
+    snap_instance = os.getenv("SNAP_INSTANCE_NAME", "nimbus")
+    svc = f"{snap_instance}.nimbus"
+    print(f"Restarting nimbus daemon (host)...")
+    result = subprocess.run(["snapctl", "restart", svc],
+                            capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"  Warning: snapctl restart {svc!r} failed: {result.stderr.strip()}")
+        print("  The host daemon may need a manual restart: sudo snap restart nimbus")
 
     print()
-    print("Reset complete. Nimbus will reinstall your apps automatically.")
+    print("Reset complete. Apps will reinstall automatically in the next few minutes.")
 
 
 if __name__ == "__main__":
