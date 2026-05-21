@@ -314,8 +314,27 @@ class LxdManager:
 
     def ensure_started(self):
         instance = self.ensure_instance()
-        if getattr(instance, "status", "").lower() != "running":
-            instance.start(wait=True)
+        for attempt in range(10):
+            status = getattr(instance, "status", "").lower()
+            if status == "running":
+                return instance
+            try:
+                instance.start(wait=True)
+                return instance
+            except LXDAPIException as exc:
+                # LXD serialises operations per instance. A freshly-created or
+                # recently-saved instance may still have a "create"/"update"
+                # operation in flight; back off and retry rather than failing
+                # the whole bootstrap.
+                if "busy" in str(exc).lower() and attempt < 9:
+                    logger.warning(
+                        "LXD instance %s busy (attempt %d/10), retrying in 5s: %s",
+                        settings.lxd_container_name, attempt + 1, exc,
+                    )
+                    time.sleep(5)
+                    instance.sync()
+                    continue
+                raise
         return instance
 
     def _instance_devices(self, instance) -> dict:
