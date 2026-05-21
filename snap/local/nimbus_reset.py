@@ -24,6 +24,33 @@ def _run(instance, cmd: list[str], *, acceptable: set[int] = frozenset({0})) -> 
     return rc, stdout, stderr
 
 
+def _detach_disk_devices(instance) -> None:
+    """Remove all non-root LXD disk devices from the instance.
+
+    LXD disk (bind-mount) devices for app data paths block `rm -rf` from
+    fully removing the installed-app directory tree — Linux refuses to remove
+    a live mount point, leaving stale directory stubs that confuse the next
+    install. Detaching them first lets the wipe complete cleanly; the next
+    `install_app` call re-attaches them.
+    """
+    try:
+        instance.sync()
+        devices = dict(getattr(instance, "devices", {}) or {})
+        disk_names = [
+            name for name, dev in devices.items()
+            if isinstance(dev, dict) and dev.get("type") == "disk" and name != "root"
+        ]
+        if not disk_names:
+            return
+        for name in disk_names:
+            del devices[name]
+            print(f"  Detaching LXD disk device: {name}")
+        instance.devices = devices
+        instance.save(wait=True)
+    except Exception as exc:
+        print(f"  Warning: could not detach LXD disk devices: {exc}")
+
+
 def main() -> None:
     if os.geteuid() != 0:
         _die("this command must be run as root (try: sudo nimbus.reset)")
@@ -88,6 +115,13 @@ def main() -> None:
     else:
         print("No installed apps found in container.")
 
+    # Detach LXD disk devices (e.g. the openclaw-workspace bind mount) before
+    # wiping installed dirs. Without this, rm -rf cannot remove the mount-point
+    # directory and leaves behind a stale directory tree that breaks the next
+    # install_app call.
+    print("Detaching LXD disk devices...")
+    _detach_disk_devices(instance)
+
     print("Clearing installed app directories...")
     _run(instance, ["sh", "-c", f"rm -rf '{installed_dir}'/*"], acceptable={0, 1})
 
@@ -106,18 +140,15 @@ def main() -> None:
         except OSError as exc:
             print(f"  Warning: could not remove host preseed state: {exc}")
 
-    # Restart the nimbus agent inside the LXC. The agent runs LocalControlPlane
-    # which calls _maybe_install_preseed_apps on startup — this is what actually
-    # drives the docker install. Without restarting the agent the preseed never
-    # re-fires even though we cleared the state files.
-    print("Restarting nimbus agent (container)...")
-    _run(instance, ["systemctl", "restart", "nimbus"], acceptable={0, 1})
-
-    # Also restart the host daemon so it picks up the clean state. Use the
-    # fully-qualified service name to match how the configure hook does it.
+    # Restart only the host daemon. The host daemon's LxdControlPlane.install_app
+    # is the correct install path — it writes compose files via the LXD API and
+    # runs docker compose inside the container. We do NOT restart the agent inside
+    # the LXC here: doing so causes a race where both the agent (LocalControlPlane)
+    # and the host daemon try to install the same app simultaneously, overwriting
+    # each other's compose files and corrupting the install.
     snap_instance = os.getenv("SNAP_INSTANCE_NAME", "nimbus")
     svc = f"{snap_instance}.nimbus"
-    print(f"Restarting nimbus daemon (host)...")
+    print("Restarting nimbus daemon (host)...")
     result = subprocess.run(["snapctl", "restart", svc],
                             capture_output=True, text=True)
     if result.returncode != 0:
