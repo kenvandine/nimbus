@@ -60,6 +60,16 @@ apps:
       # path suffix.
       NIMBUS_OPENAI_URL: ""
 
+  reset:
+    command: bin/nimbus-reset
+    plugs:
+      - network
+      - lxd
+    environment:
+      HOME: $SNAP_COMMON
+      LXD_DIR: /var/snap/lxd/common/lxd
+      NIMBUS_LXD_CONTAINER_NAME: nimbus
+
 parts:
   frontend:
     plugin: nil
@@ -104,6 +114,9 @@ parts:
       cp -a openclaw-overlay/. "$CRAFT_PART_INSTALL/share/openclaw-overlay/"
       cp snap/local/nimbus-launch "$CRAFT_PART_INSTALL/bin/nimbus-launch"
       chmod +x "$CRAFT_PART_INSTALL/bin/nimbus-launch"
+      cp snap/local/nimbus-reset "$CRAFT_PART_INSTALL/bin/nimbus-reset"
+      chmod +x "$CRAFT_PART_INSTALL/bin/nimbus-reset"
+      cp snap/local/nimbus_reset.py "$CRAFT_PART_INSTALL/bin/nimbus_reset.py"
 
 hooks:
   configure:
