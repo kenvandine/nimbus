@@ -24,33 +24,6 @@ def _run(instance, cmd: list[str], *, acceptable: set[int] = frozenset({0})) -> 
     return rc, stdout, stderr
 
 
-def _detach_disk_devices(instance) -> None:
-    """Remove all non-root LXD disk devices from the instance.
-
-    LXD disk (bind-mount) devices for app data paths block `rm -rf` from
-    fully removing the installed-app directory tree — Linux refuses to remove
-    a live mount point, leaving stale directory stubs that confuse the next
-    install. Detaching them first lets the wipe complete cleanly; the next
-    `install_app` call re-attaches them.
-    """
-    try:
-        instance.sync()
-        devices = dict(getattr(instance, "devices", {}) or {})
-        disk_names = [
-            name for name, dev in devices.items()
-            if isinstance(dev, dict) and dev.get("type") == "disk" and name != "root"
-        ]
-        if not disk_names:
-            return
-        for name in disk_names:
-            del devices[name]
-            print(f"  Detaching LXD disk device: {name}")
-        instance.devices = devices
-        instance.save(wait=True)
-    except Exception as exc:
-        print(f"  Warning: could not detach LXD disk devices: {exc}")
-
-
 def main() -> None:
     if os.geteuid() != 0:
         _die("this command must be run as root (try: sudo nimbus.reset)")
@@ -114,13 +87,6 @@ def main() -> None:
             ], acceptable={0, 1})
     else:
         print("No installed apps found in container.")
-
-    # Detach LXD disk devices (e.g. the openclaw-workspace bind mount) before
-    # wiping installed dirs. Without this, rm -rf cannot remove the mount-point
-    # directory and leaves behind a stale directory tree that breaks the next
-    # install_app call.
-    print("Detaching LXD disk devices...")
-    _detach_disk_devices(instance)
 
     print("Clearing installed app directories...")
     _run(instance, ["sh", "-c", f"rm -rf '{installed_dir}'/*"], acceptable={0, 1})

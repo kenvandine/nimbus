@@ -409,7 +409,19 @@ class LxdControlPlane:
                 await asyncio.sleep(10)
             self._waiting_for_network = False
             logger.info("Network is up, starting LXD bootstrap")
-        await asyncio.to_thread(self.manager.ensure_bootstrapped)
+        for attempt in range(5):
+            try:
+                await asyncio.to_thread(self.manager.ensure_bootstrapped)
+                break
+            except (LXDAPIException, RuntimeError) as exc:
+                if attempt < 4:
+                    logger.warning(
+                        "Bootstrap attempt %d/5 failed, retrying in 30s: %s",
+                        attempt + 1, exc,
+                    )
+                    await asyncio.sleep(30)
+                    continue
+                raise
         _ensure_openclaw_workspace_link()
         await _maybe_install_preseed_apps(self)
         await _maybe_ensure_model_provider(self)
