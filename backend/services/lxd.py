@@ -492,6 +492,8 @@ class LxdManager:
             "NIMBUS_REFRESH_STORE_ON_STARTUP=true",
             "NIMBUS_STORE_DIR=/var/lib/nimbus/store",
             "NIMBUS_INSTALLED_DIR=/var/lib/nimbus/installed",
+            f"NIMBUS_MODEL_PROVIDER={settings.model_provider}",
+            f"NIMBUS_OPENAI_URL={settings.openai_url}",
         ]
         if settings.lxd_agent_token:
             lines.append(f"NIMBUS_API_TOKEN={settings.lxd_agent_token}")
