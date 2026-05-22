@@ -16,9 +16,20 @@ function isLocalAccess() {
  */
 export function openApp(url, meta = {}) {
   if (isLocalAccess()) {
-    if (_kioskFallback) _kioskFallback(url, meta)
-    else window.location.href = url
+    const localUrl = rewriteToLocalhost(url)
+    if (_kioskFallback) _kioskFallback(localUrl, meta)
+    else window.location.href = localUrl
   } else {
     window.open(url, '_blank', 'noopener,noreferrer')
+  }
+}
+
+function rewriteToLocalhost(url) {
+  try {
+    const parsed = new URL(url)
+    parsed.hostname = 'localhost'
+    return parsed.toString()
+  } catch {
+    return url
   }
 }
