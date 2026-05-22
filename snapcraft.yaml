@@ -44,7 +44,7 @@ apps:
       # Example: NIMBUS_PRESEED_APPS: "nextcloud,home-assistant"
       NIMBUS_PRESEED_APPS: ""
       # Controls App Store visibility. Overridden at launch from
-      # `snap get nimbus appstore-visible` if set (true/false; default false).
+      # `snap get nimbus appstore-visible` if set (true/false; default true).
       NIMBUS_APPSTORE_VISIBLE: ""
       # Root directory exposed by the file browser (defaults to $HOME = $SNAP_COMMON).
       NIMBUS_FILES_ROOT: ""
