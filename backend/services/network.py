@@ -1,7 +1,6 @@
 from __future__ import annotations
 import asyncio
 import logging
-import subprocess
 
 from config import settings
 
@@ -49,17 +48,20 @@ def is_online() -> bool:
             "org.freedesktop.NetworkManager", "State"
         ))
         return state >= _NM_STATE_CONNECTED_SITE
-    except Exception:
-        pass
-    # Fallback: presence of a default route
+    except Exception as exc:
+        logger.debug("NetworkManager dbus check failed: %s", exc)
+    # Fallback: check /proc/net/route for a default route (Destination == 00000000).
+    # Readable via the network-observe snap interface; avoids exec of /usr/bin/ip
+    # which is denied under strict AppArmor confinement.
     try:
-        result = subprocess.run(
-            ["ip", "route", "show", "default"],
-            capture_output=True, text=True, timeout=5,
-        )
-        return bool(result.stdout.strip())
-    except Exception:
-        pass
+        with open("/proc/net/route") as f:
+            next(f)  # skip header
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 2 and parts[1] == "00000000":
+                    return True
+    except Exception as exc:
+        logger.debug("/proc/net/route check failed: %s", exc)
     return False
 
 
@@ -72,35 +74,30 @@ async def get_host_ip() -> str:
     # its IP. This works on both WiFi and Ethernet without manual configuration.
     # Fall back to NIMBUS_PRIMARY_INTERFACE if NM is unavailable.
     iface = get_primary_interface() or settings.primary_interface
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "ip", "-4", "addr", "show", iface,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, _ = await proc.communicate()
-        import re
-        m = re.search(r'inet (\d+\.\d+\.\d+\.\d+)', stdout.decode())
-        if m:
-            _cached_ip = m.group(1)
-            return _cached_ip
-    except Exception as exc:
-        logger.warning("ip addr show %s failed: %s", iface, exc)
 
-    # Fallback: first non-loopback, non-docker IP from hostname -I
+    # Use psutil (a snap dependency) to read interface addresses — avoids
+    # exec of /usr/bin/ip which is denied under strict AppArmor confinement.
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "hostname", "-I",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, _ = await proc.communicate()
-        for ip in stdout.decode().split():
-            if not ip.startswith("127.") and not ip.startswith("172."):
-                _cached_ip = ip
+        import socket
+        import psutil
+        for addr in psutil.net_if_addrs().get(iface, []):
+            if addr.family == socket.AF_INET:
+                _cached_ip = addr.address
                 return _cached_ip
     except Exception as exc:
-        logger.warning("hostname -I failed: %s", exc)
+        logger.warning("psutil addr lookup for %s failed: %s", iface, exc)
+
+    # Fallback: first non-loopback, non-docker IPv4 address across all interfaces.
+    try:
+        import socket
+        import psutil
+        for addrs in psutil.net_if_addrs().values():
+            for addr in addrs:
+                if addr.family == socket.AF_INET and not addr.address.startswith(("127.", "172.")):
+                    _cached_ip = addr.address
+                    return _cached_ip
+    except Exception as exc:
+        logger.warning("psutil fallback addr scan failed: %s", exc)
 
     return "127.0.0.1"
 
