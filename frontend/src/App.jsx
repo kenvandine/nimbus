@@ -418,6 +418,9 @@ export default function App() {
           <div style={styles.frameBar}>
             <button style={styles.frameBack} onClick={() => setAppFrame(null)}>← Back to Nimbus</button>
             {appFrame.name && <span style={styles.frameTitle}>{appFrame.name}</span>}
+            <a href={appFrame.url} target="_blank" rel="noopener noreferrer" style={styles.frameExternal}>
+              Open in new tab ↗
+            </a>
           </div>
           <iframe src={appFrame.url} style={styles.frameContent} title={appFrame.name} />
         </div>
@@ -732,6 +735,19 @@ const styles = {
     fontSize: '14px',
     fontWeight: 600,
     color: 'rgba(255,255,255,0.7)',
+    flex: 1,
+  },
+  frameExternal: {
+    background: 'rgba(255,255,255,0.07)',
+    border: '1px solid rgba(255,255,255,0.15)',
+    color: 'rgba(255,255,255,0.55)',
+    borderRadius: '8px',
+    padding: '5px 12px',
+    fontSize: '12px',
+    fontWeight: 500,
+    textDecoration: 'none',
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
   },
   frameContent: {
     flex: 1,
