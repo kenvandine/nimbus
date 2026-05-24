@@ -102,6 +102,9 @@ export default function App() {
   // null = unknown (checking), { configured, authenticated, username } = known
   const [authStatus, setAuthStatus] = useState(null)
   const intervalRef = useRef(null)
+  // Set to true when the user explicitly completes OOBE this session so that
+  // in-flight poll responses with oobe_complete=false cannot revert the state.
+  const oobeCompletedRef = useRef(false)
 
   async function checkAuth() {
     try {
@@ -124,7 +127,7 @@ export default function App() {
       setStats(statsData)
       setActiveInstalls(active)
       setError(null)
-      if (statsData.oobe_complete === false) setOobeComplete(false)
+      if (statsData.oobe_complete === false && !oobeCompletedRef.current) setOobeComplete(false)
     } catch (e) {
       // A 401 means the session expired — re-check auth status.
       if (e.message.startsWith('401:')) {
@@ -399,6 +402,7 @@ export default function App() {
         <Oobe
           online={stats?.online ?? false}
           onComplete={() => {
+            oobeCompletedRef.current = true
             setOobeComplete(true)
             checkAuth().then(() => fetchAll())
           }}
