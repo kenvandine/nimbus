@@ -102,5 +102,21 @@ async def get_host_ip() -> str:
     return "127.0.0.1"
 
 
+def get_all_addresses() -> list[dict]:
+    """Return all non-loopback IPv4 addresses for each network interface."""
+    try:
+        import socket
+        import psutil
+        results = []
+        for iface, addrs in psutil.net_if_addrs().items():
+            for addr in addrs:
+                if addr.family == socket.AF_INET and not addr.address.startswith("127."):
+                    results.append({"interface": iface, "address": addr.address})
+        return results
+    except Exception as exc:
+        logger.warning("Could not enumerate network addresses: %s", exc)
+    return []
+
+
 def build_open_url(host_ip: str, port: int) -> str:
     return f"http://{host_ip}:{port}"

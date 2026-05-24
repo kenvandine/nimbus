@@ -13,12 +13,16 @@ function isLocalAccess() {
  * Open a URL in a new tab for remote users.
  * On local/kiosk access (localhost / 127.0.0.1) use the iframe overlay
  * so the user always has a visible way back to Nimbus.
+ *
+ * The original URL (network IP) is kept for the iframe — rewriting to
+ * localhost would break apps whose ports are only bound to the network
+ * interface (e.g. ports forwarded out of LXD or snap-based services).
+ * The network IP is always reachable from the local machine too.
  */
 export function openApp(url, meta = {}) {
   if (isLocalAccess()) {
-    const localUrl = rewriteToLocalhost(url)
-    if (_kioskFallback) _kioskFallback(localUrl, meta)
-    else window.location.href = localUrl
+    if (_kioskFallback) _kioskFallback(url, meta)
+    else window.location.href = rewriteToLocalhost(url)
   } else {
     window.open(url, '_blank', 'noopener,noreferrer')
   }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 
-import { restartSystem, updateSystem, getWifiStatus, scanWifiNetworks, connectWifi, disconnectWifi } from '../api.js'
+import { restartSystem, updateSystem, getNetworkAddresses, getWifiStatus, scanWifiNetworks, connectWifi, disconnectWifi } from '../api.js'
 
 const STATUS_REFRESH_DELAY_MS = 3000
 const STATUS_IP_RETRY_DELAY_MS = 1500
@@ -68,6 +68,43 @@ function SignalBars({ strength }) {
         />
       ))}
     </span>
+  )
+}
+
+function NetworkAddressesPanel() {
+  const [addresses, setAddresses] = useState(null)
+
+  useEffect(() => {
+    getNetworkAddresses().then(setAddresses).catch(() => setAddresses([]))
+  }, [])
+
+  return (
+    <div style={styles.section}>
+      <div style={styles.sectionHeader}>
+        <span style={styles.sectionIcon}>🌐</span>
+        <span style={styles.sectionTitle}>IP Addresses</span>
+      </div>
+      <div style={styles.itemList}>
+        {addresses === null && (
+          <div style={styles.item}>
+            <span style={styles.itemLabel}>Loading…</span>
+          </div>
+        )}
+        {addresses !== null && addresses.length === 0 && (
+          <div style={styles.item}>
+            <span style={styles.itemLabel}>No network addresses found</span>
+          </div>
+        )}
+        {addresses !== null && addresses.map((a, i) => (
+          <div key={i} style={styles.item}>
+            <div>
+              <div style={styles.itemLabel}>{a.interface}</div>
+            </div>
+            <span style={styles.addressPill}>{a.address}</span>
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -440,6 +477,8 @@ export default function Settings({ stats, onRefresh }) {
         </div>
       </div>
 
+      <NetworkAddressesPanel />
+
       <WifiPanel />
 
       {SECTIONS.map(section => (
@@ -573,6 +612,16 @@ const styles = {
     borderRadius: '10px',
     textTransform: 'uppercase',
     letterSpacing: '0.05em',
+  },
+  addressPill: {
+    background: 'rgba(79,195,247,0.12)',
+    color: 'rgba(129,212,250,0.9)',
+    fontSize: '12px',
+    fontWeight: 500,
+    padding: '3px 10px',
+    borderRadius: '8px',
+    fontFamily: 'ui-monospace, "SF Mono", "Fira Mono", monospace',
+    whiteSpace: 'nowrap',
   },
   btnDanger: {
     background: 'rgba(255,138,128,0.12)',
