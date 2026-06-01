@@ -102,6 +102,9 @@ export default function App() {
   // null = unknown (checking), { configured, authenticated, username } = known
   const [authStatus, setAuthStatus] = useState(null)
   const intervalRef = useRef(null)
+  // Set to true when the user explicitly completes OOBE this session so that
+  // in-flight poll responses with oobe_complete=false cannot revert the state.
+  const oobeCompletedRef = useRef(false)
 
   async function checkAuth() {
     try {
@@ -124,7 +127,7 @@ export default function App() {
       setStats(statsData)
       setActiveInstalls(active)
       setError(null)
-      if (statsData.oobe_complete === false) setOobeComplete(false)
+      if (statsData.oobe_complete === false && !oobeCompletedRef.current) setOobeComplete(false)
     } catch (e) {
       // A 401 means the session expired — re-check auth status.
       if (e.message.startsWith('401:')) {
@@ -399,6 +402,7 @@ export default function App() {
         <Oobe
           online={stats?.online ?? false}
           onComplete={() => {
+            oobeCompletedRef.current = true
             setOobeComplete(true)
             checkAuth().then(() => fetchAll())
           }}
@@ -414,6 +418,9 @@ export default function App() {
           <div style={styles.frameBar}>
             <button style={styles.frameBack} onClick={() => setAppFrame(null)}>← Back to Nimbus</button>
             {appFrame.name && <span style={styles.frameTitle}>{appFrame.name}</span>}
+            <a href={appFrame.url} target="_blank" rel="noopener noreferrer" style={styles.frameExternal}>
+              Open in new tab ↗
+            </a>
           </div>
           <iframe src={appFrame.url} style={styles.frameContent} title={appFrame.name} />
         </div>
@@ -728,6 +735,19 @@ const styles = {
     fontSize: '14px',
     fontWeight: 600,
     color: 'rgba(255,255,255,0.7)',
+    flex: 1,
+  },
+  frameExternal: {
+    background: 'rgba(255,255,255,0.07)',
+    border: '1px solid rgba(255,255,255,0.15)',
+    color: 'rgba(255,255,255,0.55)',
+    borderRadius: '8px',
+    padding: '5px 12px',
+    fontSize: '12px',
+    fontWeight: 500,
+    textDecoration: 'none',
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
   },
   frameContent: {
     flex: 1,

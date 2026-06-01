@@ -1,0 +1,61 @@
+#!/bin/sh
+# Snap configure hook for the nimbus appliance controller.
+#
+# Validates the model-provider, openai-url, appstore-visible, and preseed-apps
+# snap options and restarts the nimbus daemon so the new settings take effect.
+# The daemon reads these via `snapctl get ...` at launch (see
+# snap/local/nimbus-launch) and exports NIMBUS_MODEL_PROVIDER /
+# NIMBUS_OPENAI_URL / NIMBUS_APPSTORE_VISIBLE / NIMBUS_PRESEED_APPS.
+set -eu
+
+provider="$(snapctl get model-provider 2>/dev/null || true)"
+openai_url="$(snapctl get openai-url 2>/dev/null || true)"
+appstore_visible="$(snapctl get appstore-visible 2>/dev/null || true)"
+preseed_apps="$(snapctl get preseed-apps 2>/dev/null || true)"
+
+# Validate model-provider if set; clearing it falls back to the env default.
+if [ -n "$provider" ]; then
+    case "$provider" in
+        lemonade-server|inference-snap-gemma4)
+            ;;
+        *)
+            echo "Unsupported model-provider '$provider'. Valid values: lemonade-server, inference-snap-gemma4" >&2
+            exit 1
+            ;;
+    esac
+fi
+
+# Validate openai-url if set; clearing it falls back to the per-provider
+# default baked into the backend (see config.DEFAULT_OPENAI_URL).
+if [ -n "$openai_url" ]; then
+    case "$openai_url" in
+        http://*|https://*)
+            ;;
+        *)
+            echo "Invalid openai-url '$openai_url'. Must start with http:// or https://" >&2
+            exit 1
+            ;;
+    esac
+fi
+
+# Validate appstore-visible if set; clearing it falls back to the default (false).
+if [ -n "$appstore_visible" ]; then
+    case "$appstore_visible" in
+        true|false)
+            ;;
+        *)
+            echo "Invalid appstore-visible '$appstore_visible'. Valid values: true, false" >&2
+            exit 1
+            ;;
+    esac
+fi
+
+# Do not early-exit when all current values are empty: `snapctl get` also
+# returns an empty string for options that were explicitly unset, and the
+# daemon must be restarted so cleared values take effect immediately.
+#
+# Don't restart on first install — snapd is still wiring up the service. The
+# daemon will pick up the value on its first start.
+if [ -n "${SNAP_DATA:-}" ] && [ -e "$SNAP_DATA/.daemon-started" ]; then
+    snapctl restart "$SNAP_INSTANCE_NAME.nimbus" || true
+fi

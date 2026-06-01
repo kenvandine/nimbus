@@ -89,6 +89,27 @@ fi
 # invoke the module directly via `python -m livefs_edit`.
 LIVEFS_EDIT=("$VENV_DIR/bin/python3" -m livefs_edit)
 
+# Patch livefs-edit's repack_iso so the output ISO opts in to ISO 9660 Level 3
+# multi-extent files (-iso-level 3). The default Level 2 caps single files at
+# 4 GiB and our pc.img.xz is well above that with the gemma4 model component
+# preseeded. The patch is idempotent — we look for our marker before applying.
+CONTEXT_PY=$(find "$VENV_DIR/lib" -path '*/livefs_edit/context.py' | head -1)
+if [ -n "$CONTEXT_PY" ] && ! grep -q "nimbus-iso-level3" "$CONTEXT_PY"; then
+    python3 - "$CONTEXT_PY" <<'PY'
+import sys, re
+path = sys.argv[1]
+src = open(path).read()
+needle = "['xorriso', '-as', 'mkisofs'] + opts +"
+inject = (
+    "['xorriso', '-as', 'mkisofs', '-iso-level', '3'] "
+    "+ opts +  # nimbus-iso-level3"
+)
+assert needle in src, f"could not find xorriso line in {path}"
+open(path, "w").write(src.replace(needle, inject))
+print(f"Patched {path} for iso-level 3")
+PY
+fi
+
 INPUT_ISO_ABS="$(readlink -f "$INPUT_ISO")"
 OUTPUT_ISO_ABS="$(readlink -m "$OUTPUT_ISO")"
 INSTALL_SCRIPT_ABS="$(readlink -f "$INSTALL_SCRIPT")"

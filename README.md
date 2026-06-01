@@ -129,6 +129,78 @@ In controller mode:
 - Docker apps run **inside** the managed `nimbus` container
 - published app URLs should use the **host LAN IP**, not the container bridge IP
 
+### Snap settings
+
+All settings are applied with `snap set nimbus <key>=<value>` and take effect
+immediately (the configure hook validates and restarts the daemon).
+
+#### Model provider
+
+OpenClaw is preconfigured against a local-LLM backend running as a host snap.
+
+```bash
+# Default — uses the lemonade-server snap on localhost:13305
+sudo snap set nimbus model-provider=lemonade-server
+
+# Alternative — uses the gemma4 inference snap; nimbus discovers the chat port
+# from /var/snap/gemma4/common/status.json (or `gemma4 status` if reachable)
+sudo snap set nimbus model-provider=inference-snap-gemma4
+```
+
+Whichever provider is selected must be preseeded in the appliance image (the
+Ubuntu Core model.json) — nimbus does not install snaps on demand.
+
+The wiring is delivered to OpenClaw through env vars on the gateway container
+(`NIMBUS_OPENCLAW_BASE_URL`, `NIMBUS_OPENCLAW_MODEL_ID`,
+`NIMBUS_OPENCLAW_PROVIDER_ID`, `NIMBUS_OPENCLAW_COMPATIBILITY`) read by
+`openclaw-overlay/setup-wrapper.cjs`. For dev runs you can override any of
+them, plus `NIMBUS_GEMMA4_BASE_URL` if you want to point gemma4 at a custom
+port.
+
+#### OpenAI-compatible endpoint
+
+Override the URL the model provider is reached at (useful for non-standard
+ports or remote backends):
+
+```bash
+sudo snap set nimbus openai-url=http://127.0.0.1:8336/v1
+```
+
+Must include the `/v1` or `/api/v1` path suffix. Clear with
+`snap unset nimbus openai-url` to revert to the per-provider default.
+
+#### App store visibility
+
+The Umbrel app store is hidden by default on appliance images. Enable it:
+
+```bash
+sudo snap set nimbus appstore-visible=true
+```
+
+#### Preseed apps
+
+Extra Umbrel app IDs to auto-install on first boot (comma-separated).
+`openclaw` is always preseeded automatically.
+
+```bash
+sudo snap set nimbus preseed-apps=nextcloud,home-assistant
+```
+
+Apps in this list are installed once; removing them from the list does not
+uninstall them.
+
+### Factory reset
+
+`nimbus.reset` wipes all installed app data and clears the preseed state so
+apps are reinstalled automatically on the next daemon start. The managed LXD
+container and its runtime (Docker, Python, agent) are preserved.
+
+```bash
+sudo nimbus.reset
+```
+
+The command prompts for confirmation before doing anything destructive.
+
 ## Quick start
 
 ### Option A: strict snap controller mode
@@ -266,13 +338,17 @@ nimbus/
 │   ├── models.py           # Pydantic models (AppMeta, AppDetail, SystemStats)
 │   ├── routers/
 │   │   ├── apps.py         # GET /api/apps, POST install/update/uninstall, icon endpoint
+│   │   ├── openclaw.py     # GET /api/openclaw/status
 │   │   └── system.py       # GET /api/system/stats
 │   └── services/
 │       ├── control_plane.py # local/remote/lxd orchestration layer
 │       ├── lxd.py          # pylxd container bootstrap and app management
+│       ├── gemma4.py       # gemma4 inference snap status and port discovery
+│       ├── model_provider.py # OpenClaw provider config (lemonade / gemma4)
 │       ├── store.py        # Clone umbrel-apps repo, parse YAML metadata
 │       ├── docker.py       # docker compose install/uninstall, port detection
 │       ├── network.py      # Host IP detection for Open URLs
+│       ├── system_apps.py  # System-app metadata (openclaw)
 │       └── icons.py        # SVG icon generator (fallback when CDN unavailable)
 ├── frontend/
 │   ├── src/
@@ -287,8 +363,16 @@ nimbus/
 │   ├── index.html
 │   ├── package.json
 │   └── vite.config.js
+├── model/
+│   ├── build.sh            # Build Ubuntu Core model assertions and ISOs
+│   ├── nimbus-lemonade.json # Model definition (lemonade-server LLM backend)
+│   └── nimbus-gemma4.json  # Model definition (gemma4 inference snap backend)
 ├── snap/
-│   └── local/nimbus-launch # Snap entrypoint for the controller daemon
+│   ├── hooks/configure     # Validate and apply snap settings
+│   └── local/
+│       ├── nimbus-launch   # Snap entrypoint for the controller daemon
+│       ├── nimbus-reset    # Snap entrypoint for the reset command
+│       └── nimbus_reset.py # Factory-reset logic (stop apps, wipe data)
 ├── snapcraft.yaml          # Strict snap definition
 ├── pyproject.toml          # Packaging metadata for the Snapcraft Python plugin
 └── SPEC.md                 # Original product specification
@@ -376,6 +460,22 @@ If an app is reachable only from the host, check:
 - the LXD proxy device exists on the `nimbus` container
 - host firewall rules allow the published TCP port
 - `NIMBUS_LXD_PUBLISH_HOST` is set appropriately (default: `0.0.0.0`)
+
+If you see "Nimbus setup needs attention" on first boot, the LXD container
+bootstrap may have hit a transient error. The daemon retries automatically
+(up to 5 times, 30 seconds apart). If it remains stuck:
+
+```bash
+sudo lxc stop nimbus --force
+sudo lxc start nimbus
+sudo snap restart nimbus
+```
+
+To wipe all app data and start fresh:
+
+```bash
+sudo nimbus.reset
+```
 
 ---
 

@@ -39,13 +39,36 @@ apps:
       NIMBUS_LXD_CONTAINER_NAME: nimbus
       NIMBUS_LXD_PROFILE_NAME: nimbus-hosting
       # Additional Umbrel app IDs to auto-install on first run (comma-separated).
-      # openclaw is always preseeded automatically.
-      # Example: NIMBUS_PRESSED_APPS: "nextcloud,home-assistant"
-      NIMBUS_PRESSED_APPS: ""
-      # Set to "false" to hide the App Store button in the dock.
+      # openclaw is always preseeded automatically. Overridden at launch from
+      # `snap get nimbus preseed-apps` if set.
+      # Example: NIMBUS_PRESEED_APPS: "nextcloud,home-assistant"
+      NIMBUS_PRESEED_APPS: ""
+      # Controls App Store visibility. Overridden at launch from
+      # `snap get nimbus appstore-visible` if set (true/false; default true).
       NIMBUS_APPSTORE_VISIBLE: ""
       # Root directory exposed by the file browser (defaults to $HOME = $SNAP_COMMON).
       NIMBUS_FILES_ROOT: ""
+      # Local-LLM backend OpenClaw is configured against. Overridden at launch
+      # from `snap get nimbus model-provider` if set. Supported values:
+      #   lemonade-server         (default — needs the lemonade-server snap)
+      #   inference-snap-gemma4   (needs the gemma4 snap preseeded in the model)
+      NIMBUS_MODEL_PROVIDER: "lemonade-server"
+      # OpenAI-compatible API URL OpenClaw is pointed at. Overridden at launch
+      # from `snap get nimbus openai-url` if set; otherwise the backend uses a
+      # per-provider default (lemonade -> http://127.0.0.1:13305/api/v1,
+      # gemma4 -> http://127.0.0.1:8336/v1). Must include the /v1 or /api/v1
+      # path suffix.
+      NIMBUS_OPENAI_URL: ""
+
+  reset:
+    command: bin/nimbus-reset
+    plugs:
+      - network
+      - lxd
+    environment:
+      HOME: $SNAP_COMMON
+      LXD_DIR: /var/snap/lxd/common/lxd
+      NIMBUS_LXD_CONTAINER_NAME: nimbus
 
 parts:
   frontend:
@@ -91,3 +114,11 @@ parts:
       cp -a openclaw-overlay/. "$CRAFT_PART_INSTALL/share/openclaw-overlay/"
       cp snap/local/nimbus-launch "$CRAFT_PART_INSTALL/bin/nimbus-launch"
       chmod +x "$CRAFT_PART_INSTALL/bin/nimbus-launch"
+      cp snap/local/nimbus-reset "$CRAFT_PART_INSTALL/bin/nimbus-reset"
+      chmod +x "$CRAFT_PART_INSTALL/bin/nimbus-reset"
+      cp snap/local/nimbus_reset.py "$CRAFT_PART_INSTALL/bin/nimbus_reset.py"
+
+hooks:
+  configure:
+    plugs:
+      - network

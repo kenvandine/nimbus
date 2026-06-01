@@ -41,6 +41,7 @@ export const updateApp = (id) => request(`/apps/${id}/update`, { method: 'POST' 
 export const restartSystem = () => request('/system/restart', { method: 'POST' })
 export const powerOffSystem = () => request('/system/poweroff', { method: 'POST' })
 export const updateSystem = () => request('/system/update', { method: 'POST' })
+export const getNetworkAddresses = () => request('/network/addresses')
 export const getWifiStatus = () => request('/network/wifi/status')
 export const scanWifiNetworks = () => request('/network/wifi/networks')
 export const connectWifi = (ssid, password) => json('POST', '/network/wifi/connect', { ssid, password: password || null })

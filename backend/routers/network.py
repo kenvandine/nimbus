@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from auth import require_api_token
 from services import wifi as wifi_service
+from services import network as network_service
 
 router = APIRouter(
     prefix="/api/network",
@@ -19,6 +20,11 @@ router = APIRouter(
 class ConnectRequest(BaseModel):
     ssid: str
     password: Optional[str] = None
+
+
+@router.get("/addresses")
+async def network_addresses() -> list[dict]:
+    return await asyncio.to_thread(network_service.get_all_addresses)
 
 
 @router.get("/wifi/status")

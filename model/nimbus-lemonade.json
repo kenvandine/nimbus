@@ -3,7 +3,7 @@
     "authority-id": "EH9A6Xg1QtCjYt4v3QlBVTPLAHDvEIn6",
     "brand-id": "EH9A6Xg1QtCjYt4v3QlBVTPLAHDvEIn6",
     "series": "16",
-    "model": "nimbus-amd64",
+    "model": "nimbus-lemonade",
     "architecture": "amd64",
     "base": "core24",
     "grade": "dangerous",
@@ -103,7 +103,7 @@
             "type": "app",
             "default-channel": "latest/stable",
             "id": "PX5yJDL0Zee280zHDiTZbD6xWqFkDucC"
-        }        
+        }
     ],
     "timestamp": "2026-04-24T12:00:00Z"
 }
