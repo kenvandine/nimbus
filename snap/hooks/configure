@@ -50,11 +50,10 @@ if [ -n "$appstore_visible" ]; then
     esac
 fi
 
-# Nothing changed at the snap-option layer, or first install — don't restart.
-if [ -z "$provider" ] && [ -z "$openai_url" ] && [ -z "$appstore_visible" ] && [ -z "$preseed_apps" ]; then
-    exit 0
-fi
-
+# Do not early-exit when all current values are empty: `snapctl get` also
+# returns an empty string for options that were explicitly unset, and the
+# daemon must be restarted so cleared values take effect immediately.
+#
 # Don't restart on first install — snapd is still wiring up the service. The
 # daemon will pick up the value on its first start.
 if [ -n "${SNAP_DATA:-}" ] && [ -e "$SNAP_DATA/.daemon-started" ]; then

@@ -17,7 +17,7 @@ def _die(msg: str) -> None:
     sys.exit(1)
 
 
-def _run(instance, cmd: list[str], *, acceptable: set[int] = frozenset({0})) -> tuple[int, str, str]:
+def _run(instance, cmd: list[str], *, acceptable: set[int] | frozenset[int] = frozenset({0})) -> tuple[int, str, str]:
     rc, stdout, stderr = instance.execute(cmd)
     if rc not in acceptable:
         print(f"  Warning: command {cmd[0]!r} exited {rc}: {(stderr or stdout).strip()[:200]}")

@@ -119,7 +119,13 @@ def loopback_listen_port() -> int | None:
         return None
     if parsed.hostname not in ("127.0.0.1", "localhost"):
         return None
-    return parsed.port
+    if parsed.port is not None:
+        return parsed.port
+    if parsed.scheme == "http":
+        return 80
+    if parsed.scheme == "https":
+        return 443
+    return None
 
 
 def get_provider_config() -> ProviderConfig:

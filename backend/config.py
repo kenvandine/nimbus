@@ -56,7 +56,7 @@ class Settings:
     lxd_agent_bind_host: str
     lxd_agent_token: str | None
     lxd_publish_host: str
-    # Pressed apps: auto-installed on first run; always includes openclaw
+    # Preseed apps: auto-installed on first run; always includes openclaw
     preseed_apps: list[str] = field(default_factory=list)
     # Whether the App Store UI is shown (default True; set NIMBUS_APPSTORE_VISIBLE=false to hide)
     appstore_visible: bool = True
@@ -87,7 +87,7 @@ def _build_settings() -> Settings:
     _user_apps = _parse_preseed_apps(os.getenv("NIMBUS_PRESEED_APPS"))
     preseed_apps = ["openclaw"] + [a for a in _user_apps if a != "openclaw"]
 
-    appstore_visible = _env_bool("NIMBUS_APPSTORE_VISIBLE", False)
+    appstore_visible = _env_bool("NIMBUS_APPSTORE_VISIBLE", True)
 
     files_root_env = os.getenv("NIMBUS_FILES_ROOT")
     files_root = Path(files_root_env) if files_root_env else Path.home()
