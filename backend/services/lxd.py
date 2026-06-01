@@ -449,6 +449,23 @@ class LxdManager:
             time.sleep(5)
         logger.warning("DNS did not become ready inside the container within %ds, proceeding anyway", timeout)
 
+    def _wait_for_docker(self, instance, timeout: int = 180) -> None:
+        """Wait for the Docker daemon to be ready inside the container.
+
+        After a reboot the LXC reaches 'running' before Docker has finished
+        starting as a systemd service. Polling 'docker info' avoids declaring
+        bootstrap_state='ready' prematurely, which would leave the UI stuck on
+        'Waiting for the OpenClaw agent to come online' for the entire Docker
+        startup duration (typically 1-3 minutes).
+        """
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            code, _, _ = self._run(instance, ["docker", "info"], acceptable={0, 1})
+            if code == 0:
+                return
+            time.sleep(5)
+        logger.warning("Docker did not become ready inside the container within %ds, proceeding anyway", timeout)
+
     def _file_exists(self, instance, path: str) -> bool:
         exit_code, _, _ = self._run(
             instance,
@@ -568,6 +585,8 @@ class LxdManager:
                 self._set_bootstrap_state("ensuring-container")
                 instance = self.ensure_started()
                 if self._has_bootstrap_marker(instance):
+                    self._set_bootstrap_state("starting-agent")
+                    self._wait_for_docker(instance)
                     self._set_bootstrap_state("ready")
                     return
 
