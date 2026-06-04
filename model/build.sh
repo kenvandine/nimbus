@@ -7,6 +7,7 @@ usage() {
 usage: $0 nimbus-lemonade|nimbus-gemma4 [--preseed|--no-preseed]
 
 Defaults:
+  nimbus-amd       preseed ON  (lemonade install hook is preseed-safe)
   nimbus-lemonade  preseed ON  (lemonade install hook is preseed-safe)
   nimbus-gemma4    preseed OFF (gemma4 install hook fails during preseed
                                 — runs a hardware/RAM check in a cgroup-
@@ -24,6 +25,13 @@ MODEL_ASSERTION=$TARGET_MODEL.model
 OUTPUT_DIR=$TARGET_MODEL
 
 case "$TARGET_MODEL" in
+    nimbus-amd)
+        EXTRA_SNAP=
+        GADGET_SNAP=../../pc-amd64-gadget/pc_amd-24-0.2_amd64.snap
+        PRESEED_DEFAULT=1
+        MODEL_JSON=nimbus-lemonade.json
+        MODEL_ASSERTION=nimbus-lemonade.model
+        ;;
     nimbus-lemonade)
         EXTRA_SNAP=
         GADGET_SNAP=../../pc-amd64-gadget/pc_lemonade-24-0.2_amd64.snap
@@ -58,7 +66,7 @@ fi
 # When preseeding, ubuntu-image runs `snap-preseed sign` as root and snapd
 # refuses to use the user-owned snap keyring in that case. Provide a root-
 # owned copy of the keyring just for the preseed call. Skipped when
-# preseed is off — model.json and user.json signing run as the user.
+# preseed is off — model.json and system-user assertion signing run as the user.
 if [ "$PRESEED" -eq 1 ]; then
     SNAP_GNUPG_HOME=${SNAP_GNUPG_HOME:-"$HOME/.snap/gnupg"}
     ROOT_GNUPG_HOME=$(mktemp -d)
@@ -70,10 +78,19 @@ fi
 
 snap sign -k my-key "$MODEL_JSON" > "$MODEL_ASSERTION"
 
-if [ -f ./user.json ]; then
-    snap sign -k my-key ./user.json > ./user.assert
-elif [ ! -f ./user.assert ]; then
-    echo "missing user assertion: create user.json or user.assert" >&2
+if [ -f ./kenvandine.json ]; then
+    snap sign -k my-key ./kenvandine.json > ./kenvandine.assert
+fi
+
+USER_ASSERTIONS=
+for assertion in ./kenvandine.assert ./krishna.assert; do
+    if [ -f "$assertion" ]; then
+        USER_ASSERTIONS="$USER_ASSERTIONS --assertion $assertion"
+    fi
+done
+
+if [ -z "$USER_ASSERTIONS" ]; then
+    echo "missing system-user assertion: create kenvandine.json/kenvandine.assert or krishna.assert" >&2
     exit 1
 fi
 
@@ -115,17 +132,27 @@ if [ -n "$EXTRA_SNAP" ]; then
     EXTRA_SNAP_FLAG="--snap $EXTRA_SNAP"
 fi
 
-sudo env -u SUDO_UID -u SUDO_GID -u SUDO_USER \
-    $ENV_VARS \
-    ubuntu-image snap "$MODEL_ASSERTION" \
-    --snap "$GADGET_SNAP" \
-    $EXTRA_SNAP_FLAG \
-    --image-size=22G \
-    --assertion ./user.assert \
-    --workdir "$BUILD_WORKDIR" \
-    --debug \
-    $RESUME_FLAG \
-    $PRESEED_FLAGS
+set -- sudo env -u SUDO_UID -u SUDO_GID -u SUDO_USER
+if [ -n "$ENV_VARS" ]; then
+    set -- "$@" "$ENV_VARS"
+fi
+set -- "$@" ubuntu-image snap "$MODEL_ASSERTION" --snap "$GADGET_SNAP"
+if [ -n "$EXTRA_SNAP_FLAG" ]; then
+    set -- "$@" $EXTRA_SNAP_FLAG
+fi
+set -- "$@" --image-size=22G --workdir "$BUILD_WORKDIR" --debug
+for assertion in ./kenvandine.assert ./krishna.assert; do
+    if [ -f "$assertion" ]; then
+        set -- "$@" --assertion "$assertion"
+    fi
+done
+if [ -n "$RESUME_FLAG" ]; then
+    set -- "$@" "$RESUME_FLAG"
+fi
+if [ -n "$PRESEED_FLAGS" ]; then
+    set -- "$@" $PRESEED_FLAGS
+fi
+"$@"
 
 # With --workdir, ubuntu-image drops the final pc.img + seed.manifest into the
 # workdir rather than cwd. Move them out and reclaim ownership before
