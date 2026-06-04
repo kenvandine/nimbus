@@ -67,7 +67,7 @@ def _select_model() -> dict:
             for line in f:
                 if line.startswith("MemTotal:"):
                     kb = int(line.split()[1])
-                    if kb * 1024 >= 64 * _GiB:
+                    if kb * 1024 >= 48 * _GiB:
                         return _MODEL_35B
                     break
     except OSError:
