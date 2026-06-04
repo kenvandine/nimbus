@@ -22,16 +22,60 @@ logger = logging.getLogger(__name__)
 
 LEMONADE_BASE_URL = os.getenv("NIMBUS_LEMONADE_BASE_URL", "http://localhost:13305")
 
-# Default model derived from kenvandine/recipes openclaw/Qwen3.5-9B-GGUF.json.
-# Mirrored here as a Python literal so we don't need to fetch the recipe at
-# install time.
-DEFAULT_MODEL = {
-    "model_name": "user.Qwen3.5-9B-GGUF",
-    "checkpoint": "unsloth/Qwen3.5-9B-GGUF:Qwen3.5-9B-Q4_K_M.gguf",
-    "mmproj":     "mmproj-F16.gguf",
-    "recipe":     "llamacpp",
-    "vision":     True,
+# Model specs mirrored from kenvandine/recipes (branch openclaw_recipes).
+# The 35B MoE is used on AMD RYZEN AI devices with ≥64 GB RAM; everything else
+# gets the 9B.
+_MODEL_35B = {
+    "model_name":     "user.Qwen3.6-35B-A3B-MTP-GGUF",
+    "checkpoints":    {
+        "main":   "unsloth/Qwen3.6-35B-A3B-MTP-GGUF:Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+        "mmproj": "mmproj-F16.gguf",
+    },
+    "labels":         ["vision", "tool-calling"],
+    "recipe":         "llamacpp",
+    "recipe_options": {"ctx_size": 32768},
 }
+
+_MODEL_9B = {
+    "model_name":     "user.Qwen3.5-9B-GGUF",
+    "checkpoints":    {
+        "main":   "unsloth/Qwen3.5-9B-GGUF:Qwen3.5-9B-Q4_K_M.gguf",
+        "mmproj": "mmproj-F16.gguf",
+    },
+    "labels":         ["vision", "tool-calling"],
+    "recipe":         "llamacpp",
+    "recipe_options": {"ctx_size": 32768},
+}
+
+_GiB = 1 << 30
+
+
+def _select_model() -> dict:
+    """Pick the 35B model on AMD RYZEN AI devices with ≥64 GB RAM, else 9B."""
+    try:
+        is_ryzen_ai = False
+        with open("/proc/cpuinfo") as f:
+            for line in f:
+                if line.startswith("model name") and "RYZEN AI" in line.upper():
+                    is_ryzen_ai = True
+                    break
+
+        if not is_ryzen_ai:
+            return _MODEL_9B
+
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemTotal:"):
+                    kb = int(line.split()[1])
+                    if kb * 1024 >= 64 * _GiB:
+                        return _MODEL_35B
+                    break
+    except OSError:
+        pass
+    return _MODEL_9B
+
+
+DEFAULT_MODEL: dict = _select_model()
 
 
 @dataclass
