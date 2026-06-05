@@ -26,10 +26,11 @@ PC_IMG_XZ="$3"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_SCRIPT="${SCRIPT_DIR}/install.sh"
+CLEAR_UEFI_SCRIPT="${SCRIPT_DIR}/clear-ubuntu-uefi-entries.sh"
 REQUIREMENTS="${SCRIPT_DIR}/requirements.txt"
 VENV_DIR="${SCRIPT_DIR}/.venv"
 
-for f in "$INPUT_ISO" "$INSTALL_SCRIPT" "$PC_IMG_XZ" "$REQUIREMENTS"; do
+for f in "$INPUT_ISO" "$INSTALL_SCRIPT" "$CLEAR_UEFI_SCRIPT" "$PC_IMG_XZ" "$REQUIREMENTS"; do
     if [ ! -f "$f" ]; then
         echo "Error: required file not found: $f" >&2
         exit 1
@@ -113,6 +114,7 @@ fi
 INPUT_ISO_ABS="$(readlink -f "$INPUT_ISO")"
 OUTPUT_ISO_ABS="$(readlink -m "$OUTPUT_ISO")"
 INSTALL_SCRIPT_ABS="$(readlink -f "$INSTALL_SCRIPT")"
+CLEAR_UEFI_SCRIPT_ABS="$(readlink -f "$CLEAR_UEFI_SCRIPT")"
 PC_IMG_XZ_ABS="$(readlink -f "$PC_IMG_XZ")"
 
 WORK="$(mktemp -d)"
@@ -254,6 +256,7 @@ EOF
 # tells casper to mount only the chain we keep.
 "${LIVEFS_EDIT[@]}" "$INPUT_ISO_ABS" "$OUTPUT_ISO_ABS" \
     --cp "$INSTALL_SCRIPT_ABS" new/iso/install.sh \
+    --cp "$CLEAR_UEFI_SCRIPT_ABS" new/iso/clear-ubuntu-uefi-entries.sh \
     --cp "$PC_IMG_XZ_ABS" new/iso/pc.img.xz \
     --edit-squashfs "$INJECT_LAYER" \
     --shell "mkdir -p new/$INJECT_LAYER/etc/systemd/system/multi-user.target.wants" \
