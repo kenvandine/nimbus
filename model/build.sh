@@ -16,6 +16,145 @@ EOF
     exit 1
 }
 
+[ -n "${TMPDIR:-}" ] || TMPDIR=/tmp
+
+inject_nm_lxd_unmanaged() {
+    img=$1
+    seed_img=$2
+    systems_root=$3
+    system_name=
+    preseed_tgz=
+    preseed_assert=
+    workdir=
+    rebuilt_preseed=
+    rebuilt_assert_json=
+    rebuilt_assert=
+    nm_relpath=var/snap/network-manager/common/etc/NetworkManager/conf.d/90-lxd-unmanaged.conf
+    seed_start=
+    artifact_sha=
+
+    command -v mcopy >/dev/null 2>&1 || {
+        echo "mtools is required (missing mcopy)" >&2
+        return 1
+    }
+
+    if [ ! -f "$seed_img" ]; then
+        echo "missing seed partition image: $seed_img" >&2
+        return 1
+    fi
+
+    system_name=$(find "$systems_root" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | head -n 1 || true)
+    if [ -z "$system_name" ]; then
+        echo "could not locate system seed root in $systems_root" >&2
+        return 1
+    fi
+
+    preseed_tgz="$systems_root/$system_name/preseed.tgz"
+    preseed_assert="$systems_root/$system_name/preseed"
+    if [ ! -f "$preseed_tgz" ]; then
+        echo "could not locate preseed archive: $preseed_tgz" >&2
+        return 1
+    fi
+    if [ ! -f "$preseed_assert" ]; then
+        echo "could not locate preseed assertion: $preseed_assert" >&2
+        return 1
+    fi
+
+    workdir=$(mktemp -d "${TMPDIR%/}/nimbus-preseed.XXXXXX")
+    if ! tar -xzf "$preseed_tgz" -C "$workdir"; then
+        rm -rf "$workdir"
+        return 1
+    fi
+
+    mkdir -p "$workdir/$(dirname "$nm_relpath")"
+    cat > "$workdir/$nm_relpath" <<'EOF'
+[keyfile]
+unmanaged-devices=interface-name:lxdbr0;interface-name:veth*
+EOF
+
+    rebuilt_preseed=$(mktemp "${TMPDIR%/}/nimbus-preseed-tgz.XXXXXX")
+    tar --numeric-owner --owner=0 --group=0 -C "$workdir" -czf "$rebuilt_preseed" .
+
+    artifact_sha=$(
+        python3 - "$rebuilt_preseed" <<'PY'
+import base64, hashlib, sys
+with open(sys.argv[1], 'rb') as f:
+    digest = hashlib.sha3_384(f.read()).digest()
+print(base64.urlsafe_b64encode(digest).decode().rstrip('='))
+PY
+    )
+
+    rebuilt_assert_json=$(mktemp "${TMPDIR%/}/nimbus-preseed-assert.XXXXXX.json")
+    python3 - "$preseed_assert" "$artifact_sha" > "$rebuilt_assert_json" <<'PY'
+import json, sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+artifact_sha = sys.argv[2]
+header = path.read_text().split("\n\n", 1)[0].splitlines()
+
+data = {}
+snaps = []
+current = None
+
+for line in header:
+    if not line.strip():
+        continue
+    if line.startswith("snaps:"):
+        data["snaps"] = snaps
+        continue
+    if line.startswith("  -"):
+        current = {}
+        snaps.append(current)
+        continue
+    if line.startswith("    "):
+        key, value = line.strip().split(":", 1)
+        if current is None:
+            raise SystemExit(f"unexpected nested line: {line}")
+        current[key] = value.strip()
+        continue
+    key, value = line.split(":", 1)
+    key = key.strip()
+    if key in {"timestamp", "sign-key-sha3-384", "artifact-sha3-384"}:
+        continue
+    data[key] = value.strip()
+
+data["artifact-sha3-384"] = artifact_sha
+print(json.dumps(data, indent=2))
+PY
+
+    rebuilt_assert=$(mktemp "${TMPDIR%/}/nimbus-preseed-assert.XXXXXX")
+    snap sign -k my-key --update-timestamp "$rebuilt_assert_json" > "$rebuilt_assert"
+
+    sudo cp "$rebuilt_preseed" "$preseed_tgz"
+    sudo cp "$rebuilt_assert" "$preseed_assert"
+    sudo mcopy -o -i "$seed_img" "$rebuilt_preseed" "::/systems/$system_name/preseed.tgz"
+    sudo mcopy -o -i "$seed_img" "$rebuilt_assert" "::/systems/$system_name/preseed"
+
+    seed_start=$(
+        sfdisk --json "$img" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+for part in data.get("partitiontable", {}).get("partitions", []):
+    if part.get("name") == "ubuntu-seed":
+        print(part["start"])
+        break
+'
+    )
+    if [ -z "$seed_start" ]; then
+        echo "could not locate ubuntu-seed start sector in $img" >&2
+        rm -f "$rebuilt_assert" "$rebuilt_assert_json"
+        rm -f "$rebuilt_preseed"
+        rm -rf "$workdir"
+        return 1
+    fi
+
+    dd if="$seed_img" of="$img" bs=512 seek="$seed_start" conv=notrunc status=none
+    rm -f "$rebuilt_assert" "$rebuilt_assert_json"
+    rm -f "$rebuilt_preseed"
+    rm -rf "$workdir"
+}
+
 [ "$#" -ge 1 ] || usage
 TARGET_MODEL=$1
 shift
@@ -80,6 +219,10 @@ snap sign -k my-key "$MODEL_JSON" > "$MODEL_ASSERTION"
 
 if [ -f ./kenvandine.json ]; then
     snap sign -k my-key ./kenvandine.json > ./kenvandine.assert
+fi
+
+if [ -f ./krishna.json ]; then
+    snap sign -k my-key ./krishna.json > ./krishna.assert
 fi
 
 USER_ASSERTIONS=
@@ -165,10 +308,23 @@ for artifact in pc.img seed.manifest; do
         sudo chown "$(id -un):$(id -gn)" "$artifact"
     fi
 done
+
+PC_IMG_PATH="$(pwd)/pc.img"
+SEED_MANIFEST_PATH="$(pwd)/seed.manifest"
+
+if [ -e "$PC_IMG_PATH" ]; then
+    inject_nm_lxd_unmanaged "$PC_IMG_PATH" "$BUILD_WORKDIR/volumes/pc/part2.img" "$BUILD_WORKDIR/root/systems"
+fi
+
+if [ ! -e "$PC_IMG_PATH" ]; then
+    echo "pc.img is missing after injection step" >&2
+    exit 1
+fi
+
 # Optimize for the smallest .xz output; this is slower than the default preset.
 #xz -v -9e -T1 pc.img
 rm -f pc.img.xz
-xz -v -7 -T0 pc.img
+xz -v -7 -T0 "$PC_IMG_PATH"
 
 mkdir -p "$OUTPUT_DIR"
 
