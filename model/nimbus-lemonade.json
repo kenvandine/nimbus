@@ -53,7 +53,7 @@
         {
             "name": "nimbus",
             "type": "app",
-            "default-channel": "latest/edge",
+            "default-channel": "latest/stable",
             "id": "qhSCSjzxNobpziJD4QLbkDDqH0nxpYHq"
         },
         {
