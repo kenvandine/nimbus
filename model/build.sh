@@ -22,6 +22,8 @@ inject_nm_lxd_unmanaged() {
     img=$1
     seed_img=$2
     systems_root=$3
+    # Optional: pass "lemonade" to also seed the lemonade-configure systemd service
+    extra=${4:-}
     system_name=
     preseed_tgz=
     preseed_assert=
@@ -71,6 +73,30 @@ inject_nm_lxd_unmanaged() {
 [keyfile]
 unmanaged-devices=interface-name:lxdbr0;interface-name:veth*
 EOF
+
+    if [ "$extra" = "lemonade" ]; then
+        svc_dir="$workdir/etc/systemd/system"
+        mkdir -p "$svc_dir/multi-user.target.wants"
+        cat > "$svc_dir/lemonade-configure.service" <<'UNIT'
+[Unit]
+Description=Configure lemonade-server to bind on all network interfaces
+After=snapd.service
+Wants=snapd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/snap set lemonade-server host=0.0.0.0
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+        ln -sf /etc/systemd/system/lemonade-configure.service \
+            "$svc_dir/multi-user.target.wants/lemonade-configure.service"
+        echo "    Added lemonade-configure.service to preseed"
+    fi
 
     rebuilt_preseed=$(mktemp "${TMPDIR%/}/nimbus-preseed-tgz.XXXXXX")
     tar --numeric-owner --owner=0 --group=0 -C "$workdir" -czf "$rebuilt_preseed" .
@@ -358,7 +384,14 @@ PC_IMG_PATH="$(pwd)/pc.img"
 SEED_MANIFEST_PATH="$(pwd)/seed.manifest"
 
 if [ -e "$PC_IMG_PATH" ]; then
-    inject_nm_lxd_unmanaged "$PC_IMG_PATH" "$BUILD_WORKDIR/volumes/pc/part2.img" "$BUILD_WORKDIR/root/systems"
+    case "$TARGET_MODEL" in
+        nimbus-lemonade|nimbus-amd)
+            inject_nm_lxd_unmanaged "$PC_IMG_PATH" "$BUILD_WORKDIR/volumes/pc/part2.img" "$BUILD_WORKDIR/root/systems" lemonade
+            ;;
+        *)
+            inject_nm_lxd_unmanaged "$PC_IMG_PATH" "$BUILD_WORKDIR/volumes/pc/part2.img" "$BUILD_WORKDIR/root/systems"
+            ;;
+    esac
 fi
 
 LXC_SEED_PATH="$(pwd)/nimbus-lxc-seed.tar.gz"
