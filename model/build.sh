@@ -80,12 +80,12 @@ EOF
         cat > "$svc_dir/lemonade-configure.service" <<'UNIT'
 [Unit]
 Description=Configure lemonade-server to bind on all network interfaces
-After=snapd.service
-Wants=snapd.service
+After=snap.lemonade-server.daemon.service
+BindsTo=snap.lemonade-server.daemon.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/snap set lemonade-server host=0.0.0.0
+ExecStart=/snap/bin/lemonade-server config set host=0.0.0.0
 RemainAfterExit=yes
 StandardOutput=journal
 StandardError=journal
