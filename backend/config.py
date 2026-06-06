@@ -84,9 +84,14 @@ def _build_settings() -> Settings:
     if remote_base_url:
         remote_base_url = remote_base_url.rstrip("/")
 
-    # openclaw is always preseeded; user-supplied apps are appended after it
+    # When the App Store is visible, users install openclaw themselves; skip
+    # auto-preseed so first-boot doesn't block on it. When the store is hidden,
+    # preseed openclaw automatically since there's no other way to get it.
     _user_apps = _parse_preseed_apps(os.getenv("NIMBUS_PRESEED_APPS"))
-    preseed_apps = ["openclaw"] + [a for a in _user_apps if a != "openclaw"]
+    if appstore_visible:
+        preseed_apps = [a for a in _user_apps if a != "openclaw"]
+    else:
+        preseed_apps = ["openclaw"] + [a for a in _user_apps if a != "openclaw"]
 
     appstore_visible = _env_bool("NIMBUS_APPSTORE_VISIBLE", True)
 
