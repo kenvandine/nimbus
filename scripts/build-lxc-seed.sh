@@ -65,24 +65,29 @@ echo "==> Exporting image..."
 lxc image export "$ALIAS" "$WORK/nimbus-runtime"
 
 meta="$WORK/nimbus-runtime.tar.gz"
-# Rootfs has the image fingerprint embedded in the filename (squashfs or tar.gz).
+# Rootfs is a separate file only in the split export format; newer LXD versions
+# produce a single unified tarball (metadata + rootfs inside one .tar.gz).
 rootfs=$(find "$WORK" -name 'nimbus-runtime.*' ! -name 'nimbus-runtime.tar.gz' | head -1)
 
-if [ ! -f "$meta" ] || [ -z "$rootfs" ]; then
-    echo "ERROR: exported image files not found in $WORK:" >&2
+if [ ! -f "$meta" ]; then
+    echo "ERROR: no exported image found in $WORK:" >&2
     ls -lh "$WORK" >&2
     exit 1
 fi
 
 echo "==> Packaging as nimbus-lxc-seed.tar.gz..."
-echo "    meta:   $(basename "$meta")  ($(du -sh "$meta" | cut -f1))"
-echo "    rootfs: $(basename "$rootfs")  ($(du -sh "$rootfs" | cut -f1))"
-
-# Store under stable names so the Python importer knows what to open.
-cp "$meta"   "$WORK/meta.tar.gz"
-cp "$rootfs" "$WORK/rootfs"
-
-tar -C "$WORK" -czf "$WORK/nimbus-lxc-seed.tar.gz" meta.tar.gz rootfs
+if [ -n "$rootfs" ]; then
+    # Split format: separate LXD metadata tarball + rootfs squashfs/tarball.
+    echo "    format: split  meta=$(du -sh "$meta" | cut -f1)  rootfs=$(du -sh "$rootfs" | cut -f1)"
+    cp "$meta"   "$WORK/meta.tar.gz"
+    cp "$rootfs" "$WORK/rootfs"
+    tar -C "$WORK" -czf "$WORK/nimbus-lxc-seed.tar.gz" meta.tar.gz rootfs
+else
+    # Unified format: single tarball already contains both metadata and rootfs.
+    echo "    format: unified  ($(du -sh "$meta" | cut -f1))"
+    cp "$meta" "$WORK/image.tar.gz"
+    tar -C "$WORK" -czf "$WORK/nimbus-lxc-seed.tar.gz" image.tar.gz
+fi
 
 cp "$WORK/nimbus-lxc-seed.tar.gz" "$OUTPUT_DIR/nimbus-lxc-seed.tar.gz"
 

@@ -130,18 +130,24 @@ class LxdManager:
             with tarfile.open(seed_path) as tf:
                 tf.extractall(tmpdir)
 
-            meta_path = tmpdir / "meta.tar.gz"
-            rootfs_path = tmpdir / "rootfs"
+            unified_path = tmpdir / "image.tar.gz"   # unified export (newer LXD)
+            meta_path    = tmpdir / "meta.tar.gz"    # split export — metadata half
+            rootfs_path  = tmpdir / "rootfs"         # split export — rootfs half
 
-            if not meta_path.exists() or not rootfs_path.exists():
+            if unified_path.exists():
+                logger.info("Seeded image is unified format")
+                with open(unified_path, "rb") as f:
+                    image = self.client().images.create(f.read(), wait=True)
+            elif meta_path.exists() and rootfs_path.exists():
+                logger.info("Seeded image is split format")
+                with open(meta_path, "rb") as mf, open(rootfs_path, "rb") as rf:
+                    image = self.client().images.create(rf.read(), metadata=mf.read(), wait=True)
+            else:
                 logger.error(
-                    "Seeded LXC image is malformed (expected meta.tar.gz + rootfs): %s",
+                    "Seeded LXC image is malformed (expected image.tar.gz or meta.tar.gz+rootfs): %s",
                     list(tmpdir.iterdir()),
                 )
                 return
-
-            with open(meta_path, "rb") as mf, open(rootfs_path, "rb") as rf:
-                image = self.client().images.create(rf.read(), metadata=mf.read(), wait=True)
 
             image.add_alias(alias, "Nimbus pre-built runtime")
             logger.info(
