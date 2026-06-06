@@ -12,9 +12,16 @@
 set -euo pipefail
 
 OUTPUT_DIR="${1:-.}"
+mkdir -p "$OUTPUT_DIR"
+OUTPUT_DIR="$(realpath "$OUTPUT_DIR")"
+
 CONTAINER="nimbus-seed-builder-$$"
 ALIAS="nimbus-runtime"
-WORK=$(mktemp -d)
+
+# Work directory must be inside $HOME so the lxd snap (strictly confined,
+# home interface only) can write the exported image files there.
+WORK="$OUTPUT_DIR/.lxc-build-$$"
+mkdir -p "$WORK"
 
 cleanup() {
     lxc delete --force "$CONTAINER" 2>/dev/null || true
@@ -52,13 +59,15 @@ echo "==> Publishing image as '$ALIAS'..."
 lxc publish "$CONTAINER" --alias "$ALIAS" description="Nimbus pre-built runtime"
 
 echo "==> Exporting image..."
-lxc image export "$ALIAS" "$WORK/nimbus-runtime"
+# cd into WORK so lxc (lxd snap, strictly confined) writes files to a path
+# within $HOME rather than /tmp, which snap confinement blocks.
+(cd "$WORK" && lxc image export "$ALIAS" nimbus-runtime)
 
 meta="$WORK/nimbus-runtime.tar.gz"
-# Rootfs has the fingerprint embedded in the filename; squashfs is preferred.
+# Rootfs has the image fingerprint embedded in the filename (squashfs or tar.gz).
 rootfs=$(find "$WORK" -name 'nimbus-runtime.*' ! -name 'nimbus-runtime.tar.gz' | head -1)
 
-if [ -z "$meta" ] || [ ! -f "$meta" ] || [ -z "$rootfs" ]; then
+if [ ! -f "$meta" ] || [ -z "$rootfs" ]; then
     echo "ERROR: exported image files not found in $WORK:" >&2
     ls -lh "$WORK" >&2
     exit 1
@@ -74,7 +83,6 @@ cp "$rootfs" "$WORK/rootfs"
 
 tar -C "$WORK" -czf "$WORK/nimbus-lxc-seed.tar.gz" meta.tar.gz rootfs
 
-mkdir -p "$OUTPUT_DIR"
 cp "$WORK/nimbus-lxc-seed.tar.gz" "$OUTPUT_DIR/nimbus-lxc-seed.tar.gz"
 
 echo ""

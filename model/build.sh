@@ -364,7 +364,7 @@ fi
 LXC_SEED_PATH="$(pwd)/nimbus-lxc-seed.tar.gz"
 if [ -f "$LXC_SEED_PATH" ] && [ -e "$PC_IMG_PATH" ]; then
     inject_lxc_seed_image "$PC_IMG_PATH" "$LXC_SEED_PATH"
-else
+elif [ -e "$PC_IMG_PATH" ]; then
     echo "==> No nimbus-lxc-seed.tar.gz found — skipping LXC seed injection"
     echo "    Run scripts/build-lxc-seed.sh first to enable offline first-boot bootstrap."
 fi
