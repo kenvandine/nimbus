@@ -935,9 +935,10 @@ print(json.dumps(apps), end='')
         if app_id == "openclaw":
             self._push_openclaw_overlay(instance)
             self._ensure_openclaw_workspace_device(instance)
+        if app_id in ("openclaw", "hermes-agent"):
             # Install the LXD proxy device that bridges the host's loopback
             # model service into the LXC before docker compose comes up, so
-            # the openclaw gateway can reach it on its first request.
+            # the gateway can reach it on its first request.
             self._configure_provider_proxy(instance)
         bundle = docker.build_app_bundle(
             app_id,
@@ -978,6 +979,7 @@ print(json.dumps(apps), end='')
         if app_id == "openclaw":
             self._push_openclaw_overlay(instance)
             self._ensure_openclaw_workspace_device(instance)
+        if app_id in ("openclaw", "hermes-agent"):
             self._configure_provider_proxy(instance)
         bundle = docker.build_app_bundle(
             app_id,

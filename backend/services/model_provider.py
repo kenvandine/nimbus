@@ -140,6 +140,13 @@ def get_state() -> ProviderState:
     return _lemonade_state()
 
 
+def _container_url(base_url: str) -> str:
+    """Rewrite a host-loopback URL to one reachable from inside docker-in-LXC."""
+    return base_url.replace("localhost", "host.docker.internal").replace(
+        "127.0.0.1", "host.docker.internal"
+    )
+
+
 def gateway_environment() -> dict[str, str]:
     """Env vars to inject into the openclaw gateway container so the setup
     wrapper configures the right backend."""
@@ -147,12 +154,11 @@ def gateway_environment() -> dict[str, str]:
     # In LXD mode the gateway runs inside docker-in-LXC and reaches the host
     # via host.docker.internal — rewrite localhost in the base URL to that
     # alias so the openclaw wizard records a URL the container can resolve.
-    container_url = cfg.base_url.replace("localhost", "host.docker.internal")
-    container_url = container_url.replace("127.0.0.1", "host.docker.internal")
+    container_base = _container_url(cfg.base_url)
     # The wrapper concatenates NIMBUS_OPENCLAW_BASE_URL + NIMBUS_OPENCLAW_API_PATH;
     # split the configured full URL so the operator's path (e.g. /v1 vs /api/v1)
     # wins over the wrapper's provider-keyed default.
-    parsed = urlparse(container_url)
+    parsed = urlparse(container_base)
     prefix = urlunparse((parsed.scheme, parsed.netloc, "", "", "", ""))
     api_path = parsed.path or ""
     return {
@@ -162,6 +168,19 @@ def gateway_environment() -> dict[str, str]:
         "NIMBUS_OPENCLAW_PROVIDER_ID": cfg.provider_id,
         "NIMBUS_OPENCLAW_COMPATIBILITY": cfg.compatibility,
         "NIMBUS_MODEL_PROVIDER": settings.model_provider,
+    }
+
+
+def hermes_container_environment() -> dict[str, str]:
+    """Env vars to inject into the hermes-agent gateway container so it uses
+    the configured local-LLM backend (lemonade or gemma4) via the OpenAI
+    compatibility layer."""
+    cfg = get_provider_config()
+    return {
+        "OPENAI_BASE_URL": _container_url(cfg.base_url),
+        # Lemonade doesn't require auth but the OpenAI client needs a non-empty key.
+        "OPENAI_API_KEY": "nimbus-local",
+        "HERMES_MODEL": cfg.model_id,
     }
 
 

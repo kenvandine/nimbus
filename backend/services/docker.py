@@ -159,6 +159,9 @@ def _prepare_compose_data(
             resolved_overlay,
             gateway_environment(),
         )
+    if app_id == "hermes-agent":
+        from services.model_provider import hermes_container_environment
+        _apply_hermes_overlay(services, hermes_container_environment())
 
     data["services"] = services
     # Drop obsolete version key to silence docker compose warnings.
@@ -218,6 +221,31 @@ def _apply_openclaw_overlay(
             env_dict = dict(existing) if isinstance(existing, dict) else {}
             env_dict.update(extra_env)
             gateway["environment"] = env_dict
+
+
+def _apply_hermes_overlay(
+    services: dict,
+    extra_env: dict[str, str],
+) -> None:
+    """Inject the local-LLM backend config into the hermes-agent gateway service."""
+    gateway = services.get("gateway")
+    if not isinstance(gateway, dict):
+        return
+
+    extra_hosts = list(gateway.get("extra_hosts") or [])
+    if not any(h.startswith("host.docker.internal:") for h in extra_hosts):
+        extra_hosts.append("host.docker.internal:host-gateway")
+    gateway["extra_hosts"] = extra_hosts
+
+    existing = gateway.get("environment")
+    if isinstance(existing, list):
+        env_dict = dict(e.split("=", 1) for e in existing if "=" in e)
+        env_dict.update(extra_env)
+        gateway["environment"] = [f"{k}={v}" for k, v in env_dict.items()]
+    else:
+        env_dict = dict(existing) if isinstance(existing, dict) else {}
+        env_dict.update(extra_env)
+        gateway["environment"] = env_dict
 
 
 def _prepare_compose(app_id: str, compose_src: Path, app_dir: Path) -> Path:
