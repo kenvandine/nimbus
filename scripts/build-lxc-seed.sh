@@ -48,9 +48,22 @@ lxc exec "$CONTAINER" -- bash -c "
         docker.io docker-compose-v2 python3 python3-venv git curl ca-certificates
     apt-get clean
     rm -rf /var/lib/apt/lists/*
-    # Signal to nimbus that APT packages are already present.
     mkdir -p /var/lib/nimbus
     touch /var/lib/nimbus/.packages-preinstalled
+"
+
+echo "==> Pre-installing Python agent environment..."
+lxc file push "$SCRIPT_DIR/../backend/requirements.txt" "$CONTAINER/tmp/requirements.txt"
+lxc exec "$CONTAINER" -- bash -c "
+    set -euo pipefail
+    python3 -m venv /opt/nimbus-venv
+    /opt/nimbus-venv/bin/pip install --upgrade pip --quiet
+    /opt/nimbus-venv/bin/pip install -r /tmp/requirements.txt --quiet
+    rm /tmp/requirements.txt
+    # Pre-create directory structure nimbus expects on first run.
+    mkdir -p /var/lib/nimbus/data/storage /var/lib/nimbus/store /var/lib/nimbus/installed
+    chmod 777 /var/lib/nimbus/data/storage
+    touch /var/lib/nimbus/.agent-python-preinstalled
 "
 
 echo "==> Stopping container..."

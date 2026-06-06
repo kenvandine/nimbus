@@ -34,6 +34,9 @@ BOOTSTRAP_VERSION = "1"
 # Written into the pre-built image at build time to signal that APT packages
 # are already installed and _install_runtime_packages can be skipped.
 PACKAGES_MARKER = Path("/var/lib/nimbus/.packages-preinstalled")
+# Written into the pre-built image to signal that /opt/nimbus-venv already
+# contains all agent Python dependencies and _install_agent_python can be skipped.
+AGENT_PYTHON_MARKER = Path("/var/lib/nimbus/.agent-python-preinstalled")
 BACKEND_SOURCE_DIR = Path(__file__).resolve().parents[1]
 SETUP_DIR = Path(__file__).resolve().parents[2] / "setup"
 AGENT_SERVICE_SOURCE = SETUP_DIR / "nimbus.service"
@@ -103,6 +106,9 @@ class LxdManager:
     def _has_packages_marker(self, instance) -> bool:
         return self._read_file(instance, str(PACKAGES_MARKER)) is not None
 
+    def _has_agent_python_marker(self, instance) -> bool:
+        return self._read_file(instance, str(AGENT_PYTHON_MARKER)) is not None
+
     def _import_seeded_image(self) -> None:
         """Import a pre-built LXC image tarball.
 
@@ -133,8 +139,9 @@ class LxdManager:
 
         try:
             self.client().images.get_by_alias(alias)
-            logger.info("Seeded LXC image already imported as '%s', removing seed file", alias)
-            seed_path.unlink(missing_ok=True)
+            logger.info("Seeded LXC image already imported as '%s'", alias)
+            if snap_common and str(seed_path).startswith(snap_common + os.sep):
+                seed_path.unlink(missing_ok=True)
             return
         except NotFound:
             pass
@@ -674,6 +681,7 @@ class LxdManager:
                 self.ensure_initialized()
                 self._set_bootstrap_state("ensuring-profile")
                 self.ensure_profile()
+                self._set_bootstrap_state("importing-image")
                 self._import_seeded_image()
                 self._set_bootstrap_state("ensuring-container")
                 instance = self.ensure_started()
@@ -684,13 +692,23 @@ class LxdManager:
                     return
 
                 self._set_bootstrap_state("installing-runtime")
-                self._wait_for_container_dns(instance)
-                if not self._has_packages_marker(instance):
-                    self._install_runtime_packages(instance)
+                packages_preinstalled = self._has_packages_marker(instance)
+                agent_python_preinstalled = self._has_agent_python_marker(instance)
+                if packages_preinstalled and agent_python_preinstalled:
+                    logger.info("Packages and Python env preinstalled — skipping network-dependent setup")
+                else:
+                    self._wait_for_container_dns(instance)
+                    if not packages_preinstalled:
+                        self._install_runtime_packages(instance)
+                    else:
+                        logger.info("Packages already preinstalled — skipping APT install")
                 self._set_bootstrap_state("pushing-agent")
                 self._push_agent_payload(instance)
                 self._set_bootstrap_state("installing-agent-python")
-                self._install_agent_python(instance)
+                if not agent_python_preinstalled:
+                    self._install_agent_python(instance)
+                else:
+                    logger.info("Python env already preinstalled — skipping venv/pip setup")
                 self._set_bootstrap_state("starting-agent")
                 self._enable_services(instance)
                 self._write_file(instance, str(BOOTSTRAP_MARKER), BOOTSTRAP_VERSION + "\n")

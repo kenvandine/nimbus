@@ -61,6 +61,7 @@ function describeSetupState(stats, apps, activeInstalls) {
         idle: 'Preparing the managed environment.',
         'waiting-for-network': 'Waiting for network connectivity before setting up the managed environment.',
         'ensuring-profile': 'Configuring the LXD profile for nested container support.',
+        'importing-image': 'Importing pre-built container image.',
         'ensuring-container': 'Creating and starting the managed LXD container.',
         'installing-runtime': 'Installing Docker and required system packages in the managed container.',
         'pushing-agent': 'Copying Nimbus services into the managed container.',
@@ -71,6 +72,7 @@ function describeSetupState(stats, apps, activeInstalls) {
     : {
         idle: 'Nimbus is checking the managed container and restoring app status.',
         'ensuring-profile': 'Nimbus is checking the managed container configuration.',
+        'importing-image': 'Nimbus is importing the pre-built container image.',
         'ensuring-container': 'Nimbus is starting the managed container.',
         'starting-agent': 'Nimbus is starting the managed services.',
         ready: 'Nimbus is finishing startup.',
