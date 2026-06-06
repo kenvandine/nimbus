@@ -26,9 +26,10 @@ fi
 
 entries=()
 while IFS= read -r line; do
-  if [[ $line =~ ^Boot([0-9A-Fa-f]{4})[\*\ ]+(.+)$ ]]; then
+  if [[ $line =~ ^Boot([0-9A-Fa-f]{4})[\*\ ]+([^\t]+) ]]; then
     num="${BASH_REMATCH[1]}"
     label="${BASH_REMATCH[2]}"
+    label="${label%%$'\t'*}"
     if [[ "$label" == "ubuntu" || "$label" == "Ubuntu" ]]; then
       entries+=("$num:$label")
     fi
@@ -52,4 +53,4 @@ done
 
 echo
 echo "Remaining matching entries:"
-efibootmgr | grep -E '^Boot[0-9A-Fa-f]{4}[\*\ ]+(ubuntu|Ubuntu)$' || true
+efibootmgr | grep -E '^Boot[0-9A-Fa-f]{4}[\*\ ]+(ubuntu|Ubuntu)(\t|$)' || true
