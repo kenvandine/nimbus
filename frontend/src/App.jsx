@@ -15,9 +15,6 @@ import Login from './components/Login.jsx'
 
 const POLL_INTERVAL = 5000
 
-// openclaw is a pressed (always-installed) app. Treat the appliance as
-// "still setting up" until openclaw is installed AND running, so the dock
-// doesn't show a non-functional OpenClaw icon during first boot.
 function isOpenClawReady(apps) {
   const oc = apps?.find(a => a.id === 'openclaw')
   return !!(oc && oc.installed && oc.running)
@@ -44,7 +41,8 @@ function describeSetupState(stats, apps, activeInstalls) {
         error: false,
       }
     }
-    if (!isOpenClawReady(apps)) {
+    const oc = apps?.find(a => a.id === 'openclaw')
+    if (oc?.installed && !isOpenClawReady(apps)) {
       return {
         title: 'Starting OpenClaw',
         message: 'Waiting for the OpenClaw agent to come online.',
