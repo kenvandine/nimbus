@@ -30,7 +30,7 @@ apps:
       LXD_DIR: /var/snap/lxd/common/lxd
       NIMBUS_CONTROL_MODE: lxd
       NIMBUS_BIND_HOST: 0.0.0.0
-      NIMBUS_PORT: "8000"
+      NIMBUS_PORT: "80"
       NIMBUS_SERVE_FRONTEND: "true"
       NIMBUS_REFRESH_STORE_ON_STARTUP: "true"
       NIMBUS_STORE_DIR: $SNAP_COMMON/store
