@@ -84,6 +84,8 @@ def _build_settings() -> Settings:
     if remote_base_url:
         remote_base_url = remote_base_url.rstrip("/")
 
+    appstore_visible = _env_bool("NIMBUS_APPSTORE_VISIBLE", True)
+
     # When the App Store is visible, users install openclaw themselves; skip
     # auto-preseed so first-boot doesn't block on it. When the store is hidden,
     # preseed openclaw automatically since there's no other way to get it.
@@ -92,8 +94,6 @@ def _build_settings() -> Settings:
         preseed_apps = [a for a in _user_apps if a != "openclaw"]
     else:
         preseed_apps = ["openclaw"] + [a for a in _user_apps if a != "openclaw"]
-
-    appstore_visible = _env_bool("NIMBUS_APPSTORE_VISIBLE", True)
 
     files_root_env = os.getenv("NIMBUS_FILES_ROOT")
     files_root = Path(files_root_env) if files_root_env else Path.home()
