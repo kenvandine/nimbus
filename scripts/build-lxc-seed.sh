@@ -18,9 +18,10 @@ OUTPUT_DIR="$(realpath "$OUTPUT_DIR")"
 CONTAINER="nimbus-seed-builder-$$"
 ALIAS="nimbus-runtime"
 
-# Work directory must be inside $HOME so the lxd snap (strictly confined,
-# home interface only) can write the exported image files there.
-WORK="$OUTPUT_DIR/.lxc-build-$$"
+# Work directory must be directly under $HOME so the lxd snap (strictly
+# confined, home interface only) can write to the absolute path.  Paths
+# inside project subdirs or /tmp are not reliably accessible to the snap.
+WORK="$HOME/nimbus-lxc-build-$$"
 mkdir -p "$WORK"
 
 cleanup() {
@@ -59,9 +60,9 @@ echo "==> Publishing image as '$ALIAS'..."
 lxc publish "$CONTAINER" --alias "$ALIAS" description="Nimbus pre-built runtime"
 
 echo "==> Exporting image..."
-# cd into WORK so lxc (lxd snap, strictly confined) writes files to a path
-# within $HOME rather than /tmp, which snap confinement blocks.
-(cd "$WORK" && lxc image export "$ALIAS" nimbus-runtime)
+# Pass the absolute path so lxc uses it directly rather than resolving a
+# relative path against a snap-internal directory.
+lxc image export "$ALIAS" "$WORK/nimbus-runtime"
 
 meta="$WORK/nimbus-runtime.tar.gz"
 # Rootfs has the image fingerprint embedded in the filename (squashfs or tar.gz).
