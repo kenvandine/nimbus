@@ -118,6 +118,11 @@ parts:
       cp snap/local/nimbus-reset "$CRAFT_PART_INSTALL/bin/nimbus-reset"
       chmod +x "$CRAFT_PART_INSTALL/bin/nimbus-reset"
       cp snap/local/nimbus_reset.py "$CRAFT_PART_INSTALL/bin/nimbus_reset.py"
+      if [ -f "$CRAFT_PART_BUILD/lxc-seed/nimbus-lxc-seed.tar.gz" ]; then
+        mkdir -p "$CRAFT_PART_INSTALL/lxc-seed"
+        cp "$CRAFT_PART_BUILD/lxc-seed/nimbus-lxc-seed.tar.gz" "$CRAFT_PART_INSTALL/lxc-seed/"
+        echo "Bundled LXC seed image ($(du -sh "$CRAFT_PART_INSTALL/lxc-seed/nimbus-lxc-seed.tar.gz" | cut -f1))"
+      fi
 
 hooks:
   configure:

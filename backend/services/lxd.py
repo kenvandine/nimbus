@@ -104,14 +104,29 @@ class LxdManager:
         return self._read_file(instance, str(PACKAGES_MARKER)) is not None
 
     def _import_seeded_image(self) -> None:
-        """Import a pre-built LXC image tarball seeded into $SNAP_COMMON/lxc-seed/
-        during disk image build. No-ops silently when the file is absent. Deletes
-        the seed file after a successful import to reclaim disk space."""
+        """Import a pre-built LXC image tarball.
+
+        Checks two locations in priority order:
+          1. $SNAP_COMMON/lxc-seed/ — injected into the disk image at build time
+             (deleted after import to reclaim space).
+          2. $SNAP/lxc-seed/       — bundled inside the snap itself; read-only,
+             so it stays in place after import (the alias check avoids re-import).
+
+        No-ops silently when the tarball is absent in both locations.
+        """
         snap_common = os.environ.get("SNAP_COMMON", "")
-        if not snap_common:
-            return
-        seed_path = Path(snap_common) / "lxc-seed" / "nimbus-lxc-seed.tar.gz"
-        if not seed_path.exists():
+        snap = os.environ.get("SNAP", "")
+
+        seed_path: Path | None = None
+        for candidate in filter(None, [
+            Path(snap_common) / "lxc-seed" / "nimbus-lxc-seed.tar.gz" if snap_common else None,
+            Path(snap) / "lxc-seed" / "nimbus-lxc-seed.tar.gz" if snap else None,
+        ]):
+            if candidate.exists():
+                seed_path = candidate
+                break
+
+        if seed_path is None:
             return
 
         alias = settings.lxd_local_image_alias or "nimbus-runtime"
@@ -155,7 +170,9 @@ class LxdManager:
                 alias,
                 image.fingerprint,
             )
-            seed_path.unlink(missing_ok=True)
+            # Delete writable copies to reclaim disk space; $SNAP is read-only.
+            if snap_common and str(seed_path).startswith(snap_common + os.sep):
+                seed_path.unlink(missing_ok=True)
         except Exception as exc:
             logger.warning(
                 "Failed to import seeded LXC image: %s — will pull from remote on next bootstrap",

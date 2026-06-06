@@ -11,7 +11,10 @@
 
 set -euo pipefail
 
-OUTPUT_DIR="${1:-.}"
+# Default: lxc-seed/ next to the nimbus project root so snapcraft bundles it
+# automatically.  Override by passing an explicit path as $1.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+OUTPUT_DIR="${1:-$SCRIPT_DIR/../lxc-seed}"
 mkdir -p "$OUTPUT_DIR"
 OUTPUT_DIR="$(realpath "$OUTPUT_DIR")"
 
