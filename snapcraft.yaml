@@ -38,6 +38,7 @@ apps:
       NIMBUS_LXD_AUTO_BOOTSTRAP: "true"
       NIMBUS_LXD_CONTAINER_NAME: nimbus
       NIMBUS_LXD_PROFILE_NAME: nimbus-hosting
+      NIMBUS_LXD_LOCAL_IMAGE_ALIAS: "nimbus-runtime"
       # Additional Umbrel app IDs to auto-install on first run (comma-separated).
       # openclaw is always preseeded automatically. Overridden at launch from
       # `snap get nimbus preseed-apps` if set.

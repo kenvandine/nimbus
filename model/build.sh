@@ -155,6 +155,51 @@ for part in data.get("partitiontable", {}).get("partitions", []):
     rm -rf "$workdir"
 }
 
+inject_lxc_seed_image() {
+    img=$1
+    seed_tgz=$2
+    loop_dev=
+    mnt=
+
+    echo "==> Injecting LXC seed image into ubuntu-data..."
+
+    # Map the GPT partition name "ubuntu-data" to its partition number.
+    data_partnum=$(sfdisk --json "$img" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+for i, p in enumerate(data.get("partitiontable", {}).get("partitions", []), 1):
+    if p.get("name") == "ubuntu-data":
+        print(i)
+        break
+')
+    if [ -z "$data_partnum" ]; then
+        echo "    Warning: ubuntu-data partition not found — skipping LXC seed injection" >&2
+        return 0
+    fi
+
+    mnt=$(mktemp -d "${TMPDIR%/}/nimbus-data-mnt.XXXXXX")
+    loop_dev=$(sudo losetup --find --show --partscan "$img")
+
+    if ! sudo mount "${loop_dev}p${data_partnum}" "$mnt"; then
+        echo "    Warning: could not mount ubuntu-data — skipping LXC seed injection" >&2
+        sudo losetup -d "$loop_dev"
+        rmdir "$mnt"
+        return 0
+    fi
+
+    # $SNAP_COMMON for the nimbus snap lives here on Ubuntu Core.
+    dest="$mnt/system-data/var/snap/nimbus/common/lxc-seed"
+    sudo mkdir -p "$dest"
+    sudo cp "$seed_tgz" "$dest/nimbus-lxc-seed.tar.gz"
+    sudo chown -R 0:0 "$dest"
+
+    sudo umount "$mnt"
+    sudo losetup -d "$loop_dev"
+    rmdir "$mnt"
+
+    echo "    LXC seed injected ($(du -sh "$seed_tgz" | cut -f1)) at system-data/var/snap/nimbus/common/lxc-seed/"
+}
+
 [ "$#" -ge 1 ] || usage
 TARGET_MODEL=$1
 shift
@@ -314,6 +359,14 @@ SEED_MANIFEST_PATH="$(pwd)/seed.manifest"
 
 if [ -e "$PC_IMG_PATH" ]; then
     inject_nm_lxd_unmanaged "$PC_IMG_PATH" "$BUILD_WORKDIR/volumes/pc/part2.img" "$BUILD_WORKDIR/root/systems"
+fi
+
+LXC_SEED_PATH="$(pwd)/nimbus-lxc-seed.tar.gz"
+if [ -f "$LXC_SEED_PATH" ] && [ -e "$PC_IMG_PATH" ]; then
+    inject_lxc_seed_image "$PC_IMG_PATH" "$LXC_SEED_PATH"
+else
+    echo "==> No nimbus-lxc-seed.tar.gz found — skipping LXC seed injection"
+    echo "    Run scripts/build-lxc-seed.sh first to enable offline first-boot bootstrap."
 fi
 
 if [ ! -e "$PC_IMG_PATH" ]; then

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+import shutil
+import tarfile
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -27,6 +31,9 @@ CONTAINER_OVERLAY_DIR = Path("/opt/nimbus/openclaw-overlay")
 CONTAINER_OPENCLAW_WORKSPACE = "/var/lib/nimbus/installed/openclaw/data/data/.openclaw/workspace"
 BOOTSTRAP_MARKER = Path("/var/lib/nimbus/.agent-bootstrap-version")
 BOOTSTRAP_VERSION = "1"
+# Written into the pre-built image at build time to signal that APT packages
+# are already installed and _install_runtime_packages can be skipped.
+PACKAGES_MARKER = Path("/var/lib/nimbus/.packages-preinstalled")
 BACKEND_SOURCE_DIR = Path(__file__).resolve().parents[1]
 SETUP_DIR = Path(__file__).resolve().parents[2] / "setup"
 AGENT_SERVICE_SOURCE = SETUP_DIR / "nimbus.service"
@@ -92,6 +99,64 @@ class LxdManager:
     def _has_bootstrap_marker(self, instance) -> bool:
         marker = self._read_file(instance, str(BOOTSTRAP_MARKER))
         return bool(marker and marker.strip() == BOOTSTRAP_VERSION)
+
+    def _has_packages_marker(self, instance) -> bool:
+        return self._read_file(instance, str(PACKAGES_MARKER)) is not None
+
+    def _import_seeded_image(self) -> None:
+        """Import a pre-built LXC image tarball seeded into $SNAP_COMMON/lxc-seed/
+        during disk image build. No-ops silently when the file is absent. Deletes
+        the seed file after a successful import to reclaim disk space."""
+        snap_common = os.environ.get("SNAP_COMMON", "")
+        if not snap_common:
+            return
+        seed_path = Path(snap_common) / "lxc-seed" / "nimbus-lxc-seed.tar.gz"
+        if not seed_path.exists():
+            return
+
+        alias = settings.lxd_local_image_alias or "nimbus-runtime"
+
+        try:
+            self.client().images.get_by_alias(alias)
+            logger.info("Seeded LXC image already imported as '%s', removing seed file", alias)
+            seed_path.unlink(missing_ok=True)
+            return
+        except NotFound:
+            pass
+
+        logger.info("Importing seeded LXC image from %s", seed_path)
+        tmpdir = Path(tempfile.mkdtemp())
+        try:
+            with tarfile.open(seed_path) as tf:
+                tf.extractall(tmpdir)
+
+            meta_path = tmpdir / "meta.tar.gz"
+            rootfs_path = tmpdir / "rootfs"
+
+            if not meta_path.exists() or not rootfs_path.exists():
+                logger.error(
+                    "Seeded LXC image is malformed (expected meta.tar.gz + rootfs): %s",
+                    list(tmpdir.iterdir()),
+                )
+                return
+
+            with open(meta_path, "rb") as mf, open(rootfs_path, "rb") as rf:
+                image = self.client().images.create(rf.read(), metadata=mf.read(), wait=True)
+
+            image.add_alias(alias, "Nimbus pre-built runtime")
+            logger.info(
+                "Seeded LXC image imported as '%s' (fingerprint: %s)",
+                alias,
+                image.fingerprint,
+            )
+            seed_path.unlink(missing_ok=True)
+        except Exception as exc:
+            logger.warning(
+                "Failed to import seeded LXC image: %s — will pull from remote on next bootstrap",
+                exc,
+            )
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
     def client(self) -> Client:
         client = getattr(self._local, "client", None)
@@ -261,8 +326,12 @@ class LxdManager:
         raise RuntimeError("Could not create LXD instance from any configured image source:\n" + "\n".join(errors))
 
     def _image_source_candidates(self) -> list[dict[str, str]]:
-        aliases = self._image_alias_candidates(settings.lxd_image_alias)
         candidates: list[dict[str, str]] = []
+
+        if settings.lxd_local_image_alias:
+            candidates.append({"type": "image", "alias": settings.lxd_local_image_alias})
+
+        aliases = self._image_alias_candidates(settings.lxd_image_alias)
         seen: set[tuple[str, str, str]] = set()
 
         def add(server: str, protocol: str, alias: str) -> None:
@@ -582,6 +651,7 @@ class LxdManager:
                 self.ensure_initialized()
                 self._set_bootstrap_state("ensuring-profile")
                 self.ensure_profile()
+                self._import_seeded_image()
                 self._set_bootstrap_state("ensuring-container")
                 instance = self.ensure_started()
                 if self._has_bootstrap_marker(instance):
@@ -592,7 +662,8 @@ class LxdManager:
 
                 self._set_bootstrap_state("installing-runtime")
                 self._wait_for_container_dns(instance)
-                self._install_runtime_packages(instance)
+                if not self._has_packages_marker(instance):
+                    self._install_runtime_packages(instance)
                 self._set_bootstrap_state("pushing-agent")
                 self._push_agent_payload(instance)
                 self._set_bootstrap_state("installing-agent-python")
@@ -746,7 +817,6 @@ print(json.dumps(apps), end='')
         try:
             src.mkdir(parents=True, exist_ok=True)
             try:
-                import os
                 os.chmod(src, 0o777)
             except OSError:
                 pass

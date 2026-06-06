@@ -52,6 +52,7 @@ class Settings:
     lxd_image_server: str
     lxd_image_protocol: str
     lxd_image_alias: str
+    lxd_local_image_alias: str
     lxd_agent_port: int
     lxd_agent_bind_host: str
     lxd_agent_token: str | None
@@ -136,6 +137,7 @@ def _build_settings() -> Settings:
         lxd_image_server=os.getenv("NIMBUS_LXD_IMAGE_SERVER", "https://cloud-images.ubuntu.com/releases"),
         lxd_image_protocol=os.getenv("NIMBUS_LXD_IMAGE_PROTOCOL", "simplestreams"),
         lxd_image_alias=os.getenv("NIMBUS_LXD_IMAGE_ALIAS", "24.04"),
+        lxd_local_image_alias=os.getenv("NIMBUS_LXD_LOCAL_IMAGE_ALIAS", ""),
         lxd_agent_port=int(os.getenv("NIMBUS_LXD_AGENT_PORT", "8000")),
         lxd_agent_bind_host=os.getenv("NIMBUS_LXD_AGENT_BIND_HOST", "127.0.0.1"),
         lxd_agent_token=os.getenv("NIMBUS_LXD_AGENT_TOKEN") or os.getenv("NIMBUS_API_TOKEN"),
