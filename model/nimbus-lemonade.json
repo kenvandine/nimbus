@@ -101,7 +101,7 @@
         {
             "name": "lemonade-server",
             "type": "app",
-            "default-channel": "latest/stable",
+            "default-channel": "latest/edge/cloud-offload",
             "id": "PX5yJDL0Zee280zHDiTZbD6xWqFkDucC"
         }
     ],
