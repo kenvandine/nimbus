@@ -531,6 +531,10 @@ class LxdControlPlane:
     _NETWORK_ERROR_HINTS = frozenset([
         "lookup", "i/o timeout", "dial tcp", "resolve reference",
         "no such host", "connection refused", "network unreachable",
+        # docker pull / compose pull failures
+        "toomanyrequests", "connection reset", "context deadline exceeded",
+        "tls handshake timeout", "eof", "unexpected eof", "failed to pull",
+        "pulling fs layer", "downloading",
     ])
 
     @classmethod

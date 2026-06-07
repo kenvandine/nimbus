@@ -662,17 +662,6 @@ class LxdManager:
         )
         self._run(instance, ["mkdir", "-p", "/var/lib/nimbus/data/storage"])
         self._run(instance, ["chmod", "777", "/var/lib/nimbus/data/storage"])
-        # Configure Docker to use well-known public DNS rather than relying on
-        # the LXC's systemd-resolved stub (127.0.0.53). The host's
-        # NetworkManager can transiently disrupt the LXC container's veth,
-        # which causes systemd-resolved to return SERVFAIL and breaks image
-        # pulls with "server misbehaving" errors.
-        self._run(instance, ["mkdir", "-p", "/etc/docker"])
-        self._write_file(
-            instance,
-            "/etc/docker/daemon.json",
-            '{"dns": ["1.1.1.1", "8.8.8.8"]}\n',
-        )
 
     def _install_agent_python(self, instance) -> None:
         self._run(instance, ["python3", "-m", "venv", "/opt/nimbus-venv"])
@@ -680,7 +669,19 @@ class LxdManager:
         self._run(instance, ["/opt/nimbus-venv/bin/pip", "install", "-r", "/opt/nimbus/backend/requirements.txt"])
 
     def _enable_services(self, instance) -> None:
-        self._run(instance, ["systemctl", "enable", "--now", "docker"])
+        # Write Docker DNS config unconditionally so it takes effect whether
+        # packages were just installed or came pre-built in the seeded image
+        # (which skips _install_runtime_packages).  Without this, Docker falls
+        # back to the LXC's 127.0.0.53 systemd-resolved stub, which returns
+        # SERVFAIL for registry-1.docker.io and breaks all image pulls.
+        self._run(instance, ["mkdir", "-p", "/etc/docker"])
+        self._write_file(
+            instance,
+            "/etc/docker/daemon.json",
+            '{"dns": ["1.1.1.1", "8.8.8.8"]}\n',
+        )
+        self._run(instance, ["systemctl", "restart", "docker"])
+        self._run(instance, ["systemctl", "enable", "docker"])
         self._run(instance, ["systemctl", "daemon-reload"])
         self._run(instance, ["systemctl", "enable", "nimbus"])
         self._run(instance, ["systemctl", "restart", "nimbus"])
@@ -1142,22 +1143,18 @@ print(json.dumps(apps), end='')
         if app_id == "picoclaw":
             self._configure_picoclaw_provider(instance, bundle.data_dir)
         self._wait_for_container_dns(instance)
-        self._run(
-            instance,
-            [
-                "docker",
-                "compose",
-                "-p",
-                app_id,
-                "-f",
-                f"{bundle.app_dir}/docker-compose.yml",
-                "--env-file",
-                f"{bundle.app_dir}/.env",
-                "up",
-                "-d",
-                "--remove-orphans",
-            ],
-        )
+        compose_cmd = [
+            "docker", "compose",
+            "-p", app_id,
+            "-f", f"{bundle.app_dir}/docker-compose.yml",
+            "--env-file", f"{bundle.app_dir}/.env",
+        ]
+        # Pull images separately before starting so that progress output keeps
+        # the LXD exec WebSocket alive during long downloads.  Running
+        # "up -d" alone is silent during the pull phase, which causes the exec
+        # session to be killed after a few minutes on large images.
+        self._run(instance, [*compose_cmd, "pull"])
+        self._run(instance, [*compose_cmd, "up", "-d", "--remove-orphans"])
         self._configure_app_proxy(instance, app_id, bundle.published_port)
         self._invalidate_snapshot()
 
