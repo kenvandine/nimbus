@@ -662,6 +662,16 @@ class LxdManager:
         )
         self._run(instance, ["mkdir", "-p", "/var/lib/nimbus/data/storage"])
         self._run(instance, ["chmod", "777", "/var/lib/nimbus/data/storage"])
+        # Prevent NetworkManager inside the LXC from trying to manage Docker's
+        # bridge and veth interfaces. Without this, NM fights Docker for the
+        # veth pairs created per-container, causing DHCP failures that make
+        # systemd-resolved return SERVFAIL, breaking image pulls mid-install.
+        self._run(instance, ["mkdir", "-p", "/etc/NetworkManager/conf.d"])
+        self._write_file(
+            instance,
+            "/etc/NetworkManager/conf.d/90-docker-unmanaged.conf",
+            "[keyfile]\nunmanaged-devices=interface-name:docker*;interface-name:veth*;interface-name:br-*\n",
+        )
 
     def _install_agent_python(self, instance) -> None:
         self._run(instance, ["python3", "-m", "venv", "/opt/nimbus-venv"])

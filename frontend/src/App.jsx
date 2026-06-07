@@ -15,10 +15,6 @@ import Login from './components/Login.jsx'
 
 const POLL_INTERVAL = 5000
 
-function isOpenClawReady(apps) {
-  const oc = apps?.find(a => a.id === 'openclaw')
-  return !!(oc && oc.installed && oc.running)
-}
 
 function describeSetupState(stats, apps, activeInstalls) {
   if (!stats || stats.control_mode !== 'lxd') return null
@@ -33,23 +29,6 @@ function describeSetupState(stats, apps, activeInstalls) {
   const lxdReady =
     stats.container_bootstrapped && stats.container_status === 'running' && stats.bootstrap_state === 'ready'
   if (lxdReady) {
-    if (activeInstalls?.includes('openclaw')) {
-      return {
-        title: 'Installing OpenClaw',
-        message: 'Setting up the OpenClaw agent. This can take a couple of minutes on first boot.',
-        ready: false,
-        error: false,
-      }
-    }
-    const oc = apps?.find(a => a.id === 'openclaw')
-    if (oc?.installed && !isOpenClawReady(apps)) {
-      return {
-        title: 'Starting OpenClaw',
-        message: 'Waiting for the OpenClaw agent to come online.',
-        ready: false,
-        error: false,
-      }
-    }
     return { ready: true }
   }
 
