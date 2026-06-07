@@ -699,6 +699,7 @@ class LxdManager:
                 if self._has_bootstrap_marker(instance):
                     self._set_bootstrap_state("starting-agent")
                     self._wait_for_docker(instance)
+                    self._repatch_provider_apps(instance)
                     self._set_bootstrap_state("ready")
                     return
 
@@ -939,6 +940,51 @@ print(json.dumps(apps), end='')
             self._run(instance, ["chmod", format(spec.mode, "o"), spec.path])
             if spec.uid >= 0:
                 self._run(instance, ["chown", f"{spec.uid}:{spec.gid}", spec.path])
+
+    def _repatch_provider_apps(self, instance) -> None:
+        """Re-apply model-provider env vars to installed provider-aware apps.
+
+        Called at each container startup so a snap update propagates new
+        provider configuration without requiring the user to reinstall the app.
+        Only rewrites and restarts containers when the compose is missing the
+        expected env vars.
+        """
+        checks = {
+            "hermes-agent": "OPENAI_BASE_URL",
+            "openclaw": "NIMBUS_OPENCLAW_BASE_URL",
+        }
+        for app_id, marker in checks.items():
+            env_file = str(CONTAINER_INSTALLED_DIR / app_id / ".env")
+            compose_file = str(CONTAINER_INSTALLED_DIR / app_id / "docker-compose.yml")
+            env_text = self._read_file(instance, env_file)
+            if not env_text:
+                continue  # not installed
+            existing = self._read_file(instance, compose_file) or ""
+            if marker in existing:
+                continue  # already patched
+            logger.info("Repatching provider overlay for %s", app_id)
+            try:
+                if app_id == "openclaw":
+                    self._push_openclaw_overlay(instance)
+                self._configure_provider_proxy(instance)
+                bundle = docker.build_app_bundle(
+                    app_id,
+                    installed_dir=CONTAINER_INSTALLED_DIR,
+                    env_text=env_text,
+                    overlay_dir=CONTAINER_OVERLAY_DIR,
+                )
+                self._write_file(instance, compose_file, bundle.compose_text)
+                self._run(
+                    instance,
+                    [
+                        "docker", "compose", "-p", app_id,
+                        "-f", compose_file, "--env-file", env_file,
+                        "up", "-d", "--remove-orphans",
+                    ],
+                    acceptable={0, 1},
+                )
+            except Exception as exc:
+                logger.warning("Failed to repatch %s: %s", app_id, exc)
 
     def install_app(self, app_id: str) -> None:
         self.ensure_bootstrapped()
