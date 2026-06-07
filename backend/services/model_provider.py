@@ -174,11 +174,19 @@ def gateway_environment() -> dict[str, str]:
 def hermes_container_environment() -> dict[str, str]:
     """Env vars to inject into the hermes-agent gateway container so it uses
     the configured local-LLM backend (lemonade or gemma4) via the OpenAI
-    compatibility layer."""
+    compatibility layer.
+
+    Uses the lmstudio provider (openai_chat transport) so hermes routes to
+    LM_BASE_URL instead of defaulting to openrouter when OPENAI_API_KEY is set.
+    """
     cfg = get_provider_config()
+    container_base = _container_url(cfg.base_url)
     return {
-        "OPENAI_BASE_URL": _container_url(cfg.base_url),
-        # Lemonade doesn't require auth but the OpenAI client needs a non-empty key.
+        # lmstudio provider env vars — used when auth.json sets active_provider: lmstudio
+        "LM_BASE_URL": container_base,
+        "LM_API_KEY": "nimbus-local",
+        # Keep standard OpenAI vars for any tooling that reads them directly
+        "OPENAI_BASE_URL": container_base,
         "OPENAI_API_KEY": "nimbus-local",
         "HERMES_MODEL": cfg.model_id,
     }

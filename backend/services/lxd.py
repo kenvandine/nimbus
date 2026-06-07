@@ -941,29 +941,120 @@ print(json.dumps(apps), end='')
             if spec.uid >= 0:
                 self._run(instance, ["chown", f"{spec.uid}:{spec.gid}", spec.path])
 
+    def _to_container_url(self, host_url: str) -> str:
+        """Rewrite a host-loopback URL to one reachable from inside docker-in-LXC."""
+        return host_url.replace("localhost", "host.docker.internal").replace(
+            "127.0.0.1", "host.docker.internal"
+        )
+
+    def _configure_hermes_provider(self, instance, data_dir: Path) -> None:
+        """Pre-write hermes data files so the gateway starts with the
+        configured LLM backend on first boot.
+
+        Hermes resolves the provider via auth.json (active_provider) before
+        falling back to env-var auto-detection.  We use the built-in 'lmstudio'
+        provider (openai_chat transport, reads LM_BASE_URL/LM_API_KEY) rather
+        than 'openai-api' (codex_responses transport) so standard chat-
+        completions endpoints like lemonade are fully compatible.
+        """
+        import json as _json
+        from services.model_provider import get_provider_config
+        cfg = get_provider_config()
+        container_base = self._to_container_url(cfg.base_url)
+        hermes_dir = str(data_dir / "data" / "hermes")
+        self._run(instance, ["mkdir", "-p", hermes_dir])
+        self._run(instance, ["chmod", "777", hermes_dir])
+        # Write LM Studio env vars to hermes .env so they survive container
+        # restarts even if the docker-compose environment changes.
+        env_content = (
+            f"LM_BASE_URL={container_base}\n"
+            "LM_API_KEY=nimbus-local\n"
+            f"HERMES_MODEL={cfg.model_id}\n"
+        )
+        self._write_file(instance, f"{hermes_dir}/.env", env_content, mode=0o600)
+        # auth.json: set active_provider so resolve_provider() returns "lmstudio"
+        # before it can fall through to the OPENAI_API_KEY → "openrouter" path.
+        auth_store = {
+            "version": 1,
+            "providers": {},
+            "active_provider": "lmstudio",
+        }
+        self._write_file(
+            instance,
+            f"{hermes_dir}/auth.json",
+            _json.dumps(auth_store, indent=2) + "\n",
+            mode=0o600,
+        )
+        # config.yaml: default model so the user doesn't need to run hermes setup.
+        config_content = (
+            f"model: lmstudio/{cfg.model_id}\n"
+            "skills:\n"
+            "  external_dirs:\n"
+            "    - /app/umbrel-context/skills\n"
+            "plugins:\n"
+            "  enabled:\n"
+            "    - umbrel-runtime\n"
+        )
+        self._write_file(instance, f"{hermes_dir}/config.yaml", config_content)
+        # Hermes runs as uid 1000; LXD file writes land as root.
+        self._run(instance, ["chown", "1000:1000",
+                              f"{hermes_dir}/.env",
+                              f"{hermes_dir}/auth.json",
+                              f"{hermes_dir}/config.yaml"])
+
+    def _configure_picoclaw_provider(self, instance, data_dir: Path) -> None:
+        """Pre-write picoclaw config.json so it boots with the configured LLM backend."""
+        import json
+        from services.model_provider import get_provider_config
+        cfg = get_provider_config()
+        container_base = self._to_container_url(cfg.base_url)
+        picoclaw_dir = str(data_dir / "data")
+        self._run(instance, ["mkdir", "-p", picoclaw_dir])
+        self._run(instance, ["chmod", "777", picoclaw_dir])
+        config = {
+            "model_list": [
+                {
+                    "model_name": "lemonade",
+                    "provider": "openai",
+                    "model": cfg.model_id,
+                    "api_base": container_base,
+                }
+            ],
+            "agents": {
+                "defaults": {
+                    "provider": "openai",
+                    "model_name": "lemonade",
+                }
+            },
+        }
+        self._write_file(
+            instance,
+            f"{picoclaw_dir}/config.json",
+            json.dumps(config, indent=2) + "\n",
+        )
+        # Picoclaw runs as uid 1000; LXD file writes land as root.
+        self._run(instance, ["chown", "1000:1000", f"{picoclaw_dir}/config.json"])
+
     def _repatch_provider_apps(self, instance) -> None:
-        """Re-apply model-provider env vars to installed provider-aware apps.
+        """Re-apply model-provider configuration to installed provider-aware apps.
 
         Called at each container startup so a snap update propagates new
         provider configuration without requiring the user to reinstall the app.
-        Only rewrites and restarts containers when the compose is missing the
-        expected env vars.
         """
-        checks = {
-            "hermes-agent": "OPENAI_BASE_URL",
+        # Apps configured via compose env var injection
+        compose_checks = {
             "openclaw": "NIMBUS_OPENCLAW_BASE_URL",
             "anything-llm": "GENERIC_OPEN_AI_BASE_PATH",
-            "picoclaw": "OPENAI_BASE_URL",
         }
-        for app_id, marker in checks.items():
+        for app_id, marker in compose_checks.items():
             env_file = str(CONTAINER_INSTALLED_DIR / app_id / ".env")
             compose_file = str(CONTAINER_INSTALLED_DIR / app_id / "docker-compose.yml")
             env_text = self._read_file(instance, env_file)
             if not env_text:
-                continue  # not installed
+                continue
             existing = self._read_file(instance, compose_file) or ""
             if marker in existing:
-                continue  # already patched
+                continue
             logger.info("Repatching provider overlay for %s", app_id)
             try:
                 if app_id == "openclaw":
@@ -988,6 +1079,43 @@ print(json.dumps(apps), end='')
             except Exception as exc:
                 logger.warning("Failed to repatch %s: %s", app_id, exc)
 
+        # Apps configured via data files (compose env vars are insufficient)
+        for app_id in ("hermes-agent", "picoclaw"):
+            env_file = str(CONTAINER_INSTALLED_DIR / app_id / ".env")
+            env_text = self._read_file(instance, env_file)
+            if not env_text:
+                continue
+            data_dir = CONTAINER_INSTALLED_DIR / app_id / "data"
+            needs_restart = False
+            try:
+                if app_id == "hermes-agent":
+                    hermes_auth = self._read_file(instance, str(data_dir / "data" / "hermes" / "auth.json")) or ""
+                    if "lmstudio" not in hermes_auth:
+                        logger.info("Writing hermes provider data files")
+                        self._configure_provider_proxy(instance)
+                        self._configure_hermes_provider(instance, data_dir)
+                        needs_restart = True
+                elif app_id == "picoclaw":
+                    picoclaw_cfg = self._read_file(instance, str(data_dir / "data" / "config.json")) or ""
+                    if "lemonade" not in picoclaw_cfg:
+                        logger.info("Writing picoclaw provider config")
+                        self._configure_provider_proxy(instance)
+                        self._configure_picoclaw_provider(instance, data_dir)
+                        needs_restart = True
+                if needs_restart:
+                    compose_file = str(CONTAINER_INSTALLED_DIR / app_id / "docker-compose.yml")
+                    self._run(
+                        instance,
+                        [
+                            "docker", "compose", "-p", app_id,
+                            "-f", compose_file, "--env-file", env_file,
+                            "up", "-d", "--remove-orphans",
+                        ],
+                        acceptable={0, 1},
+                    )
+            except Exception as exc:
+                logger.warning("Failed to repatch data files for %s: %s", app_id, exc)
+
     def install_app(self, app_id: str) -> None:
         self.ensure_bootstrapped()
         instance = self.ensure_started()
@@ -1009,6 +1137,10 @@ print(json.dumps(apps), end='')
         self._write_file(instance, f"{bundle.app_dir}/.env", bundle.env_text, mode=0o600)
         if bundle.version:
             self._write_file(instance, f"{bundle.app_dir}/.nimbus-version", bundle.version + "\n")
+        if app_id == "hermes-agent":
+            self._configure_hermes_provider(instance, bundle.data_dir)
+        if app_id == "picoclaw":
+            self._configure_picoclaw_provider(instance, bundle.data_dir)
         self._wait_for_container_dns(instance)
         self._run(
             instance,

@@ -6,8 +6,7 @@ from pathlib import Path
 
 
 _DEFAULT_APPSTORE_WHITELIST = [
-    "openclaw", "hermes-agent", "jellyfin", "obsidian",
-    "picoclaw", "anything-llm", "immich",
+    "openclaw", "hermes-agent", "picoclaw", "immich",
 ]
 
 
