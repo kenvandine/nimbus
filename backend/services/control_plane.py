@@ -191,7 +191,8 @@ class LocalControlPlane:
         return AppDetail(**data)
 
     async def list_apps(self) -> list[AppDetail]:
-        metas = store.list_apps()
+        installed_ids = set(docker.installed_app_ids())
+        metas = store.list_apps(extra_ids=installed_ids)
         statuses = await asyncio.gather(*[self._status_for(m.id, m) for m in metas])
         host_ip = await network.get_host_ip()
         sys_apps = await system_apps.get_system_apps(host_ip)
@@ -481,9 +482,10 @@ class LxdControlPlane:
         return status, str(app_state.get("password") or "")
 
     def _list_apps_sync(self, host_ip: str | None = None) -> list[AppDetail]:
-        metas = store.list_apps()
         info = self.manager.container_info()
         snapshot = self.manager.app_runtime_snapshot() if self._container_ready(info) else None
+        installed_ids = set(snapshot.installed.keys()) if snapshot else set()
+        metas = store.list_apps(extra_ids=installed_ids)
         details: list[AppDetail] = []
         for meta in metas:
             status, default_password = self._status_for_sync(meta.id, meta, info, snapshot, host_ip)

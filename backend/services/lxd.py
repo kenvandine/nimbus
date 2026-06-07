@@ -952,6 +952,8 @@ print(json.dumps(apps), end='')
         checks = {
             "hermes-agent": "OPENAI_BASE_URL",
             "openclaw": "NIMBUS_OPENCLAW_BASE_URL",
+            "anything-llm": "GENERIC_OPEN_AI_BASE_PATH",
+            "picoclaw": "OPENAI_BASE_URL",
         }
         for app_id, marker in checks.items():
             env_file = str(CONTAINER_INSTALLED_DIR / app_id / ".env")
@@ -992,7 +994,7 @@ print(json.dumps(apps), end='')
         if app_id == "openclaw":
             self._push_openclaw_overlay(instance)
             self._ensure_openclaw_workspace_device(instance)
-        if app_id in ("openclaw", "hermes-agent"):
+        if app_id in ("openclaw", "hermes-agent", "anything-llm", "picoclaw"):
             # Install the LXD proxy device that bridges the host's loopback
             # model service into the LXC before docker compose comes up, so
             # the gateway can reach it on its first request.

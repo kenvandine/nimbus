@@ -162,6 +162,12 @@ def _prepare_compose_data(
     if app_id == "hermes-agent":
         from services.model_provider import hermes_container_environment
         _apply_hermes_overlay(services, hermes_container_environment())
+    if app_id == "anything-llm":
+        from services.model_provider import anythingllm_container_environment
+        _apply_service_provider_overlay(services, "app", anythingllm_container_environment())
+    if app_id == "picoclaw":
+        from services.model_provider import picoclaw_container_environment
+        _apply_service_provider_overlay(services, "server", picoclaw_container_environment())
 
     data["services"] = services
     # Drop obsolete version key to silence docker compose warnings.
@@ -223,29 +229,38 @@ def _apply_openclaw_overlay(
             gateway["environment"] = env_dict
 
 
+def _apply_service_provider_overlay(
+    services: dict,
+    service_name: str,
+    extra_env: dict[str, str],
+) -> None:
+    """Inject host.docker.internal and provider env vars into a named service."""
+    svc = services.get(service_name)
+    if not isinstance(svc, dict):
+        return
+
+    extra_hosts = list(svc.get("extra_hosts") or [])
+    if not any(h.startswith("host.docker.internal:") for h in extra_hosts):
+        extra_hosts.append("host.docker.internal:host-gateway")
+    svc["extra_hosts"] = extra_hosts
+
+    existing = svc.get("environment")
+    if isinstance(existing, list):
+        env_dict = dict(e.split("=", 1) for e in existing if "=" in e)
+        env_dict.update(extra_env)
+        svc["environment"] = [f"{k}={v}" for k, v in env_dict.items()]
+    else:
+        env_dict = dict(existing) if isinstance(existing, dict) else {}
+        env_dict.update(extra_env)
+        svc["environment"] = env_dict
+
+
 def _apply_hermes_overlay(
     services: dict,
     extra_env: dict[str, str],
 ) -> None:
     """Inject the local-LLM backend config into the hermes-agent gateway service."""
-    gateway = services.get("gateway")
-    if not isinstance(gateway, dict):
-        return
-
-    extra_hosts = list(gateway.get("extra_hosts") or [])
-    if not any(h.startswith("host.docker.internal:") for h in extra_hosts):
-        extra_hosts.append("host.docker.internal:host-gateway")
-    gateway["extra_hosts"] = extra_hosts
-
-    existing = gateway.get("environment")
-    if isinstance(existing, list):
-        env_dict = dict(e.split("=", 1) for e in existing if "=" in e)
-        env_dict.update(extra_env)
-        gateway["environment"] = [f"{k}={v}" for k, v in env_dict.items()]
-    else:
-        env_dict = dict(existing) if isinstance(existing, dict) else {}
-        env_dict.update(extra_env)
-        gateway["environment"] = env_dict
+    _apply_service_provider_overlay(services, "gateway", extra_env)
 
 
 def _prepare_compose(app_id: str, compose_src: Path, app_dir: Path) -> Path:

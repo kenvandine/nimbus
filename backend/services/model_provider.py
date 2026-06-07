@@ -184,6 +184,29 @@ def hermes_container_environment() -> dict[str, str]:
     }
 
 
+def anythingllm_container_environment() -> dict[str, str]:
+    """Env vars to inject into the AnythingLLM container to pre-select the
+    local-LLM backend as the LLM provider via the generic-openai adapter."""
+    cfg = get_provider_config()
+    return {
+        "LLM_PROVIDER": "generic-openai",
+        "GENERIC_OPEN_AI_BASE_PATH": _container_url(cfg.base_url),
+        "GENERIC_OPEN_AI_API_KEY": "nimbus-local",
+        "GENERIC_OPEN_AI_MODEL_PREF": cfg.model_id,
+        "GENERIC_OPEN_AI_MAX_TOKENS": "4096",
+    }
+
+
+def picoclaw_container_environment() -> dict[str, str]:
+    """Env vars to inject into the PicoClaw container as a best-effort attempt
+    to point it at the local-LLM backend via standard OpenAI SDK env vars."""
+    cfg = get_provider_config()
+    return {
+        "OPENAI_BASE_URL": _container_url(cfg.base_url),
+        "OPENAI_API_KEY": "nimbus-local",
+    }
+
+
 def ensure_ready_task() -> asyncio.Task | None:
     """Fire-and-forget background prep for the selected provider.
 
