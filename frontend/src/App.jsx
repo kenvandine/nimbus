@@ -8,6 +8,7 @@ import DeviceInfo from './components/DeviceInfo.jsx'
 import FileBrowser from './components/FileBrowser.jsx'
 import AppLogViewer from './components/AppLogViewer.jsx'
 import OpenClawWidget from './components/OpenClawWidget.jsx'
+import HermesWidget from './components/HermesWidget.jsx'
 import Settings from './components/Settings.jsx'
 import AppModal from './components/AppModal.jsx'
 import Oobe from './components/Oobe.jsx'
@@ -207,6 +208,8 @@ export default function App() {
 
   const runningApps = apps.filter(a => a.running)
   const updatableCount = apps.filter(a => a.update_available).length
+  const openclawInstalled = apps.some(a => a.id === 'openclaw' && a.installed)
+  const hermesInstalled = apps.some(a => a.id === 'hermes-agent' && a.installed)
 
   const n = runningApps.length
   const cols = n === 0 ? 1 : n <= 3 ? n : Math.ceil(Math.sqrt(n))
@@ -267,8 +270,13 @@ export default function App() {
         </div>
       </div>
 
-      {/* OpenClaw agent widget */}
-      <OpenClawWidget />
+      {/* Widget stack — bottom left, hermes above openclaw */}
+      {(openclawInstalled || hermesInstalled) && (
+        <div style={styles.widgetStack}>
+          {hermesInstalled && <HermesWidget />}
+          {openclawInstalled && <OpenClawWidget />}
+        </div>
+      )}
 
       {/* Desktop app icons — running apps */}
       <div style={styles.desktopArea}>
@@ -452,6 +460,16 @@ const styles = {
     color: 'white',
     position: 'relative',
     transition: 'background 3s ease',
+  },
+  widgetStack: {
+    position: 'fixed',
+    bottom: '90px',
+    left: '18px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+    zIndex: 10,
+    alignItems: 'flex-start',
   },
   topBar: {
     position: 'absolute',
