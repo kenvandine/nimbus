@@ -319,7 +319,7 @@ export default function App() {
               <DesktopIcon
                 key={app.id}
                 app={app}
-                onClick={() => { if (app.open_url) openApp(app.open_url, { name: app.name }) }}
+                onClick={() => { if (app.open_url) openApp(app.open_url, { name: app.name, id: app.id }) }}
                 onContextMenu={(e) => {
                   e.preventDefault()
                   setContextMenu({ app, x: e.clientX, y: e.clientY })
@@ -381,7 +381,7 @@ export default function App() {
           onClick={e => e.stopPropagation()}
         >
           {contextMenu.app.open_url && (
-            <button style={styles.ctxItem} onClick={() => { openApp(contextMenu.app.open_url, { name: contextMenu.app.name }); setContextMenu(null) }}>
+            <button style={styles.ctxItem} onClick={() => { openApp(contextMenu.app.open_url, { name: contextMenu.app.name, id: contextMenu.app.id }); setContextMenu(null) }}>
               Open ↗
             </button>
           )}
