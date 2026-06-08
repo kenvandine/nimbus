@@ -74,6 +74,43 @@ inject_nm_lxd_unmanaged() {
 unmanaged-devices=interface-name:lxdbr0;interface-name:veth*
 EOF
 
+    # ── System performance fixes (applied to all models) ──────────────────────
+
+    # 1. Mask ttyS0 getty — no serial console hardware; agetty respawns every
+    #    10s generating noise and unnecessary load.
+    mkdir -p "$workdir/etc/systemd/system"
+    ln -sf /dev/null "$workdir/etc/systemd/system/serial-getty@ttyS0.service"
+
+    # 2. Blacklist NXP NCI I2C (NFC) driver — generates a continuous IRQ storm
+    #    on AMD hardware consuming 50-60% of a CPU core.
+    #    The kernel cmdline blacklist in gadget.yaml handles the kernel/initramfs
+    #    phase; this file covers userspace modprobe attempts.
+    mkdir -p "$workdir/etc/modprobe.d"
+    printf 'blacklist nxp_nci_i2c\n' > "$workdir/etc/modprobe.d/nfc.conf"
+
+    # 3. Set CPU scaling governor to performance on every boot.
+    #    Default powersave runs cores at ~33% of max frequency on this hardware.
+    mkdir -p "$workdir/etc/systemd/system/multi-user.target.wants"
+    cat > "$workdir/etc/systemd/system/cpu-performance.service" <<'UNIT'
+[Unit]
+Description=Set CPU scaling governor to performance
+DefaultDependencies=no
+After=sysinit.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'echo performance | tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    ln -sf /etc/systemd/system/cpu-performance.service \
+        "$workdir/etc/systemd/system/multi-user.target.wants/cpu-performance.service"
+    echo "    Applied system performance fixes (getty mask, NFC blacklist, CPU governor)"
+
+    # ─────────────────────────────────────────────────────────────────────────
+
     if [ "$extra" = "lemonade" ]; then
         svc_dir="$workdir/etc/systemd/system"
         mkdir -p "$svc_dir/multi-user.target.wants"
