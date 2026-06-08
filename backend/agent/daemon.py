@@ -19,7 +19,7 @@ import logging
 import sys
 from pathlib import Path
 
-DAEMON_VERSION = "4"
+DAEMON_VERSION = "5"
 INSTALLED_DIR = Path("/var/lib/nimbus/installed")
 DOCKER_DAEMON_JSON = Path("/etc/docker/daemon.json")
 RESOLVED_DROPIN_DIR = Path("/etc/systemd/resolved.conf.d")
@@ -180,6 +180,7 @@ async def _fix_system_dns() -> bool:
         "[Resolve]\n"
         f"DNS={' '.join(DNS_SERVERS)}\n"
         f"FallbackDNS={' '.join(DNS_FALLBACK_SERVERS)}\n"
+        "Domains=~.\n"
     )
     try:
         RESOLVED_DROPIN_DIR.mkdir(parents=True, exist_ok=True)
@@ -242,7 +243,7 @@ async def _dns_health_loop() -> None:
                 logger.warning("DNS resolution for %s failed — fixing system and Docker DNS", DNS_CHECK_HOST)
                 await _fix_system_dns()
                 await _ensure_docker_dns()
-                await asyncio.sleep(5)  # let resolved and Docker settle
+                await asyncio.sleep(15)  # let resolved and Docker settle
                 ok = await _dns_resolves()
                 if not ok:
                     logger.error("DNS still failing after fix attempt")
