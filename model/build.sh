@@ -137,6 +137,26 @@ UNIT
         "$svc_dir/multi-user.target.wants/nimbus-connect.service"
     echo "    Added nimbus-connect.service to preseed"
 
+    cat > "$svc_dir/nimbus-lxc-restart.service" <<'UNIT'
+[Unit]
+Description=Restart nimbus LXC container after snap interfaces are connected
+After=nimbus-connect.service
+Wants=nimbus-connect.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/lxc restart nimbus
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    ln -sf /etc/systemd/system/nimbus-lxc-restart.service \
+        "$svc_dir/multi-user.target.wants/nimbus-lxc-restart.service"
+    echo "    Added nimbus-lxc-restart.service to preseed"
+
     if [ "$extra" = "lemonade" ]; then
         cat > "$svc_dir/lemonade-configure.service" <<'UNIT'
 [Unit]
