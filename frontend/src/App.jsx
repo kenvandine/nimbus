@@ -16,6 +16,27 @@ import Login from './components/Login.jsx'
 
 const POLL_INTERVAL = 5000
 
+function RemoteOnlyMessage({ name, remoteUrl }) {
+  let nimbuUrl = remoteUrl || ''
+  try {
+    const { hostname } = new URL(remoteUrl)
+    nimbuUrl = `http://${hostname}`
+  } catch {}
+  return (
+    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 24px' }}>
+      <div style={{ maxWidth: 480, textAlign: 'center', color: 'rgba(255,255,255,0.85)' }}>
+        <div style={{ fontSize: 48, marginBottom: 20 }}>📱</div>
+        <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 12 }}>{name} requires a remote device</div>
+        <div style={{ fontSize: 15, color: 'rgba(255,255,255,0.6)', lineHeight: 1.6, marginBottom: 28 }}>
+          This app cannot be displayed on the local screen. Open it on your computer or mobile device connected to the same Wi-Fi network.
+        </div>
+        <div style={{ background: 'rgba(79,195,247,0.1)', border: '1px solid rgba(79,195,247,0.3)', borderRadius: 12, padding: '14px 20px', fontSize: 18, fontWeight: 700, color: '#81d4fa', letterSpacing: '0.01em' }}>
+          {nimbuUrl}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function describeSetupState(stats, apps, activeInstalls) {
   if (!stats || stats.control_mode !== 'lxd') return null
@@ -405,11 +426,17 @@ export default function App() {
           <div style={styles.frameBar}>
             <button style={styles.frameBack} onClick={() => setAppFrame(null)}>← Back to Nimbus</button>
             {appFrame.name && <span style={styles.frameTitle}>{appFrame.name}</span>}
-            <a href={appFrame.url} target="_blank" rel="noopener noreferrer" style={styles.frameExternal}>
-              Open in new tab ↗
-            </a>
+            {!appFrame.remoteOnly && (
+              <a href={appFrame.url} target="_blank" rel="noopener noreferrer" style={styles.frameExternal}>
+                Open in new tab ↗
+              </a>
+            )}
           </div>
-          <iframe src={appFrame.url} style={styles.frameContent} title={appFrame.name} />
+          {appFrame.remoteOnly ? (
+            <RemoteOnlyMessage name={appFrame.name} remoteUrl={appFrame.remoteUrl} />
+          ) : (
+            <iframe src={appFrame.url} style={styles.frameContent} title={appFrame.name} />
+          )}
         </div>
       )}
 

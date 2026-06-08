@@ -19,15 +19,16 @@ export function openApp(url, meta = {}) {
     // on the device itself.  The LXD proxy listens on 0.0.0.0 so localhost
     // always reaches it; the LAN IP only works from remote clients.
     const localUrl = rewriteToLocalhost(url)
-    if (_kioskFallback && !NO_IFRAME_APPS.has(meta.id)) {
-      _kioskFallback(localUrl, meta)
+    if (_kioskFallback) {
+      if (NO_IFRAME_APPS.has(meta.id)) {
+        // App blocks iframe embedding — show remote-access instructions instead.
+        _kioskFallback(localUrl, { ...meta, remoteOnly: true, remoteUrl: url })
+      } else {
+        _kioskFallback(localUrl, meta)
+      }
       return
     }
-    // App blocks iframe embedding (X-Frame-Options: DENY) — open directly.
-    const opened = window.open(localUrl, '_blank', 'noopener,noreferrer')
-    if (!opened) {
-      window.location.href = localUrl
-    }
+    window.location.href = localUrl
     return
   }
   const opened = window.open(url, '_blank', 'noopener,noreferrer')
