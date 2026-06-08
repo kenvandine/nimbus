@@ -742,15 +742,29 @@ class LxdManager:
         return "\n".join(lines) + "\n"
 
     def _configure_openclaw_ws_proxy(self, instance) -> None:
-        """Set up a separate LXD proxy for OpenClaw's gateway WS API port."""
-        from services.openclaw import OPENCLAW_PORT
+        """Set up LXD proxies for OpenClaw's UI (18789) and gateway WS API (18790) ports.
+
+        Both ports are published as a range by Docker so the snapshot regex
+        won't detect them individually — we pin them here explicitly.
+        """
+        from services.openclaw import OPENCLAW_PORT, OPENCLAW_UI_PORT
         devices = self._instance_devices(instance)
-        name = f"{self._proxy_device_name('openclaw')}-ws"
-        desired = self._app_proxy_device(OPENCLAW_PORT)
-        if devices.get(name) == desired:
-            return
-        devices[name] = desired
-        self._save_instance_devices(instance, devices)
+        changed = False
+
+        ui_name = self._proxy_device_name("openclaw")
+        ui_desired = self._app_proxy_device(OPENCLAW_UI_PORT)
+        if devices.get(ui_name) != ui_desired:
+            devices[ui_name] = ui_desired
+            changed = True
+
+        ws_name = f"{self._proxy_device_name('openclaw')}-ws"
+        ws_desired = self._app_proxy_device(OPENCLAW_PORT)
+        if devices.get(ws_name) != ws_desired:
+            devices[ws_name] = ws_desired
+            changed = True
+
+        if changed:
+            self._save_instance_devices(instance, devices)
 
     def _configure_lxc_agent_proxy(self, instance) -> None:
         devices = self._instance_devices(instance)
@@ -957,7 +971,7 @@ import sys
 
 root = pathlib.Path(sys.argv[1])
 apps = {}
-port_re = re.compile(r'(?:0\\.0\\.0\\.0|\\[::\\]):(\\d+)->\\d+/(?:tcp|udp)')
+port_re = re.compile(r'(?:0\\.0\\.0\\.0|\\[::\\]):(\\d+)(?:-\\d+)?->\\d+(?:-\\d+)?/(?:tcp|udp)')
 
 if root.exists():
     for d in sorted((p for p in root.iterdir() if p.is_dir()), key=lambda p: p.name):
