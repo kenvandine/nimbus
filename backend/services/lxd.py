@@ -1350,6 +1350,21 @@ print(json.dumps(apps), end='')
                 acceptable={0, 1},
             )
         self._configure_app_proxy(instance, app_id, None)
+        # Remove any app-specific LXD devices before the directory removal so
+        # bind mounts are properly unmounted first.  For openclaw this includes
+        # the gateway WS proxy and the workspace bind-mount; if the bind mount
+        # is still active when shutil.rmtree runs it silently fails to delete
+        # the mount point, leaving the installed directory intact and making
+        # the app appear still installed.
+        devices = self._instance_devices(instance)
+        extra_devices = [
+            f"{self._proxy_device_name(app_id)}-ws",
+            f"{app_id}-workspace",
+        ]
+        if any(d in devices for d in extra_devices):
+            for d in extra_devices:
+                devices.pop(d, None)
+            self._save_instance_devices(instance, devices)
         self._run(
             instance,
             [
