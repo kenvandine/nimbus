@@ -88,6 +88,7 @@ def _prepare_compose_data(
     compose_src: Path,
     *,
     overlay_dir: Optional[Path] = None,
+    env_vars: Optional[dict[str, str]] = None,
 ) -> dict:
     """Return compose data patched for standalone (non-Umbrel) use.
 
@@ -154,10 +155,13 @@ def _prepare_compose_data(
     if app_id == "openclaw":
         from services.model_provider import gateway_environment
         resolved_overlay = overlay_dir or (settings.overlay_dir / "openclaw-overlay")
+        gw_env = gateway_environment()
+        if env_vars and "APP_SEED" in env_vars:
+            gw_env["APP_SEED"] = env_vars["APP_SEED"]
         _apply_openclaw_overlay(
             services,
             resolved_overlay,
-            gateway_environment(),
+            gw_env,
         )
     if app_id == "hermes-agent":
         from services.model_provider import hermes_container_environment
@@ -584,6 +588,7 @@ def build_app_bundle(
         app_id,
         compose_src,
         overlay_dir=overlay_dir,
+        env_vars=env_vars,
     )
     volume_paths = _collect_volume_paths(compose_data, env_vars)
     meta = get_app_meta(app_id)
