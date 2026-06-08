@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { getActiveInstalls, listApps, getStats, powerOffSystem, restartSystem, uninstallApp, getAuthStatus, logout } from './api.js'
-import { openApp, setKioskFallback } from './utils.js'
+import { openApp, setKioskFallback, isLocalAccess } from './utils.js'
 import Dock from './components/Dock.jsx'
 import Window from './components/Window.jsx'
 import AppStore from './components/AppStore.jsx'
@@ -13,6 +13,7 @@ import Settings from './components/Settings.jsx'
 import AppModal from './components/AppModal.jsx'
 import Oobe from './components/Oobe.jsx'
 import Login from './components/Login.jsx'
+import KioskReadyScreen from './components/KioskReadyScreen.jsx'
 
 const POLL_INTERVAL = 5000
 
@@ -236,6 +237,33 @@ export default function App() {
   const cols = n === 0 ? 1 : n <= 3 ? n : Math.ceil(Math.sqrt(n))
   const errorMessage = error?.startsWith('Cannot reach backend') ? error : `Cannot reach backend — ${error}`
   const setupState = describeSetupState(stats, apps, activeInstalls)
+
+  const kioskStyle = <style>{`@keyframes spin { to { transform: rotate(360deg); } } * { box-sizing: border-box; } body { margin: 0; overflow: hidden; }`}</style>
+
+  if (isLocalAccess()) {
+    if (!oobeComplete) {
+      return (
+        <>
+          <div style={{ position: 'fixed', inset: 0, background: 'hsl(215,75%,8%)' }} />
+          <Oobe
+            online={stats?.online ?? false}
+            onComplete={() => {
+              oobeCompletedRef.current = true
+              setOobeComplete(true)
+              checkAuth().then(() => fetchAll())
+            }}
+          />
+          {kioskStyle}
+        </>
+      )
+    }
+    return (
+      <>
+        <KioskReadyScreen stats={stats} onPower={handlePowerAction} />
+        {kioskStyle}
+      </>
+    )
+  }
 
   return (
     <div style={{ ...styles.desktop, background: `linear-gradient(145deg, hsl(${hue},75%,${light}%) 0%, hsl(${hue + 10},60%,${light + 8}%) 60%, hsl(200,55%,${light + 22}%) 100%)` }}>

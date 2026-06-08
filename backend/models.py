@@ -57,3 +57,4 @@ class SystemStats(BaseModel):
     # Whether the App Store UI should be shown
     appstore_visible: bool = True
     version: str = ""
+    host_ip: Optional[str] = None

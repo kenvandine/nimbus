@@ -143,6 +143,10 @@ def _apply_device_stats(stats: SystemStats) -> SystemStats:
     stats.system_update_status = device_status.system_update_status
     stats.system_update_message = device_status.system_update_message
     stats.system_restart_required = device_status.system_restart_required
+    try:
+        stats.host_ip = network.get_primary_interface_ip()
+    except Exception:
+        pass
     return stats
 
 
