@@ -56,3 +56,4 @@ class SystemStats(BaseModel):
     online: bool = True
     # Whether the App Store UI should be shown
     appstore_visible: bool = True
+    version: str = ""

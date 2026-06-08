@@ -1,3 +1,6 @@
+import { useState } from 'react'
+import SystemLogViewer from './SystemLogViewer'
+
 function Gauge({ label, value, color }) {
   return (
     <div style={styles.gaugeWrap}>
@@ -42,6 +45,8 @@ export default function DeviceInfo({ stats, apps }) {
   const updates = apps?.filter(a => a.update_available).length ?? 0
   const setupPending = stats?.control_mode === 'lxd' && (!stats?.container_bootstrapped || stats?.container_status !== 'running' || stats?.bootstrap_state !== 'ready')
   const firstSetup = !stats?.container_bootstrapped
+  const isLxd = stats?.control_mode === 'lxd'
+  const [logSource, setLogSource] = useState('host')
 
   return (
     <div style={styles.container}>
@@ -81,7 +86,7 @@ export default function DeviceInfo({ stats, apps }) {
       <section style={styles.section}>
         <h3 style={styles.sectionTitle}>Platform</h3>
         <div style={styles.infoTable}>
-          <InfoRow label="Service" value="Nimbus v0.1.0" />
+          <InfoRow label="Service" value={stats?.version ? `Nimbus v${stats.version}` : 'Nimbus'} />
           <InfoRow label="Runtime" value={stats?.control_mode === 'lxd' ? 'SnapD + LXD' : 'Docker + LXD'} />
           <InfoRow label="App Catalog" value="Umbrel App Store" />
           {stats?.container_name && <InfoRow label="Managed Container" value={stats.container_name} />}
@@ -92,6 +97,27 @@ export default function DeviceInfo({ stats, apps }) {
         {stats?.bootstrap_error && (
           <p style={styles.errorText}>Container bootstrap error: {stats.bootstrap_error}</p>
         )}
+      </section>
+
+      <section style={styles.section}>
+        <h3 style={styles.sectionTitle}>Logs</h3>
+        <div style={styles.logTabs}>
+          <button
+            style={{ ...styles.tab, ...(logSource === 'host' ? styles.tabActive : {}) }}
+            onClick={() => setLogSource('host')}
+          >
+            Host
+          </button>
+          {isLxd && (
+            <button
+              style={{ ...styles.tab, ...(logSource === 'lxc' ? styles.tabActive : {}) }}
+              onClick={() => setLogSource('lxc')}
+            >
+              Container
+            </button>
+          )}
+        </div>
+        <SystemLogViewer source={logSource} />
       </section>
     </div>
   )
@@ -167,4 +193,20 @@ const styles = {
   infoValue: { color: 'rgba(255,255,255,0.8)', fontSize: '13px', fontWeight: 500 },
   muted: { color: 'rgba(255,255,255,0.3)', fontSize: '13px' },
   errorText: { color: '#ff8a80', fontSize: '12px', margin: '10px 0 0' },
+  logTabs: { display: 'flex', gap: '6px', marginBottom: '10px' },
+  tab: {
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.1)',
+    color: 'rgba(255,255,255,0.5)',
+    borderRadius: '8px',
+    padding: '5px 16px',
+    fontSize: '12px',
+    cursor: 'pointer',
+    fontWeight: 500,
+  },
+  tabActive: {
+    background: 'rgba(79,195,247,0.15)',
+    border: '1px solid rgba(79,195,247,0.35)',
+    color: '#4fc3f7',
+  },
 }

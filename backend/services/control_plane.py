@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Protocol
 
@@ -133,6 +134,7 @@ async def _call_device_manager(func, *args):
 
 
 def _apply_device_stats(stats: SystemStats) -> SystemStats:
+    stats.version = os.environ.get("SNAP_VERSION", "")
     device_status = get_device_manager().status()
     stats.device_management_available = device_status.actions_available
     stats.system_update_supported = device_status.system_update_supported

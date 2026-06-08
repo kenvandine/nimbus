@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
-from fastapi.responses import Response
+import asyncio
+import json
+
+from fastapi import APIRouter, Depends, Query
+from fastapi.responses import Response, StreamingResponse
 
 from auth import require_api_token
+from config import settings
 from models import SystemStats
 from services.control_plane import get_control_plane
 from services.device import mark_oobe_complete
@@ -35,6 +39,52 @@ async def update_system() -> dict:
 async def oobe_complete() -> dict:
     mark_oobe_complete()
     return {"status": "ok"}
+
+
+async def _journal_sse(source: str, lines: int):
+    if source == "lxc":
+        cmd = [
+            "lxc", "exec", settings.lxd_container_name, "--",
+            "journalctl", "-u", "nimbus", "-f", f"-n{lines}", "--no-pager", "--output=short-iso",
+        ]
+    else:
+        cmd = [
+            "journalctl", "-u", "snap.nimbus.nimbus",
+            "-f", f"-n{lines}", "--no-pager", "--output=short-iso",
+        ]
+
+    proc = None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        assert proc.stdout is not None
+        async for raw in proc.stdout:
+            yield f"data: {json.dumps({'line': raw.decode(errors='replace').rstrip()})}\n\n"
+    except asyncio.CancelledError:
+        return
+    except Exception as exc:
+        yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+    finally:
+        if proc is not None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+
+
+@router.get("/journal")
+async def stream_journal(
+    source: str = Query("host", pattern="^(host|lxc)$"),
+    lines: int = Query(200, ge=1, le=2000),
+) -> StreamingResponse:
+    return StreamingResponse(
+        _journal_sse(source, lines),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/ca-cert")
