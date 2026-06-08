@@ -784,6 +784,9 @@ class LxdManager:
         """Push the LXC agent daemon and (re)start it if the version changed."""
         current = self._read_file(instance, str(LXC_AGENT_VERSION_MARKER))
         if current and current.strip() == _LXC_AGENT_VERSION:
+            # Agent is up to date — still ensure the proxy device exists (it
+            # won't be present on a freshly started seeded-image container).
+            self._configure_lxc_agent_proxy(instance)
             return
 
         logger.info("Installing LXC agent daemon v%s", _LXC_AGENT_VERSION)
