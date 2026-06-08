@@ -19,7 +19,7 @@ import logging
 import sys
 from pathlib import Path
 
-DAEMON_VERSION = "5"
+DAEMON_VERSION = "6"
 INSTALLED_DIR = Path("/var/lib/nimbus/installed")
 DOCKER_DAEMON_JSON = Path("/etc/docker/daemon.json")
 RESOLVED_DROPIN_DIR = Path("/etc/systemd/resolved.conf.d")
@@ -159,13 +159,34 @@ async def _app_health_loop() -> None:
 # ── DNS / Docker daemon health ─────────────────────────────────────────────────
 
 async def _dns_resolves() -> bool:
+    """Return True if DNS resolves, retrying up to 3 times before concluding failure."""
+    for attempt in range(3):
+        proc = await asyncio.create_subprocess_exec(
+            "getent", "hosts", DNS_CHECK_HOST,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.communicate()
+        if proc.returncode == 0:
+            return True
+        if attempt < 2:
+            await asyncio.sleep(5)
+    return False
+
+
+async def _default_interface() -> str | None:
+    """Return the name of the default-route network interface, or None."""
     proc = await asyncio.create_subprocess_exec(
-        "getent", "hosts", DNS_CHECK_HOST,
-        stdout=asyncio.subprocess.DEVNULL,
+        "ip", "-4", "route", "show", "default",
+        stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
     )
-    await proc.communicate()
-    return proc.returncode == 0
+    stdout, _ = await proc.communicate()
+    parts = stdout.decode().split()
+    try:
+        return parts[parts.index("dev") + 1]
+    except (ValueError, IndexError):
+        return None
 
 
 async def _fix_system_dns() -> bool:
@@ -181,20 +202,37 @@ async def _fix_system_dns() -> bool:
         f"DNS={' '.join(DNS_SERVERS)}\n"
         f"FallbackDNS={' '.join(DNS_FALLBACK_SERVERS)}\n"
         "Domains=~.\n"
+        "DNSSEC=no\n"
     )
     try:
         RESOLVED_DROPIN_DIR.mkdir(parents=True, exist_ok=True)
-        if not RESOLVED_DROPIN.exists() or RESOLVED_DROPIN.read_text() != dropin_content:
+        dropin_changed = not RESOLVED_DROPIN.exists() or RESOLVED_DROPIN.read_text() != dropin_content
+        if dropin_changed:
             RESOLVED_DROPIN.write_text(dropin_content)
             logger.info("Wrote systemd-resolved drop-in with public DNS servers")
+            proc = await asyncio.create_subprocess_exec(
+                "systemctl", "restart", "systemd-resolved",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await proc.communicate()
+            logger.info("Restarted systemd-resolved with public DNS configuration")
 
-        proc = await asyncio.create_subprocess_exec(
-            "systemctl", "restart", "systemd-resolved",
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        await proc.communicate()
-        logger.info("Restarted systemd-resolved with public DNS configuration")
+        # Directly override per-interface DNS via resolvectl — this takes effect
+        # immediately and survives without requiring a resolved restart.
+        iface = await _default_interface()
+        if iface:
+            for cmd in (
+                ["resolvectl", "dns", iface, *DNS_SERVERS],
+                ["resolvectl", "domain", iface, "~."],
+            ):
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                await proc.communicate()
+            logger.info("Set per-interface DNS on %s via resolvectl", iface)
 
         # If a previous fix attempt left a static /etc/resolv.conf, restore the
         # symlink so the stub (now forwarding to public DNS) is used.
@@ -236,6 +274,9 @@ async def _ensure_docker_dns() -> bool:
 
 
 async def _dns_health_loop() -> None:
+    # Give resolved time to settle before the first check so we don't
+    # disrupt the EDNS0 feature negotiation that happens at startup.
+    await asyncio.sleep(30)
     while True:
         try:
             ok = await _dns_resolves()
@@ -243,7 +284,7 @@ async def _dns_health_loop() -> None:
                 logger.warning("DNS resolution for %s failed — fixing system and Docker DNS", DNS_CHECK_HOST)
                 await _fix_system_dns()
                 await _ensure_docker_dns()
-                await asyncio.sleep(15)  # let resolved and Docker settle
+                await asyncio.sleep(15)  # let resolvectl changes take effect
                 ok = await _dns_resolves()
                 if not ok:
                     logger.error("DNS still failing after fix attempt")
