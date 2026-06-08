@@ -277,6 +277,26 @@ class LxdManager:
                 except (FileNotFoundError, subprocess.TimeoutExpired):
                     pass
 
+    def _ensure_lxd_nat_rules(self) -> None:
+        """Re-apply LXD firewall/NAT rules for all managed bridge networks.
+
+        When NetworkManager is restarted it flushes iptables, which removes
+        LXD's MASQUERADE and FORWARD rules.  Without those rules the container
+        cannot reach external IPs — UDP DNS packets leave the container but
+        responses never arrive (i/o timeout).  Re-saving a managed network via
+        the LXD API triggers its internal Start() path which re-applies all
+        firewall rules without changing any configuration.
+        """
+        try:
+            for network in self._managed_networks():
+                if network.config.get("ipv4.nat") != "true":
+                    continue
+                network.config = dict(network.config)
+                network.save(wait=True)
+                logger.info("Refreshed LXD firewall rules for network %s", network.name)
+        except Exception as exc:
+            logger.warning("Could not refresh LXD NAT rules: %s", exc)
+
     def ensure_initialized(self) -> None:
         client = self.client()
         storage_pools = client.storage_pools.all()
@@ -795,6 +815,7 @@ class LxdManager:
                 self._set_bootstrap_state("ensuring-daemon")
                 self._ensure_nm_ignores_lxd()
                 self.ensure_initialized()
+                self._ensure_lxd_nat_rules()
                 self._set_bootstrap_state("ensuring-profile")
                 self.ensure_profile()
                 self._set_bootstrap_state("importing-image")
