@@ -115,7 +115,7 @@ export default function AppCard({ app, onRefresh, onOpenDetail, isInstalling = f
           <>
             {app.open_url && (
               <button style={styles.btnOpen}
-                onClick={e => { e.stopPropagation(); openApp(app.open_url, { name: app.name }) }}>Open ↗</button>
+                onClick={e => { e.stopPropagation(); openApp(app.open_url, { name: app.name, id: app.id }) }}>Open ↗</button>
             )}
             <button style={styles.btnDanger} onClick={handleUninstall}>Uninstall</button>
           </>

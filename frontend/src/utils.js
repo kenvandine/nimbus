@@ -1,5 +1,9 @@
 let _kioskFallback = null
 
+// Apps that set X-Frame-Options: DENY / frame-ancestors 'none' — cannot be
+// embedded in an iframe regardless of origin.  Open directly instead.
+const NO_IFRAME_APPS = new Set(['openclaw'])
+
 export function setKioskFallback(fn) {
   _kioskFallback = fn
 }
@@ -9,25 +13,21 @@ function isLocalAccess() {
   return h === 'localhost' || h === '127.0.0.1' || h === '::1'
 }
 
-/**
- * Open an app URL.  Strategy:
- *
- * - On local access (localhost / kiosk): always use the in-app iframe overlay
- *   so the user has a visible "Back to Nimbus" path. An "Open in new tab" link
- *   in the overlay handles apps that refuse to be embedded (X-Frame-Options).
- * - On remote access: open in a new tab (no iframe restriction concerns).
- */
 export function openApp(url, meta = {}) {
   if (isLocalAccess()) {
-    // Rewrite any external IP/hostname to localhost so the iframe src resolves
+    // Rewrite any external IP/hostname to localhost so the request resolves
     // on the device itself.  The LXD proxy listens on 0.0.0.0 so localhost
     // always reaches it; the LAN IP only works from remote clients.
     const localUrl = rewriteToLocalhost(url)
-    if (_kioskFallback) {
+    if (_kioskFallback && !NO_IFRAME_APPS.has(meta.id)) {
       _kioskFallback(localUrl, meta)
       return
     }
-    window.location.href = localUrl
+    // App blocks iframe embedding (X-Frame-Options: DENY) — open directly.
+    const opened = window.open(localUrl, '_blank', 'noopener,noreferrer')
+    if (!opened) {
+      window.location.href = localUrl
+    }
     return
   }
   const opened = window.open(url, '_blank', 'noopener,noreferrer')
