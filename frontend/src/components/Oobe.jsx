@@ -21,7 +21,7 @@ function SignalBars({ strength }) {
   )
 }
 
-function NetworkStep({ online, onNext }) {
+function NetworkStep({ online, onNext, reconnect }) {
   const [wifiStatus, setWifiStatus] = useState(null)
   const [networks, setNetworks] = useState(null)
   const [scanning, setScanning] = useState(false)
@@ -81,12 +81,14 @@ function NetworkStep({ online, onNext }) {
 
   return (
     <>
-      <div style={s.stepLabel}>Step 1 of 2</div>
-      <h1 style={s.heading}>Connect to a network</h1>
+      {!reconnect && <div style={s.stepLabel}>Step 1 of 2</div>}
+      <h1 style={s.heading}>{reconnect ? 'Reconnect to a network' : 'Connect to a network'}</h1>
       <p style={s.subheading}>
         {online
           ? 'Your device is connected and ready to continue.'
-          : 'Connect your device to the internet to enable setup.'}
+          : reconnect
+            ? 'Your device lost network connectivity. Connect to Wi-Fi to restore access.'
+            : 'Connect your device to the internet to enable setup.'}
       </p>
 
       <div style={{ ...s.badge, ...(online ? s.badgeOnline : s.badgeOffline) }}>
@@ -168,7 +170,7 @@ function NetworkStep({ online, onNext }) {
         style={{ ...s.btnPrimary, ...(!online ? s.btnPrimaryDisabled : {}) }}
         onClick={onNext} disabled={!online}
       >
-        Next →
+        {reconnect ? 'Continue' : 'Next →'}
       </button>
       {!online && (
         <button style={s.btnGhost} onClick={onNext}>Skip — I'm using Ethernet</button>
@@ -277,7 +279,7 @@ function AccountStep({ onComplete }) {
   )
 }
 
-export default function Oobe({ online, onComplete }) {
+export default function Oobe({ online, onComplete, networkOnly }) {
   const [step, setStep] = useState('network')
 
   return (
@@ -289,7 +291,11 @@ export default function Oobe({ online, onComplete }) {
         </div>
 
         {step === 'network'
-          ? <NetworkStep online={online} onNext={() => setStep('account')} />
+          ? <NetworkStep
+              online={online}
+              reconnect={networkOnly}
+              onNext={networkOnly ? onComplete : () => setStep('account')}
+            />
           : <AccountStep onComplete={onComplete} />}
       </div>
       <style>{`@keyframes fadeIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}`}</style>

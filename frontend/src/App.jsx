@@ -257,9 +257,17 @@ export default function App() {
         </>
       )
     }
+    const showReconnect = stats !== null && !stats.online
     return (
       <>
         <KioskReadyScreen stats={stats} onPower={handlePowerAction} />
+        {showReconnect && (
+          <Oobe
+            networkOnly
+            online={false}
+            onComplete={() => fetchAll()}
+          />
+        )}
         {kioskStyle}
       </>
     )
