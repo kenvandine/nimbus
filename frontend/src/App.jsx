@@ -260,7 +260,7 @@ export default function App() {
     const showReconnect = stats !== null && !stats.online
     return (
       <>
-        <KioskReadyScreen stats={stats} onPower={handlePowerAction} />
+        <KioskReadyScreen stats={stats} />
         {showReconnect && (
           <Oobe
             networkOnly

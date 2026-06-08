@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
 
-export default function KioskReadyScreen({ stats, onPower }) {
+export default function KioskReadyScreen({ stats }) {
   const canvasRef = useRef(null)
   const [qrError, setQrError] = useState(false)
 
@@ -65,10 +65,6 @@ export default function KioskReadyScreen({ stats, onPower }) {
           </>
         )}
 
-        <div style={styles.powerRow}>
-          <button style={styles.powerBtn} onClick={() => onPower('restart')}>Restart</button>
-          <button style={{ ...styles.powerBtn, ...styles.powerBtnDanger }} onClick={() => onPower('poweroff')}>Power Off</button>
-        </div>
       </div>
     </div>
   )
@@ -214,26 +210,5 @@ const styles = {
     fontSize: 13,
     color: 'rgba(255,255,255,0.45)',
     fontStyle: 'italic',
-  },
-  powerRow: {
-    display: 'flex',
-    gap: 10,
-    marginTop: 4,
-  },
-  powerBtn: {
-    flex: 1,
-    padding: '8px 0',
-    background: 'rgba(255,255,255,0.07)',
-    border: '1px solid rgba(255,255,255,0.12)',
-    borderRadius: 10,
-    color: 'rgba(255,255,255,0.6)',
-    fontSize: 13,
-    fontWeight: 500,
-    cursor: 'pointer',
-  },
-  powerBtnDanger: {
-    color: '#ef9a9a',
-    background: 'rgba(229,57,53,0.08)',
-    border: '1px solid rgba(229,57,53,0.2)',
   },
 }
