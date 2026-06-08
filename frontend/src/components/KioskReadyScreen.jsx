@@ -17,7 +17,7 @@ export default function KioskReadyScreen({ stats }) {
       margin: 2,
       color: { dark: '#0d1117', light: '#f0f6ff' },
     }).catch(() => setQrError(true))
-  }, [nimbuUrl])
+  }, [nimbuUrl, bootstrapReady])
 
   return (
     <div style={styles.screen}>
