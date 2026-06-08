@@ -18,12 +18,20 @@ function isLocalAccess() {
  * - On remote access: open in a new tab (no iframe restriction concerns).
  */
 export function openApp(url, meta = {}) {
-  if (isLocalAccess() && _kioskFallback) {
-    _kioskFallback(url, meta)
+  if (isLocalAccess()) {
+    // Rewrite any external IP/hostname to localhost so the iframe src resolves
+    // on the device itself.  The LXD proxy listens on 0.0.0.0 so localhost
+    // always reaches it; the LAN IP only works from remote clients.
+    const localUrl = rewriteToLocalhost(url)
+    if (_kioskFallback) {
+      _kioskFallback(localUrl, meta)
+      return
+    }
+    window.location.href = localUrl
     return
   }
   const opened = window.open(url, '_blank', 'noopener,noreferrer')
-  if (!opened && isLocalAccess()) {
+  if (!opened) {
     window.location.href = url
   }
 }
