@@ -19,7 +19,7 @@ import logging
 import sys
 from pathlib import Path
 
-DAEMON_VERSION = "6"
+DAEMON_VERSION = "7"
 INSTALLED_DIR = Path("/var/lib/nimbus/installed")
 DOCKER_DAEMON_JSON = Path("/etc/docker/daemon.json")
 RESOLVED_DROPIN_DIR = Path("/etc/systemd/resolved.conf.d")
@@ -190,36 +190,50 @@ async def _default_interface() -> str | None:
 
 
 async def _fix_system_dns() -> bool:
-    """Configure systemd-resolved with public DNS via a persistent drop-in.
+    """Fix DNS by bypassing the systemd-resolved stub with a static resolv.conf.
 
-    Writing directly to /etc/resolv.conf loses the battle against
-    systemd-networkd on every DHCP renewal — the symlink gets restored and
-    DNS reverts to the broken LXD bridge resolver.  Configuring the stub
-    resolver itself survives all network reconfiguration.
+    The stub resolver's EDNS0 feature-set negotiation with DNS servers can
+    take several minutes of TCP/UDP cycling before settling.  During bootstrap
+    this breaks docker pulls.  Writing a static /etc/resolv.conf that points
+    directly at public DNS servers bypasses the stub entirely so glibc queries
+    reach the servers immediately.
+
+    We also write a systemd-resolved drop-in so resolved itself uses public
+    DNS (for hostname lookups that go through NSS-resolve rather than glibc),
+    and configure per-interface DNS via resolvectl for immediate effect.
     """
+    static_resolv = f"nameserver {DNS_SERVERS[0]}\nnameserver {DNS_SERVERS[1]}\n"
     dropin_content = (
         "[Resolve]\n"
-        f"DNS={' '.join(DNS_SERVERS)}\n"
         f"FallbackDNS={' '.join(DNS_FALLBACK_SERVERS)}\n"
-        "Domains=~.\n"
         "DNSSEC=no\n"
     )
     try:
+        # Write static resolv.conf — bypasses the stub resolver and its slow
+        # feature-set negotiation.  Networkd does not restore the symlink on
+        # DHCP renewals so this persists until something explicitly resets it.
+        resolv_conf = Path("/etc/resolv.conf")
+        if resolv_conf.is_symlink() or not resolv_conf.exists() or resolv_conf.read_text() != static_resolv:
+            resolv_conf.unlink(missing_ok=True)
+            resolv_conf.write_text(static_resolv)
+            logger.info("Wrote static /etc/resolv.conf pointing to public DNS servers")
+
+        # Drop-in: configure resolved's fallback and disable DNSSEC.
         RESOLVED_DROPIN_DIR.mkdir(parents=True, exist_ok=True)
         dropin_changed = not RESOLVED_DROPIN.exists() or RESOLVED_DROPIN.read_text() != dropin_content
         if dropin_changed:
             RESOLVED_DROPIN.write_text(dropin_content)
-            logger.info("Wrote systemd-resolved drop-in with public DNS servers")
+            logger.info("Wrote systemd-resolved drop-in (FallbackDNS + DNSSEC=no)")
             proc = await asyncio.create_subprocess_exec(
                 "systemctl", "restart", "systemd-resolved",
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )
             await proc.communicate()
-            logger.info("Restarted systemd-resolved with public DNS configuration")
+            logger.info("Restarted systemd-resolved")
 
-        # Directly override per-interface DNS via resolvectl — this takes effect
-        # immediately and survives without requiring a resolved restart.
+        # Also push public DNS directly to the interface so resolved queries
+        # use them for any lookups that go through the stub.
         iface = await _default_interface()
         if iface:
             for cmd in (
@@ -233,15 +247,6 @@ async def _fix_system_dns() -> bool:
                 )
                 await proc.communicate()
             logger.info("Set per-interface DNS on %s via resolvectl", iface)
-
-        # If a previous fix attempt left a static /etc/resolv.conf, restore the
-        # symlink so the stub (now forwarding to public DNS) is used.
-        resolv_conf = Path("/etc/resolv.conf")
-        stub = Path("/run/systemd/resolve/stub-resolv.conf")
-        if not resolv_conf.is_symlink() and stub.exists():
-            resolv_conf.unlink(missing_ok=True)
-            resolv_conf.symlink_to(stub)
-            logger.info("Restored /etc/resolv.conf → stub-resolv.conf")
 
         return True
     except Exception as exc:
