@@ -44,7 +44,7 @@ LXC_AGENT_SERVICE_SOURCE = SETUP_DIR / "nimbus-lxc-agent.service"
 LXC_AGENT_VERSION_MARKER = Path("/var/lib/nimbus/.lxc-agent-version")
 LXC_AGENT_PORT = 9001
 # Bump this whenever agent/daemon.py changes to trigger a re-deploy on next startup.
-_LXC_AGENT_VERSION = "2"
+_LXC_AGENT_VERSION = "3"
 DEFAULT_LXD_STORAGE_POOL = "default"
 DEFAULT_LXD_PROFILE = "default"
 DEFAULT_LXD_BRIDGE_PREFIX = "lxdbr"

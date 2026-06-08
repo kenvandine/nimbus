@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, Query
@@ -14,6 +16,7 @@ from services.control_plane import get_control_plane
 from services.device import mark_oobe_complete
 
 _LXC_AGENT_PORT = 9001
+_HOST_LOG_FILE = Path(os.environ.get("SNAP_COMMON", "")) / "nimbus.log" if os.environ.get("SNAP_COMMON") else None
 
 router = APIRouter(prefix="/api/system", tags=["system"], dependencies=[Depends(require_api_token)])
 
@@ -59,13 +62,17 @@ async def _journal_sse(source: str, lines: int):
         except Exception as exc:
             yield f"data: {json.dumps({'error': str(exc)})}\n\n"
     else:
+        # Tail $SNAP_COMMON/nimbus.log — written by main.py's RotatingFileHandler.
+        # This avoids the system-observe plug requirement that journalctl needs.
+        if not _HOST_LOG_FILE or not _HOST_LOG_FILE.exists():
+            yield f"data: {json.dumps({'error': 'Log file not found — restart the Nimbus service to create it.'})}\n\n"
+            return
         proc = None
         try:
             proc = await asyncio.create_subprocess_exec(
-                "journalctl", "-u", "snap.nimbus.nimbus",
-                "-f", f"-n{lines}", "--no-pager", "--output=short-iso",
+                "tail", "-F", "-n", str(lines), str(_HOST_LOG_FILE),
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
+                stderr=asyncio.subprocess.DEVNULL,
             )
             assert proc.stdout is not None
             async for raw in proc.stdout:

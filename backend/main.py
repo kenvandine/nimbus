@@ -4,6 +4,7 @@ import logging
 import os
 import warnings
 from contextlib import asynccontextmanager
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -61,10 +62,19 @@ def _patch_ws4py_shutdown_race() -> None:
 
 _patch_ws4py_shutdown_race()
 warnings.filterwarnings("ignore", "Attempted to set unknown attribute", UserWarning, "pylxd")
-logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(name)s  %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logging.getLogger("ws4py").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
+
+# Mirror all log output to $SNAP_COMMON/nimbus.log so the journal endpoint can
+# tail it without needing the system-observe plug.
+_snap_common = os.environ.get("SNAP_COMMON", "")
+if _snap_common:
+    _log_file = Path(_snap_common) / "nimbus.log"
+    _fh = RotatingFileHandler(_log_file, maxBytes=10 * 1024 * 1024, backupCount=2)
+    _fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    logging.getLogger().addHandler(_fh)
 
 STATIC_DIR = Path(__file__).parent / "static"
 

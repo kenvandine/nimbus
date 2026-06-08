@@ -19,7 +19,7 @@ import logging
 import sys
 from pathlib import Path
 
-DAEMON_VERSION = "2"
+DAEMON_VERSION = "3"
 INSTALLED_DIR = Path("/var/lib/nimbus/installed")
 DOCKER_DAEMON_JSON = Path("/etc/docker/daemon.json")
 DNS_SERVERS = ["1.1.1.1", "8.8.8.8"]
@@ -80,12 +80,41 @@ async def _app_running(app_id: str, compose_file: Path) -> bool:
     return bool(containers) and all(c.get("State") == "running" for c in containers)
 
 
+async def _app_has_containers(app_id: str, compose_file: Path) -> bool:
+    """Return True if any container (running or stopped) exists for this app.
+
+    A False result means the image was never pulled — the install flow hasn't
+    completed yet. The daemon must not attempt to start such apps.
+    """
+    env_file = compose_file.parent / ".env"
+    cmd = ["docker", "compose", "-p", app_id, "-f", str(compose_file)]
+    if env_file.exists():
+        cmd += ["--env-file", str(env_file)]
+    cmd += ["ps", "--all", "--format", "json"]
+
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    stdout, _ = await proc.communicate()
+
+    for line in (stdout or b"").decode().strip().splitlines():
+        try:
+            json.loads(line)
+            return True
+        except json.JSONDecodeError:
+            pass
+    return False
+
+
 async def _start_app(app_id: str, compose_file: Path) -> None:
     env_file = compose_file.parent / ".env"
     cmd = ["docker", "compose", "-p", app_id, "-f", str(compose_file)]
     if env_file.exists():
         cmd += ["--env-file", str(env_file)]
-    cmd += ["up", "-d", "--remove-orphans"]
+    # Never pull during health-check restarts — pulling is the install flow's job.
+    cmd += ["up", "-d", "--remove-orphans", "--pull", "never"]
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -100,6 +129,10 @@ async def _start_app(app_id: str, compose_file: Path) -> None:
 async def _check_apps() -> None:
     for app_id, compose_file in _installed_apps():
         try:
+            if not await _app_has_containers(app_id, compose_file):
+                # Image never pulled; leave it to the nimbus install flow.
+                _state["apps"][app_id] = {"running": False, "pending_install": True}
+                continue
             running = await _app_running(app_id, compose_file)
             if not running:
                 logger.info("App %s is not fully running — starting", app_id)
@@ -132,6 +165,24 @@ async def _dns_resolves() -> bool:
     return proc.returncode == 0
 
 
+async def _fix_system_dns() -> bool:
+    """Override /etc/resolv.conf with direct public DNS, bypassing the broken
+    lxdbr0/systemd-resolved stub that intermittently breaks Docker image pulls."""
+    resolv_conf = Path("/etc/resolv.conf")
+    content = "".join(f"nameserver {s}\n" for s in DNS_SERVERS)
+    try:
+        if resolv_conf.is_symlink():
+            resolv_conf.unlink()
+        elif resolv_conf.exists() and resolv_conf.read_text() == content:
+            return False
+        resolv_conf.write_text(content)
+        logger.info("Wrote /etc/resolv.conf with public DNS servers")
+        return True
+    except Exception as exc:
+        logger.error("Failed to fix system DNS: %s", exc)
+        return False
+
+
 async def _ensure_docker_dns() -> bool:
     """Write public DNS into daemon.json and restart Docker if the entry is missing."""
     try:
@@ -161,11 +212,13 @@ async def _dns_health_loop() -> None:
         try:
             ok = await _dns_resolves()
             if not ok:
-                logger.warning("DNS resolution for %s failed — fixing Docker DNS", DNS_CHECK_HOST)
+                logger.warning("DNS resolution for %s failed — fixing system and Docker DNS", DNS_CHECK_HOST)
+                await _fix_system_dns()
                 await _ensure_docker_dns()
+                await asyncio.sleep(3)  # let Docker and resolved settle
                 ok = await _dns_resolves()
                 if not ok:
-                    logger.error("DNS still failing after Docker DNS fix")
+                    logger.error("DNS still failing after fix attempt")
             _state["dns_ok"] = ok
         except Exception:
             logger.exception("Unhandled error in DNS health loop")
