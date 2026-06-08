@@ -148,7 +148,7 @@ export default function App() {
   }
 
   useEffect(() => {
-    setKioskFallback((url, meta) => setAppFrame({ url, name: meta.name || '' }))
+    setKioskFallback((url, meta) => setAppFrame({ url, name: meta.name || '', remoteOnly: meta.remoteOnly || false, remoteUrl: meta.remoteUrl }))
     checkAuth().then(status => {
       if (!status || status.authenticated) fetchAll()
       else setLoading(false)
