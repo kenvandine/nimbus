@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 import logging
+import os
 import warnings
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -89,7 +90,7 @@ async def lifespan(app: FastAPI):
             pass
 
 
-app = FastAPI(title="Nimbus", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Nimbus", version=os.environ.get("SNAP_VERSION", "dev"), lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
