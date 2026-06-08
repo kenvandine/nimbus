@@ -118,13 +118,15 @@ UNIT
     cat > "$svc_dir/nimbus-connect.service" <<'UNIT'
 [Unit]
 Description=Connect nimbus snap interfaces not handled by gadget connections
-After=snapd.service
-Wants=snapd.service
+After=snapd.seeded.service
+Wants=snapd.seeded.service
 
 [Service]
 Type=oneshot
 ExecStart=/bin/sh -c 'snap connect nimbus:network-control; snap connect nimbus:network-observe; snap connect nimbus:system-observe'
 RemainAfterExit=yes
+Restart=on-failure
+RestartSec=5s
 StandardOutput=journal
 StandardError=journal
 
