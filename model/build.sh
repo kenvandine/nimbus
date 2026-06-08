@@ -111,9 +111,31 @@ UNIT
 
     # ─────────────────────────────────────────────────────────────────────────
 
+    # Connect nimbus system: slot interfaces that the gadget connections: section
+    # cannot wire up without store auto-connect assertions.
+    svc_dir="$workdir/etc/systemd/system"
+    mkdir -p "$svc_dir/multi-user.target.wants"
+    cat > "$svc_dir/nimbus-connect.service" <<'UNIT'
+[Unit]
+Description=Connect nimbus snap interfaces not handled by gadget connections
+After=snapd.service
+Wants=snapd.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'snap connect nimbus:network-control; snap connect nimbus:network-observe; snap connect nimbus:system-observe'
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    ln -sf /etc/systemd/system/nimbus-connect.service \
+        "$svc_dir/multi-user.target.wants/nimbus-connect.service"
+    echo "    Added nimbus-connect.service to preseed"
+
     if [ "$extra" = "lemonade" ]; then
-        svc_dir="$workdir/etc/systemd/system"
-        mkdir -p "$svc_dir/multi-user.target.wants"
         cat > "$svc_dir/lemonade-configure.service" <<'UNIT'
 [Unit]
 Description=Configure lemonade-server to bind on all network interfaces
