@@ -19,7 +19,7 @@ import logging
 import sys
 from pathlib import Path
 
-DAEMON_VERSION = "1"
+DAEMON_VERSION = "2"
 INSTALLED_DIR = Path("/var/lib/nimbus/installed")
 DOCKER_DAEMON_JSON = Path("/etc/docker/daemon.json")
 DNS_SERVERS = ["1.1.1.1", "8.8.8.8"]
@@ -270,6 +270,56 @@ async def _route(method: str, path: str, body: bytes) -> tuple[int, dict]:
     return 404, {"error": "not found"}
 
 
+async def _handle_journal_sse(path: str, writer: asyncio.StreamWriter) -> None:
+    """Stream journalctl output as SSE over a persistent connection."""
+    lines = 200
+    if "?" in path:
+        for param in path.split("?", 1)[1].split("&"):
+            if param.startswith("lines="):
+                try:
+                    lines = max(1, min(2000, int(param[6:])))
+                except ValueError:
+                    pass
+
+    writer.write(
+        b"HTTP/1.1 200 OK\r\n"
+        b"Content-Type: text/event-stream\r\n"
+        b"Cache-Control: no-cache\r\n"
+        b"X-Accel-Buffering: no\r\n"
+        b"Connection: keep-alive\r\n"
+        b"\r\n"
+    )
+    await writer.drain()
+
+    proc = None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "journalctl", "-u", "nimbus",
+            "-f", f"-n{lines}", "--no-pager", "--output=short-iso",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        assert proc.stdout is not None
+        async for raw in proc.stdout:
+            line = raw.decode(errors="replace").rstrip()
+            writer.write(f"data: {json.dumps({'line': line})}\n\n".encode())
+            await writer.drain()
+    except (ConnectionResetError, BrokenPipeError, asyncio.CancelledError):
+        pass
+    except Exception as exc:
+        try:
+            writer.write(f"data: {json.dumps({'error': str(exc)})}\n\n".encode())
+            await writer.drain()
+        except Exception:
+            pass
+    finally:
+        if proc is not None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+
+
 async def _handle_http(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
     try:
         request_line = await asyncio.wait_for(reader.readline(), timeout=5.0)
@@ -287,6 +337,11 @@ async def _handle_http(reader: asyncio.StreamReader, writer: asyncio.StreamWrite
             if b":" in stripped:
                 k, _, v = stripped.partition(b":")
                 headers[k.decode().lower().strip()] = v.decode().strip()
+
+        # Journal endpoint streams SSE on a long-lived connection; handle separately.
+        if method == "GET" and path.split("?")[0] == "/journal":
+            await _handle_journal_sse(path, writer)
+            return
 
         body = await _read_body(reader, headers)
         status_code, response_body = await _route(method, path, body)

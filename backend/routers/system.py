@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 
+import httpx
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response, StreamingResponse
 
@@ -11,6 +12,8 @@ from config import settings
 from models import SystemStats
 from services.control_plane import get_control_plane
 from services.device import mark_oobe_complete
+
+_LXC_AGENT_PORT = 9001
 
 router = APIRouter(prefix="/api/system", tags=["system"], dependencies=[Depends(require_api_token)])
 
@@ -43,36 +46,40 @@ async def oobe_complete() -> dict:
 
 async def _journal_sse(source: str, lines: int):
     if source == "lxc":
-        cmd = [
-            "lxc", "exec", settings.lxd_container_name, "--",
-            "journalctl", "-u", "nimbus", "-f", f"-n{lines}", "--no-pager", "--output=short-iso",
-        ]
+        # Proxy SSE from the LXC agent daemon (reachable via the LXD proxy device).
+        url = f"http://localhost:{_LXC_AGENT_PORT}/journal?lines={lines}"
+        try:
+            async with httpx.AsyncClient(timeout=None) as client:
+                async with client.stream("GET", url) as resp:
+                    async for chunk in resp.aiter_bytes():
+                        if chunk:
+                            yield chunk
+        except asyncio.CancelledError:
+            return
+        except Exception as exc:
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
     else:
-        cmd = [
-            "journalctl", "-u", "snap.nimbus.nimbus",
-            "-f", f"-n{lines}", "--no-pager", "--output=short-iso",
-        ]
-
-    proc = None
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
-        assert proc.stdout is not None
-        async for raw in proc.stdout:
-            yield f"data: {json.dumps({'line': raw.decode(errors='replace').rstrip()})}\n\n"
-    except asyncio.CancelledError:
-        return
-    except Exception as exc:
-        yield f"data: {json.dumps({'error': str(exc)})}\n\n"
-    finally:
-        if proc is not None:
-            try:
-                proc.terminate()
-            except Exception:
-                pass
+        proc = None
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "journalctl", "-u", "snap.nimbus.nimbus",
+                "-f", f"-n{lines}", "--no-pager", "--output=short-iso",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            assert proc.stdout is not None
+            async for raw in proc.stdout:
+                yield f"data: {json.dumps({'line': raw.decode(errors='replace').rstrip()})}\n\n"
+        except asyncio.CancelledError:
+            return
+        except Exception as exc:
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+        finally:
+            if proc is not None:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
 
 
 @router.get("/journal")
