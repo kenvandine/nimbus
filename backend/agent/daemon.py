@@ -19,10 +19,13 @@ import logging
 import sys
 from pathlib import Path
 
-DAEMON_VERSION = "3"
+DAEMON_VERSION = "4"
 INSTALLED_DIR = Path("/var/lib/nimbus/installed")
 DOCKER_DAEMON_JSON = Path("/etc/docker/daemon.json")
+RESOLVED_DROPIN_DIR = Path("/etc/systemd/resolved.conf.d")
+RESOLVED_DROPIN = RESOLVED_DROPIN_DIR / "nimbus-dns.conf"
 DNS_SERVERS = ["1.1.1.1", "8.8.8.8"]
+DNS_FALLBACK_SERVERS = ["1.0.0.1", "8.8.4.4"]
 DNS_CHECK_HOST = "registry-1.docker.io"
 APP_CHECK_INTERVAL = 30   # seconds between app health sweeps
 DNS_CHECK_INTERVAL = 60   # seconds between DNS health checks
@@ -166,17 +169,41 @@ async def _dns_resolves() -> bool:
 
 
 async def _fix_system_dns() -> bool:
-    """Override /etc/resolv.conf with direct public DNS, bypassing the broken
-    lxdbr0/systemd-resolved stub that intermittently breaks Docker image pulls."""
-    resolv_conf = Path("/etc/resolv.conf")
-    content = "".join(f"nameserver {s}\n" for s in DNS_SERVERS)
+    """Configure systemd-resolved with public DNS via a persistent drop-in.
+
+    Writing directly to /etc/resolv.conf loses the battle against
+    systemd-networkd on every DHCP renewal — the symlink gets restored and
+    DNS reverts to the broken LXD bridge resolver.  Configuring the stub
+    resolver itself survives all network reconfiguration.
+    """
+    dropin_content = (
+        "[Resolve]\n"
+        f"DNS={' '.join(DNS_SERVERS)}\n"
+        f"FallbackDNS={' '.join(DNS_FALLBACK_SERVERS)}\n"
+    )
     try:
-        if resolv_conf.is_symlink():
-            resolv_conf.unlink()
-        elif resolv_conf.exists() and resolv_conf.read_text() == content:
-            return False
-        resolv_conf.write_text(content)
-        logger.info("Wrote /etc/resolv.conf with public DNS servers")
+        RESOLVED_DROPIN_DIR.mkdir(parents=True, exist_ok=True)
+        if not RESOLVED_DROPIN.exists() or RESOLVED_DROPIN.read_text() != dropin_content:
+            RESOLVED_DROPIN.write_text(dropin_content)
+            logger.info("Wrote systemd-resolved drop-in with public DNS servers")
+
+        proc = await asyncio.create_subprocess_exec(
+            "systemctl", "restart", "systemd-resolved",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.communicate()
+        logger.info("Restarted systemd-resolved with public DNS configuration")
+
+        # If a previous fix attempt left a static /etc/resolv.conf, restore the
+        # symlink so the stub (now forwarding to public DNS) is used.
+        resolv_conf = Path("/etc/resolv.conf")
+        stub = Path("/run/systemd/resolve/stub-resolv.conf")
+        if not resolv_conf.is_symlink() and stub.exists():
+            resolv_conf.unlink(missing_ok=True)
+            resolv_conf.symlink_to(stub)
+            logger.info("Restored /etc/resolv.conf → stub-resolv.conf")
+
         return True
     except Exception as exc:
         logger.error("Failed to fix system DNS: %s", exc)
@@ -215,7 +242,7 @@ async def _dns_health_loop() -> None:
                 logger.warning("DNS resolution for %s failed — fixing system and Docker DNS", DNS_CHECK_HOST)
                 await _fix_system_dns()
                 await _ensure_docker_dns()
-                await asyncio.sleep(3)  # let Docker and resolved settle
+                await asyncio.sleep(5)  # let resolved and Docker settle
                 ok = await _dns_resolves()
                 if not ok:
                     logger.error("DNS still failing after fix attempt")

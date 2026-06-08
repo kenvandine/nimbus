@@ -21,9 +21,19 @@
 // duplicating its contents, so upstream image bumps don't drift out of sync.
 
 const fs = require("fs");
+const crypto = require("crypto");
 const { spawnSync } = require("child_process");
 
 const SETUP_HTML = "/app/setup.html";
+
+// Derive a stable gateway token from APP_SEED so the browser's cached URL
+// stays valid across container restarts.  Without this the gateway generates
+// a new random token on every start, invalidating every saved browser session.
+const _seed = process.env.APP_SEED || "";
+const STABLE_GATEWAY_TOKEN = _seed
+  ? crypto.createHash("sha256").update("nimbus-openclaw-gw:" + _seed).digest("hex").substring(0, 32)
+  : null;
+
 const CONFIG_DIR = "/data/.openclaw";
 const CONFIG_FILE = `${CONFIG_DIR}/openclaw.json`;
 const GATEWAY_PORT = "18790"; // matches OPENCLAW_PORT in upstream setup-server.cjs
@@ -311,6 +321,20 @@ function autoTuneConfig() {
   entry.maxTokens = MAX_TOKENS;
   entry.reasoning = true;
   entry.cost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+
+  // Pin the gateway control-UI token to a value derived from APP_SEED so the
+  // browser's saved URL stays valid across container restarts.  The upstream
+  // setup-server generates a new random token every boot; by setting a stable
+  // value here (before setup-server.cjs loads), it will "sync" our token to
+  // .env instead of overwriting it with a fresh random one.
+  if (STABLE_GATEWAY_TOKEN) {
+    cfg.gateway = cfg.gateway || {};
+    cfg.gateway.controlUi = cfg.gateway.controlUi || {};
+    if (cfg.gateway.controlUi.token !== STABLE_GATEWAY_TOKEN) {
+      cfg.gateway.controlUi.token = STABLE_GATEWAY_TOKEN;
+      console.log("[nimbus-overlay] Pinned gateway token to stable APP_SEED-derived value");
+    }
+  }
 
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2) + "\n", {
     mode: 0o600,

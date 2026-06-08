@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import shutil
+import subprocess
 import tarfile
 import tempfile
 import threading
@@ -44,7 +45,7 @@ LXC_AGENT_SERVICE_SOURCE = SETUP_DIR / "nimbus-lxc-agent.service"
 LXC_AGENT_VERSION_MARKER = Path("/var/lib/nimbus/.lxc-agent-version")
 LXC_AGENT_PORT = 9001
 # Bump this whenever agent/daemon.py changes to trigger a re-deploy on next startup.
-_LXC_AGENT_VERSION = "3"
+_LXC_AGENT_VERSION = "4"
 DEFAULT_LXD_STORAGE_POOL = "default"
 DEFAULT_LXD_PROFILE = "default"
 DEFAULT_LXD_BRIDGE_PREFIX = "lxdbr"
@@ -231,6 +232,50 @@ class LxdManager:
                 idx += 1
                 continue
             return name
+
+    def _ensure_nm_ignores_lxd(self) -> None:
+        """Write a NetworkManager drop-in that prevents NM from managing LXD
+        bridge and veth interfaces.
+
+        When NM tries DHCP on a veth it can't reach, it marks the interface
+        failed and detaches it from lxdbr0 — breaking all container networking
+        (both external DNS and host→container port forwarding).  This fix is
+        idempotent and runs on every boot so it survives NM snap updates.
+        """
+        dropin_content = (
+            "[keyfile]\n"
+            "unmanaged-devices=interface-name:lxdbr*;interface-name:veth*\n"
+        )
+        # Try both the standard path (works on Ubuntu Server / with network-control
+        # snap interface) and the NM snap's own data directory (Ubuntu Core).
+        candidates = [
+            Path("/etc/NetworkManager/conf.d/90-lxd-unmanaged.conf"),
+            Path("/var/snap/network-manager/common/etc/NetworkManager/conf.d/90-lxd-unmanaged.conf"),
+        ]
+        wrote = False
+        for dropin in candidates:
+            try:
+                dropin.parent.mkdir(parents=True, exist_ok=True)
+                if not dropin.exists() or dropin.read_text() != dropin_content:
+                    dropin.write_text(dropin_content)
+                    logger.info("Wrote NM drop-in to prevent LXD interface management: %s", dropin)
+                    wrote = True
+            except OSError:
+                pass  # Path not writable under this snap confinement; try next
+
+        if wrote:
+            # Restart NM so the new policy takes effect immediately.
+            for cmd in (
+                ["snap", "restart", "network-manager"],
+                ["systemctl", "restart", "NetworkManager"],
+            ):
+                try:
+                    result = subprocess.run(cmd, capture_output=True, timeout=30)
+                    if result.returncode == 0:
+                        logger.info("Restarted NetworkManager after drop-in update")
+                        break
+                except (FileNotFoundError, subprocess.TimeoutExpired):
+                    pass
 
     def ensure_initialized(self) -> None:
         client = self.client()
@@ -748,6 +793,7 @@ class LxdManager:
         with self._lock:
             try:
                 self._set_bootstrap_state("ensuring-daemon")
+                self._ensure_nm_ignores_lxd()
                 self.ensure_initialized()
                 self._set_bootstrap_state("ensuring-profile")
                 self.ensure_profile()
