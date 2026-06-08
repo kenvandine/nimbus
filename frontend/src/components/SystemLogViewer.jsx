@@ -46,6 +46,7 @@ export default function SystemLogViewer({ source }) {
       <div style={styles.toolbar}>
         <span style={{ ...styles.statusDot, background: connected ? '#4caf50' : '#ef5350' }} />
         <span style={styles.statusLabel}>{connected ? 'Live' : 'Disconnected'}</span>
+        <button style={styles.clearBtn} onClick={() => navigator.clipboard.writeText(lines.join('\n'))}>Copy</button>
         <button style={styles.clearBtn} onClick={() => setLines([])}>Clear</button>
       </div>
       <div style={styles.log} ref={logRef} onScroll={handleScroll}>
