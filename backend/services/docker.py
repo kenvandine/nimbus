@@ -217,6 +217,14 @@ def _apply_openclaw_overlay(
     # upstream /app/setup-server.cjs.
     gateway["command"] = ["node", "/app/setup-wrapper.cjs"]
 
+    # Ensure the gateway WS API port is exposed so the host nimbus can poll it.
+    from services.openclaw import OPENCLAW_PORT
+    ports = list(gateway.get("ports") or [])
+    ws_mapping = f"{OPENCLAW_PORT}:{OPENCLAW_PORT}"
+    if not any(str(p) == ws_mapping or (isinstance(p, dict) and str(p.get("published")) == str(OPENCLAW_PORT)) for p in ports):
+        ports.append(ws_mapping)
+    gateway["ports"] = ports
+
     if extra_env:
         existing = gateway.get("environment")
         if isinstance(existing, list):

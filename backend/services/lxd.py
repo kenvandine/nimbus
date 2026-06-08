@@ -40,6 +40,11 @@ AGENT_PYTHON_MARKER = Path("/var/lib/nimbus/.agent-python-preinstalled")
 BACKEND_SOURCE_DIR = Path(__file__).resolve().parents[1]
 SETUP_DIR = Path(__file__).resolve().parents[2] / "setup"
 AGENT_SERVICE_SOURCE = SETUP_DIR / "nimbus.service"
+LXC_AGENT_SERVICE_SOURCE = SETUP_DIR / "nimbus-lxc-agent.service"
+LXC_AGENT_VERSION_MARKER = Path("/var/lib/nimbus/.lxc-agent-version")
+LXC_AGENT_PORT = 9001
+# Bump this whenever agent/daemon.py changes to trigger a re-deploy on next startup.
+_LXC_AGENT_VERSION = "1"
 DEFAULT_LXD_STORAGE_POOL = "default"
 DEFAULT_LXD_PROFILE = "default"
 DEFAULT_LXD_BRIDGE_PREFIX = "lxdbr"
@@ -87,6 +92,8 @@ class LxdManager:
     # (gemma4 / lemonade bound to 127.0.0.1) inside the nimbus LXC, where the
     # openclaw container can reach it via docker's host-gateway alias.
     _PROVIDER_PROXY_DEVICE_NAME = "nimbus-provider-fwd"
+    # LXD proxy device that exposes the LXC agent daemon's HTTP API on the host.
+    _LXC_AGENT_PROXY_DEVICE_NAME = "nimbus-lxc-agent"
 
     def _bootstrap_in_progress(self) -> bool:
         return self._bootstrap_state in {
@@ -634,6 +641,57 @@ class LxdManager:
             lines.append(f"NIMBUS_API_TOKEN={settings.lxd_agent_token}")
         return "\n".join(lines) + "\n"
 
+    def _configure_openclaw_ws_proxy(self, instance) -> None:
+        """Set up a separate LXD proxy for OpenClaw's gateway WS API port."""
+        from services.openclaw import OPENCLAW_PORT
+        devices = self._instance_devices(instance)
+        name = f"{self._proxy_device_name('openclaw')}-ws"
+        desired = self._app_proxy_device(OPENCLAW_PORT)
+        if devices.get(name) == desired:
+            return
+        devices[name] = desired
+        self._save_instance_devices(instance, devices)
+
+    def _configure_lxc_agent_proxy(self, instance) -> None:
+        devices = self._instance_devices(instance)
+        name = self._LXC_AGENT_PROXY_DEVICE_NAME
+        desired = {
+            "type": "proxy",
+            "bind": "host",
+            "listen": f"tcp:{settings.lxd_publish_host}:{LXC_AGENT_PORT}",
+            "connect": f"tcp:127.0.0.1:{LXC_AGENT_PORT}",
+        }
+        if devices.get(name) == desired:
+            return
+        devices[name] = desired
+        self._save_instance_devices(instance, devices)
+
+    def _ensure_lxc_agent(self, instance) -> None:
+        """Push the LXC agent daemon and (re)start it if the version changed."""
+        current = self._read_file(instance, str(LXC_AGENT_VERSION_MARKER))
+        if current and current.strip() == _LXC_AGENT_VERSION:
+            return
+
+        logger.info("Installing LXC agent daemon v%s", _LXC_AGENT_VERSION)
+        agent_src = BACKEND_SOURCE_DIR / "agent"
+        if not agent_src.exists():
+            logger.warning("LXC agent source not found at %s — skipping", agent_src)
+            return
+
+        self._run(instance, ["mkdir", "-p", "/opt/nimbus/backend/agent"])
+        instance.files.recursive_put(str(agent_src), "/opt/nimbus/backend/agent")
+        self._write_file(
+            instance,
+            "/etc/systemd/system/nimbus-lxc-agent.service",
+            LXC_AGENT_SERVICE_SOURCE.read_text(),
+        )
+        self._run(instance, ["systemctl", "daemon-reload"])
+        self._run(instance, ["systemctl", "enable", "nimbus-lxc-agent"])
+        self._run(instance, ["systemctl", "restart", "nimbus-lxc-agent"], acceptable={0, 1})
+        self._write_file(instance, str(LXC_AGENT_VERSION_MARKER), _LXC_AGENT_VERSION + "\n")
+        self._configure_lxc_agent_proxy(instance)
+        logger.info("LXC agent daemon installed and started")
+
     def _push_agent_payload(self, instance) -> None:
         self._run(instance, ["mkdir", "-p", "/opt/nimbus", "/var/lib/nimbus/store", "/var/lib/nimbus/installed"])
         instance.files.recursive_put(str(BACKEND_SOURCE_DIR), "/opt/nimbus/backend")
@@ -701,6 +759,7 @@ class LxdManager:
                     self._set_bootstrap_state("starting-agent")
                     self._wait_for_docker(instance)
                     self._repatch_provider_apps(instance)
+                    self._ensure_lxc_agent(instance)
                     self._set_bootstrap_state("ready")
                     return
 
@@ -724,6 +783,7 @@ class LxdManager:
                     logger.info("Python env already preinstalled — skipping venv/pip setup")
                 self._set_bootstrap_state("starting-agent")
                 self._enable_services(instance)
+                self._ensure_lxc_agent(instance)
                 self._write_file(instance, str(BOOTSTRAP_MARKER), BOOTSTRAP_VERSION + "\n")
                 self._set_bootstrap_state("ready")
             except (ClientConnectionFailed, LXDAPIException, RuntimeError) as exc:
@@ -1060,6 +1120,7 @@ print(json.dumps(apps), end='')
             try:
                 if app_id == "openclaw":
                     self._push_openclaw_overlay(instance)
+                    self._configure_openclaw_ws_proxy(instance)
                 self._configure_provider_proxy(instance)
                 bundle = docker.build_app_bundle(
                     app_id,
@@ -1156,6 +1217,8 @@ print(json.dumps(apps), end='')
         self._run(instance, [*compose_cmd, "pull"])
         self._run(instance, [*compose_cmd, "up", "-d", "--remove-orphans"])
         self._configure_app_proxy(instance, app_id, bundle.published_port)
+        if app_id == "openclaw":
+            self._configure_openclaw_ws_proxy(instance)
         self._invalidate_snapshot()
 
     def update_app(self, app_id: str) -> None:
@@ -1214,6 +1277,8 @@ print(json.dumps(apps), end='')
             ],
         )
         self._configure_app_proxy(instance, app_id, bundle.published_port)
+        if app_id == "openclaw":
+            self._configure_openclaw_ws_proxy(instance)
         self._invalidate_snapshot()
 
     def uninstall_app(self, app_id: str) -> None:
