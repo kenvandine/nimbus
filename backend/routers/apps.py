@@ -11,6 +11,7 @@ from config import settings
 from models import AppDetail
 from services.icons import generate_icon_svg
 from services.control_plane import get_control_plane
+import services.control_plane as cp_module
 
 router = APIRouter(prefix="/api/apps", tags=["apps"], dependencies=[Depends(require_api_token)])
 
@@ -43,6 +44,12 @@ async def uninstall_app(app_id: str) -> dict:
 @router.get("/installing/active", response_model=list[str])
 async def active_installs() -> list[str]:
     return await get_control_plane().active_installs()
+
+
+@router.post("/check-updates")
+async def check_updates() -> dict:
+    asyncio.create_task(cp_module._run_update_check(get_control_plane()))
+    return {"status": "checking"}
 
 
 @router.get("/{app_id}/icon.svg")

@@ -33,6 +33,18 @@ class AppDetail(AppMeta, AppStatus):
     is_system: bool = False
 
 
+class SnapshotInfo(BaseModel):
+    name: str
+    created_at: str
+    description: str = ""
+    stateful: bool = False
+
+
+class ResourceLimits(BaseModel):
+    cpu_cores: Optional[int] = None
+    memory_mb: Optional[int] = None
+
+
 class SystemStats(BaseModel):
     cpu_pct: float
     mem_pct: float
@@ -54,7 +66,16 @@ class SystemStats(BaseModel):
     system_restart_required: bool = False
     oobe_complete: bool = True
     online: bool = True
-    # Whether the App Store UI should be shown
     appstore_visible: bool = True
     version: str = ""
     host_ip: Optional[str] = None
+    # Terminal access to the managed LXC container
+    terminal_available: bool = False
+    # TLS certificate info
+    tls_enabled: bool = False
+    tls_fingerprint: Optional[str] = None
+    # App updates available count (across all installed apps)
+    update_available_count: int = 0
+    # Container resource limits
+    container_cpu_limit: Optional[int] = None
+    container_mem_limit_mb: Optional[int] = None

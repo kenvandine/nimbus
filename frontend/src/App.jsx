@@ -14,6 +14,10 @@ import AppModal from './components/AppModal.jsx'
 import Oobe from './components/Oobe.jsx'
 import Login from './components/Login.jsx'
 import KioskReadyScreen from './components/KioskReadyScreen.jsx'
+import TerminalPanel from './components/TerminalPanel.jsx'
+import ScreenLock from './components/ScreenLock.jsx'
+
+const DEFAULT_IDLE_TIMEOUT_MS = 15 * 60 * 1000 // 15 minutes
 
 const POLL_INTERVAL = 5000
 
@@ -35,6 +39,52 @@ function RemoteOnlyMessage({ name, remoteUrl }) {
           {nimbuUrl}
         </div>
       </div>
+    </div>
+  )
+}
+
+function AppFrameOverlay({ appFrame, onClose }) {
+  const [fullscreen, setFullscreen] = useState(false)
+
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === 'F11') { e.preventDefault(); setFullscreen(f => !f) }
+      if (e.key === 'Escape' && fullscreen) setFullscreen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [fullscreen])
+
+  return (
+    <div style={{ ...styles.frameOverlay, ...(fullscreen ? styles.frameOverlayFull : {}) }}>
+      {!fullscreen && (
+        <div style={styles.frameBar}>
+          <button style={styles.frameBack} onClick={onClose}>← Back to Nimbus</button>
+          {appFrame.name && <span style={styles.frameTitle}>{appFrame.name}</span>}
+          <div style={{ display: 'flex', gap: 8 }}>
+            {!appFrame.remoteOnly && (
+              <a href={appFrame.url} target="_blank" rel="noopener noreferrer" style={styles.frameExternal}>
+                Open in new tab ↗
+              </a>
+            )}
+            {!appFrame.remoteOnly && (
+              <button style={styles.frameExternal} onClick={() => setFullscreen(true)}>
+                ⛶ Fullscreen
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+      {fullscreen && (
+        <button style={styles.fullscreenExit} onClick={() => setFullscreen(false)}>
+          ✕ Exit fullscreen
+        </button>
+      )}
+      {appFrame.remoteOnly ? (
+        <RemoteOnlyMessage name={appFrame.name} remoteUrl={appFrame.remoteUrl} />
+      ) : (
+        <iframe src={appFrame.url} style={styles.frameContent} title={appFrame.name} />
+      )}
     </div>
   )
 }
@@ -92,7 +142,7 @@ export default function App() {
   const [activeInstalls, setActiveInstalls] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [openWindow, setOpenWindow] = useState(null) // 'appstore' | 'deviceinfo' | 'settings'
+  const [openWindow, setOpenWindow] = useState(null) // 'appstore' | 'deviceinfo' | 'settings' | 'terminal'
   const [appFrame, setAppFrame] = useState(null) // { url, name } when showing kiosk iframe
   const [detailApp, setDetailApp] = useState(null)
   const [contextMenu, setContextMenu] = useState(null) // { app, x, y }
@@ -101,12 +151,16 @@ export default function App() {
   const [systemNotice, setSystemNotice] = useState(null)
   const [logApp, setLogApp] = useState(null) // app whose logs are shown
   const [oobeComplete, setOobeComplete] = useState(true)
-  // null = unknown (checking), { configured, authenticated, username } = known
+  // null = unknown (checking), { configured, authenticated, username, token } = known
   const [authStatus, setAuthStatus] = useState(null)
   const intervalRef = useRef(null)
+  const sseRef = useRef(null)
+  const sseBackoffRef = useRef(1000)
   // Set to true when the user explicitly completes OOBE this session so that
   // in-flight poll responses with oobe_complete=false cannot revert the state.
   const oobeCompletedRef = useRef(false)
+  const [locked, setLocked] = useState(false)
+  const idleTimerRef = useRef(null)
 
   async function checkAuth() {
     try {
@@ -143,20 +197,87 @@ export default function App() {
     }
   }
 
+  function startSse() {
+    if (sseRef.current) { sseRef.current.close(); sseRef.current = null }
+    const base = import.meta.env.VITE_API_BASE ?? '/api'
+    const es = new EventSource(`${base}/system/stats/stream`, { withCredentials: true })
+    sseRef.current = es
+    es.onmessage = (ev) => {
+      try {
+        const statsData = JSON.parse(ev.data)
+        if (!statsData.error) {
+          setStats(statsData)
+          setError(null)
+          setLoading(false)
+          sseBackoffRef.current = 1000
+          if (statsData.oobe_complete === false && !oobeCompletedRef.current) setOobeComplete(false)
+        }
+      } catch {}
+    }
+    es.onerror = () => {
+      es.close()
+      sseRef.current = null
+      // Exponential backoff (max 30s) then retry SSE; fall back to polling in the meantime
+      const delay = Math.min(sseBackoffRef.current, 30000)
+      sseBackoffRef.current = Math.min(delay * 2, 30000)
+      setTimeout(startSse, delay)
+    }
+  }
+
   async function handleLogout() {
     try { await logout() } catch {}
     setAuthStatus(prev => ({ ...prev, authenticated: false }))
   }
 
+  async function fetchAppsAndInstalls() {
+    try {
+      const [appsData, active] = await Promise.all([listApps(), getActiveInstalls()])
+      setApps(appsData)
+      setActiveInstalls(active)
+    } catch (e) {
+      if (e.message.startsWith('401:')) {
+        setAuthStatus(prev => prev ? { ...prev, authenticated: false } : null)
+        checkAuth()
+      }
+    }
+  }
+
   useEffect(() => {
     setKioskFallback((url, meta) => setAppFrame({ url, name: meta.name || '', remoteOnly: meta.remoteOnly || false, remoteUrl: meta.remoteUrl }))
     checkAuth().then(status => {
-      if (!status || status.authenticated) fetchAll()
-      else setLoading(false)
+      if (!status || status.authenticated) {
+        fetchAll()
+        startSse()
+      } else {
+        setLoading(false)
+      }
     })
-    intervalRef.current = setInterval(fetchAll, POLL_INTERVAL)
-    return () => clearInterval(intervalRef.current)
+    // Apps and active installs still use polling (less frequent); stats come via SSE
+    intervalRef.current = setInterval(fetchAppsAndInstalls, POLL_INTERVAL * 3)
+    return () => {
+      clearInterval(intervalRef.current)
+      if (sseRef.current) { sseRef.current.close(); sseRef.current = null }
+    }
   }, [])
+
+  // Idle screen lock — only when auth is configured
+  useEffect(() => {
+    if (!authStatus?.configured) return
+    const timeout = Number(window.localStorage.getItem('nimbus_idle_timeout')) || DEFAULT_IDLE_TIMEOUT_MS
+
+    function resetTimer() {
+      clearTimeout(idleTimerRef.current)
+      idleTimerRef.current = setTimeout(() => setLocked(true), timeout)
+    }
+
+    const events = ['mousemove', 'keydown', 'touchstart', 'click']
+    events.forEach(ev => window.addEventListener(ev, resetTimer, { passive: true }))
+    resetTimer()
+    return () => {
+      clearTimeout(idleTimerRef.current)
+      events.forEach(ev => window.removeEventListener(ev, resetTimer))
+    }
+  }, [authStatus?.configured])
 
   useEffect(() => {
     if (!contextMenu) return
@@ -275,6 +396,13 @@ export default function App() {
 
   return (
     <div style={{ ...styles.desktop, background: `linear-gradient(145deg, hsl(${hue},75%,${light}%) 0%, hsl(${hue + 10},60%,${light + 8}%) 60%, hsl(200,55%,${light + 22}%) 100%)` }}>
+      {locked && (
+        <ScreenLock
+          deviceName={stats?.host_ip ? `Nimbus @ ${stats.host_ip}` : 'Nimbus'}
+          onUnlock={() => setLocked(false)}
+          onFail={() => {}}
+        />
+      )}
       <div style={styles.topBar}>
         {systemNotice && (
           <div style={{ ...styles.systemNotice, ...(systemNotice.tone === 'error' ? styles.systemNoticeError : {}) }}>
@@ -370,7 +498,9 @@ export default function App() {
       <Dock
         onOpen={setOpenWindow}
         updatableCount={updatableCount}
+        appUpdateCount={stats?.update_available_count ?? 0}
         appstoreVisible={stats?.appstore_visible !== false}
+        terminalAvailable={Boolean(stats?.terminal_available)}
       />
 
       {/* App windows */}
@@ -392,6 +522,11 @@ export default function App() {
       {openWindow === 'settings' && (
         <Window title="Settings" onClose={() => setOpenWindow(null)}>
           <Settings stats={stats} onRefresh={fetchAll} />
+        </Window>
+      )}
+      {openWindow === 'terminal' && (
+        <Window title="Container Terminal" onClose={() => setOpenWindow(null)} noPad>
+          <TerminalPanel authToken={authStatus?.token || ''} />
         </Window>
       )}
 
@@ -458,22 +593,10 @@ export default function App() {
       )}
 
       {appFrame && (
-        <div style={styles.frameOverlay}>
-          <div style={styles.frameBar}>
-            <button style={styles.frameBack} onClick={() => setAppFrame(null)}>← Back to Nimbus</button>
-            {appFrame.name && <span style={styles.frameTitle}>{appFrame.name}</span>}
-            {!appFrame.remoteOnly && (
-              <a href={appFrame.url} target="_blank" rel="noopener noreferrer" style={styles.frameExternal}>
-                Open in new tab ↗
-              </a>
-            )}
-          </div>
-          {appFrame.remoteOnly ? (
-            <RemoteOnlyMessage name={appFrame.name} remoteUrl={appFrame.remoteUrl} />
-          ) : (
-            <iframe src={appFrame.url} style={styles.frameContent} title={appFrame.name} />
-          )}
-        </div>
+        <AppFrameOverlay
+          appFrame={appFrame}
+          onClose={() => setAppFrame(null)}
+        />
       )}
 
       <style>{`
@@ -813,5 +936,21 @@ const styles = {
     flex: 1,
     border: 'none',
     width: '100%',
+  },
+  frameOverlayFull: {
+    zIndex: 9500,
+  },
+  fullscreenExit: {
+    position: 'fixed',
+    top: 12,
+    right: 16,
+    zIndex: 9600,
+    background: 'rgba(0,0,0,0.6)',
+    border: '1px solid rgba(255,255,255,0.2)',
+    color: 'rgba(255,255,255,0.8)',
+    borderRadius: 8,
+    padding: '5px 12px',
+    fontSize: 12,
+    cursor: 'pointer',
   },
 }

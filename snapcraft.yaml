@@ -24,8 +24,7 @@ apps:
       - network-control
       - system-observe
       - lxd
-      #- snapd-control
-      #- shutdown
+      - shutdown
     environment:
       HOME: $SNAP_COMMON
       LXD_DIR: /var/snap/lxd/common/lxd
@@ -98,6 +97,8 @@ parts:
       - requests-unixsocket>=0.4.1
       - passlib[bcrypt]>=1.7.4
       - python-jose[cryptography]>=3.3.0
+      - cryptography>=41.0.0
+      - sse-starlette>=1.6.0
     stage-packages:
       - ca-certificates
       - git

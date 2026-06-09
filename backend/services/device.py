@@ -36,22 +36,50 @@ CORE_BASE_SNAP = "core24"
 SNAPD_SNAP = "snapd"
 LXD_SNAP = "lxd"
 
-# Disabled until the snap is published with snapd-control access
+# snapd-control is not declared as a snap plug (not publishable via the store).
+# System updates via the snapd API are disabled. The snap auto-refreshes on its
+# own schedule. Power management uses systemctl (via the shutdown plug) instead.
 SNAPD_ENABLED = False
 
 
+def _systemctl(args: list[str]) -> bool:
+    """Run systemctl with the given args. Returns True on success."""
+    import subprocess
+    for cmd in (["systemctl"] + args, ["/bin/systemctl"] + args):
+        try:
+            result = subprocess.run(cmd, timeout=10, capture_output=True)
+            if result.returncode == 0:
+                return True
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            continue
+    return False
+
+
 def _logind_action(method: str) -> None:
-    # Fall back to calling logind directly via D-Bus using the shutdown plug.
-    # This bypasses snapd's scheduler and works even when a systemd block
-    # inhibitor (e.g. GNOME session manager) prevents snapd from scheduling.
     try:
         import dbus
-
         bus = dbus.SystemBus()
         obj = bus.get_object("org.freedesktop.login1", "/org/freedesktop/login1")
         getattr(obj, method)(False, dbus_interface="org.freedesktop.login1.Manager")
     except Exception as exc:
         logger.warning("logind %s fallback failed: %s", method, exc)
+
+
+def _power_available() -> bool:
+    """True when the shutdown snap interface is connected (systemctl is accessible)."""
+    import subprocess
+    try:
+        # systemctl --version is a safe probe that doesn't require privilege
+        for cmd in (["systemctl", "--version"], ["/bin/systemctl", "--version"]):
+            try:
+                r = subprocess.run(cmd, timeout=5, capture_output=True)
+                if r.returncode == 0:
+                    return True
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                continue
+    except Exception:
+        pass
+    return False
 
 
 class SnapdRequestError(RuntimeError):
@@ -109,10 +137,13 @@ class DeviceManager:
         self._update_state = self._load_update_state()
 
     def actions_available(self) -> bool:
-        return SNAPD_ENABLED and requests_unixsocket is not None and SNAPD_SOCKET_PATH.exists()
+        # Power management via systemctl (shutdown plug) — does not need snapd-control.
+        return _power_available()
 
     def system_update_supported(self) -> bool:
-        return SNAPD_ENABLED and Snapd is not None and SNAPD_SOCKET_PATH.exists()
+        # Snap refresh requires snapd-control, which is not declared.
+        # The snap refreshes automatically on snapd's schedule.
+        return False
 
     def _current_boot_id(self) -> str:
         try:
@@ -277,6 +308,11 @@ class DeviceManager:
             raise RuntimeError("snapd socket is unavailable on this system")
 
     def _require_system_update_available(self) -> None:
+        if not self.system_update_supported():
+            raise RuntimeError(
+                "System updates via the Nimbus UI are not available. "
+                "The snap refreshes automatically on its own schedule."
+            )
         if not SNAPD_SOCKET_PATH.exists():
             raise RuntimeError("snapd socket is unavailable on this system")
         if Snapd is None:
@@ -336,26 +372,12 @@ class DeviceManager:
         return data
 
     def restart_system(self) -> None:
-        try:
-            self._socket_request("POST", "/v2/systems", {"action": "reboot"})
-        except SnapdRequestError:
-            pass
-        _logind_action("Reboot")
+        if not _systemctl(["reboot"]):
+            _logind_action("Reboot")
 
     def power_off_system(self) -> None:
-        try:
-            self._socket_request("POST", "/v2/systems", {"action": "poweroff"})
-        except SnapdRequestError as exc:
-            if (
-                exc.status_code not in {400, 404}
-                and "unsupported action" not in str(exc).lower()
-            ):
-                raise
-            try:
-                self._socket_request("POST", "/v2/systems", {"action": "shutdown"})
-            except SnapdRequestError:
-                pass
-        _logind_action("PowerOff")
+        if not _systemctl(["poweroff"]):
+            _logind_action("PowerOff")
 
     def request_system_refresh(self) -> dict:
         self._require_system_update_available()

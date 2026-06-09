@@ -147,7 +147,40 @@ def _apply_device_stats(stats: SystemStats) -> SystemStats:
         stats.host_ip = network.get_primary_interface_ip()
     except Exception:
         pass
+    # Terminal is available when the LXC container is bootstrapped and ready
+    if stats.control_mode == "lxd" and stats.container_bootstrapped and stats.bootstrap_state == "ready":
+        stats.terminal_available = True
+    # TLS info
+    try:
+        from services.tls import get_cert_fingerprint
+        import os as _os
+        stats.tls_enabled = _os.environ.get("NIMBUS_TLS", "").strip().lower() in {"1", "true"}
+        if stats.tls_enabled:
+            stats.tls_fingerprint = get_cert_fingerprint()
+    except Exception:
+        pass
+    stats.update_available_count = _app_update_count
     return stats
+
+
+_app_update_count: int = 0
+_UPDATE_CHECK_INTERVAL = 6 * 3600  # 6 hours
+
+
+async def _run_update_check(cp: "ControlPlane") -> None:
+    global _app_update_count
+    try:
+        apps = await cp.list_apps()
+        _app_update_count = sum(1 for a in apps if getattr(a, "update_available", False))
+        logger.info("App update check complete: %d update(s) available", _app_update_count)
+    except Exception as exc:
+        logger.warning("App update check failed: %s", exc)
+
+
+async def _update_check_loop(cp: "ControlPlane") -> None:
+    while True:
+        await asyncio.sleep(_UPDATE_CHECK_INTERVAL)
+        await _run_update_check(cp)
 
 
 class LocalControlPlane:
@@ -159,6 +192,7 @@ class LocalControlPlane:
         _ensure_openclaw_workspace_link()
         await _maybe_install_preseed_apps(self)
         await _maybe_ensure_model_provider(self)
+        asyncio.create_task(_update_check_loop(self))
 
     async def _status_for(self, app_id: str, meta=None) -> AppStatus:
         installed = app_id in docker.installed_app_ids()
@@ -432,6 +466,7 @@ class LxdControlPlane:
         _ensure_openclaw_workspace_link()
         await _maybe_install_preseed_apps(self)
         await _maybe_ensure_model_provider(self)
+        asyncio.create_task(_update_check_loop(self))
 
     def _raise_manager_error(self, exc: Exception) -> HTTPException:
         return HTTPException(status_code=500, detail=str(exc))

@@ -67,3 +67,44 @@ export const writeFile = (path, content) => json('POST', '/files/write', { path,
 
 // OpenClaw agent gateway
 export const getOpenClawStatus = () => request('/openclaw/status')
+
+// SSH key management
+export const getSshStatus = () => request('/ssh/status')
+export const listSshKeys = () => request('/ssh/keys')
+export const addSshKey = (pubkey) => json('POST', '/ssh/keys', { pubkey })
+export const removeSshKey = (fingerprint) => request(`/ssh/keys/${encodeURIComponent(fingerprint)}`, { method: 'DELETE' })
+
+// Firewall
+export const getFirewallStatus = () => request('/firewall/status')
+export const listFirewallRules = () => request('/firewall/rules')
+export const addFirewallRule = (port, proto, action) => json('POST', '/firewall/rules', { port, proto, action })
+export const deleteFirewallRule = (number) => request(`/firewall/rules/${number}`, { method: 'DELETE' })
+export const enableFirewall = () => request('/firewall/enable', { method: 'POST' })
+export const disableFirewall = () => request('/firewall/disable', { method: 'POST' })
+
+// DNS
+export const getDns = () => request('/network/dns')
+export const setDns = (servers) => json('PUT', '/network/dns', { servers })
+
+// Auth
+export const changePassword = (current_password, new_password) =>
+  json('POST', '/auth/change-password', { current_password, new_password })
+
+// Resource limits
+export const getResourceLimits = () => request('/system/resources')
+export const setResourceLimits = (cpu_cores, memory_mb) =>
+  json('PUT', '/system/resources', { cpu_cores, memory_mb })
+
+// App update check
+export const checkForUpdates = () => request('/apps/check-updates', { method: 'POST' })
+
+// AI Models
+export const getModelStatus = () => request('/models/status')
+export const getAvailableModels = () => request('/models/available')
+export const pullModel = () => request('/models/pull', { method: 'POST' })
+export const ensureModel = () => request('/models/ensure', { method: 'POST' })
+
+// API Keys
+export const listApiKeys = () => request('/keys')
+export const setApiKey = (name, value) => json('POST', '/keys', { name, value })
+export const deleteApiKey = (name) => request(`/keys/${encodeURIComponent(name)}`, { method: 'DELETE' })

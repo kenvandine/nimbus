@@ -71,3 +71,24 @@ async def wifi_disconnect() -> dict:
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"status": "disconnected"}
+
+
+class DnsRequest(BaseModel):
+    servers: list[str]
+
+
+@router.get("/dns")
+async def get_dns() -> dict:
+    servers = await asyncio.to_thread(network_service.get_dns_servers)
+    return {"servers": servers}
+
+
+@router.put("/dns")
+async def set_dns(req: DnsRequest) -> dict:
+    if not req.servers:
+        raise HTTPException(status_code=422, detail="At least one DNS server required")
+    try:
+        await asyncio.to_thread(network_service.set_dns_servers, req.servers)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    return {"status": "ok", "servers": req.servers}

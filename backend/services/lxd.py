@@ -644,6 +644,22 @@ class LxdManager:
             )
         return exit_code, stdout, stderr
 
+    def exec_in_container(
+        self,
+        command: list[str],
+        *,
+        environment: dict[str, str] | None = None,
+        cwd: str | None = None,
+        acceptable: set[int] | None = None,
+    ) -> tuple[int, str, str]:
+        """Run a command in the managed container; returns (exit_code, stdout, stderr).
+
+        Unlike _run(), this never raises on non-zero exit — the caller decides.
+        """
+        instance = self.get_instance()
+        ok = acceptable if acceptable is not None else {0, 1, 2, 3, 4, 5, 127, 255}
+        return self._run(instance, command, acceptable=ok, environment=environment, cwd=cwd)
+
     def _wait_for_container_dns(self, instance, timeout: int = 120) -> None:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -1448,6 +1464,93 @@ print(json.dumps(apps), end='')
             ],
         )
         self._invalidate_snapshot()
+
+    # ------------------------------------------------------------------ #
+    # Snapshots                                                            #
+    # ------------------------------------------------------------------ #
+
+    def list_snapshots(self) -> list[dict]:
+        instance = self.get_instance()
+        if instance is None:
+            raise RuntimeError("Container does not exist")
+        result = []
+        for snap in instance.snapshots.all():
+            result.append({
+                "name": snap.name,
+                "created_at": getattr(snap, "created_at", "") or "",
+                "description": getattr(snap, "description", "") or "",
+                "stateful": bool(getattr(snap, "stateful", False)),
+            })
+        return result
+
+    def create_snapshot(self, name: str, description: str = "", stateful: bool = False) -> None:
+        instance = self.get_instance()
+        if instance is None:
+            raise RuntimeError("Container does not exist")
+        instance.snapshots.create(name, stateful=stateful, wait=True)
+
+    def delete_snapshot(self, name: str) -> None:
+        instance = self.get_instance()
+        if instance is None:
+            raise RuntimeError("Container does not exist")
+        try:
+            snap = instance.snapshots.get(name)
+            snap.delete(wait=True)
+        except NotFound:
+            raise RuntimeError(f"Snapshot '{name}' not found")
+
+    def restore_snapshot(self, name: str) -> None:
+        instance = self.get_instance()
+        if instance is None:
+            raise RuntimeError("Container does not exist")
+        try:
+            instance.snapshots.get(name)
+        except NotFound:
+            raise RuntimeError(f"Snapshot '{name}' not found")
+        instance.restore_snapshot(name, wait=True)
+
+    # ------------------------------------------------------------------ #
+    # Resource limits                                                      #
+    # ------------------------------------------------------------------ #
+
+    def get_resource_limits(self) -> dict:
+        profile = self._get_profile(settings.lxd_profile_name)
+        if profile is None:
+            return {"cpu_cores": None, "memory_mb": None}
+        cfg = getattr(profile, "config", {}) or {}
+        cpu = cfg.get("limits.cpu")
+        mem = cfg.get("limits.memory")
+        cpu_int = int(cpu) if cpu and cpu.isdigit() else None
+        mem_mb = None
+        if mem:
+            mem = str(mem).strip().upper()
+            if mem.endswith("GB"):
+                try:
+                    mem_mb = int(float(mem[:-2]) * 1024)
+                except ValueError:
+                    pass
+            elif mem.endswith("MB"):
+                try:
+                    mem_mb = int(mem[:-2])
+                except ValueError:
+                    pass
+        return {"cpu_cores": cpu_int, "memory_mb": mem_mb}
+
+    def set_resource_limits(self, cpu_cores: int | None, memory_mb: int | None) -> None:
+        profile = self._get_profile(settings.lxd_profile_name)
+        if profile is None:
+            raise RuntimeError(f"LXD profile '{settings.lxd_profile_name}' not found")
+        cfg = dict(getattr(profile, "config", {}) or {})
+        if cpu_cores is not None:
+            cfg["limits.cpu"] = str(cpu_cores)
+        else:
+            cfg.pop("limits.cpu", None)
+        if memory_mb is not None:
+            cfg["limits.memory"] = f"{memory_mb}MB"
+        else:
+            cfg.pop("limits.memory", None)
+        profile.config = cfg
+        profile.save(wait=True)
 
 
 _manager = LxdManager()

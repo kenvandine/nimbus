@@ -6,8 +6,9 @@ import os
 from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
+from pydantic import BaseModel
 
 from auth import require_api_token
 from config import settings
@@ -24,6 +25,27 @@ router = APIRouter(prefix="/api/system", tags=["system"], dependencies=[Depends(
 @router.get("/stats", response_model=SystemStats)
 async def get_stats() -> SystemStats:
     return await get_control_plane().get_stats()
+
+
+@router.get("/stats/stream")
+async def stream_stats(request: Request) -> StreamingResponse:
+    try:
+        from sse_starlette.sse import EventSourceResponse
+    except ImportError:
+        raise HTTPException(status_code=501, detail="sse-starlette not installed")
+
+    async def event_gen():
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                stats = await get_control_plane().get_stats()
+                yield {"data": stats.model_dump_json()}
+            except Exception as exc:
+                yield {"data": f"{{\"error\":\"{exc}\"}}"}
+            await asyncio.sleep(2)
+
+    return EventSourceResponse(event_gen())
 
 
 @router.post("/restart")
@@ -99,6 +121,36 @@ async def stream_journal(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+class ResourceLimitsRequest(BaseModel):
+    cpu_cores: int | None = None
+    memory_mb: int | None = None
+
+
+@router.get("/resources")
+async def get_resource_limits() -> dict:
+    if settings.control_mode != "lxd":
+        raise HTTPException(status_code=400, detail="Resource limits require LXD control mode")
+    import asyncio
+    from services.lxd import get_lxd_manager
+    try:
+        return await asyncio.to_thread(get_lxd_manager().get_resource_limits)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.put("/resources")
+async def set_resource_limits(req: ResourceLimitsRequest) -> dict:
+    if settings.control_mode != "lxd":
+        raise HTTPException(status_code=400, detail="Resource limits require LXD control mode")
+    import asyncio
+    from services.lxd import get_lxd_manager
+    try:
+        await asyncio.to_thread(get_lxd_manager().set_resource_limits, req.cpu_cores, req.memory_mb)
+        return {"status": "ok", "cpu_cores": req.cpu_cores, "memory_mb": req.memory_mb}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.get("/ca-cert")
