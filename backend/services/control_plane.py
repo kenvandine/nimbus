@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Protocol
 
@@ -133,6 +134,7 @@ async def _call_device_manager(func, *args):
 
 
 def _apply_device_stats(stats: SystemStats) -> SystemStats:
+    stats.version = os.environ.get("SNAP_VERSION", "")
     device_status = get_device_manager().status()
     stats.device_management_available = device_status.actions_available
     stats.system_update_supported = device_status.system_update_supported
@@ -141,6 +143,10 @@ def _apply_device_stats(stats: SystemStats) -> SystemStats:
     stats.system_update_status = device_status.system_update_status
     stats.system_update_message = device_status.system_update_message
     stats.system_restart_required = device_status.system_restart_required
+    try:
+        stats.host_ip = network.get_primary_interface_ip()
+    except Exception:
+        pass
     return stats
 
 
@@ -191,7 +197,8 @@ class LocalControlPlane:
         return AppDetail(**data)
 
     async def list_apps(self) -> list[AppDetail]:
-        metas = store.list_apps()
+        installed_ids = set(docker.installed_app_ids())
+        metas = store.list_apps(extra_ids=installed_ids)
         statuses = await asyncio.gather(*[self._status_for(m.id, m) for m in metas])
         host_ip = await network.get_host_ip()
         sys_apps = await system_apps.get_system_apps(host_ip)
@@ -481,9 +488,10 @@ class LxdControlPlane:
         return status, str(app_state.get("password") or "")
 
     def _list_apps_sync(self, host_ip: str | None = None) -> list[AppDetail]:
-        metas = store.list_apps()
         info = self.manager.container_info()
         snapshot = self.manager.app_runtime_snapshot() if self._container_ready(info) else None
+        installed_ids = set(snapshot.installed.keys()) if snapshot else set()
+        metas = store.list_apps(extra_ids=installed_ids)
         details: list[AppDetail] = []
         for meta in metas:
             status, default_password = self._status_for_sync(meta.id, meta, info, snapshot, host_ip)
@@ -529,6 +537,10 @@ class LxdControlPlane:
     _NETWORK_ERROR_HINTS = frozenset([
         "lookup", "i/o timeout", "dial tcp", "resolve reference",
         "no such host", "connection refused", "network unreachable",
+        # docker pull / compose pull failures
+        "toomanyrequests", "connection reset", "context deadline exceeded",
+        "tls handshake timeout", "eof", "unexpected eof", "failed to pull",
+        "pulling fs layer", "downloading",
     ])
 
     @classmethod

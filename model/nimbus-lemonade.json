@@ -53,7 +53,7 @@
         {
             "name": "nimbus",
             "type": "app",
-            "default-channel": "latest/edge",
+            "default-channel": "latest/stable",
             "id": "qhSCSjzxNobpziJD4QLbkDDqH0nxpYHq"
         },
         {
@@ -101,8 +101,14 @@
         {
             "name": "lemonade-server",
             "type": "app",
-            "default-channel": "latest/stable",
+            "default-channel": "latest/edge/cloud-offload",
             "id": "PX5yJDL0Zee280zHDiTZbD6xWqFkDucC"
+        },
+        {
+            "name": "tailscale",
+            "type": "app",
+            "default-channel": "1/stable",
+            "id": "wSONTciTrW7sfbh956ERLPH7OH3sKZOe"
         }
     ],
     "timestamp": "2026-04-24T12:00:00Z"

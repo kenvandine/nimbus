@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+import shutil
+import subprocess
+import tarfile
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -27,9 +32,20 @@ CONTAINER_OVERLAY_DIR = Path("/opt/nimbus/openclaw-overlay")
 CONTAINER_OPENCLAW_WORKSPACE = "/var/lib/nimbus/installed/openclaw/data/data/.openclaw/workspace"
 BOOTSTRAP_MARKER = Path("/var/lib/nimbus/.agent-bootstrap-version")
 BOOTSTRAP_VERSION = "1"
+# Written into the pre-built image at build time to signal that APT packages
+# are already installed and _install_runtime_packages can be skipped.
+PACKAGES_MARKER = Path("/var/lib/nimbus/.packages-preinstalled")
+# Written into the pre-built image to signal that /opt/nimbus-venv already
+# contains all agent Python dependencies and _install_agent_python can be skipped.
+AGENT_PYTHON_MARKER = Path("/var/lib/nimbus/.agent-python-preinstalled")
 BACKEND_SOURCE_DIR = Path(__file__).resolve().parents[1]
 SETUP_DIR = Path(__file__).resolve().parents[2] / "setup"
 AGENT_SERVICE_SOURCE = SETUP_DIR / "nimbus.service"
+LXC_AGENT_SERVICE_SOURCE = SETUP_DIR / "nimbus-lxc-agent.service"
+LXC_AGENT_VERSION_MARKER = Path("/var/lib/nimbus/.lxc-agent-version")
+LXC_AGENT_PORT = 9001
+# Bump this whenever agent/daemon.py changes to trigger a re-deploy on next startup.
+_LXC_AGENT_VERSION = "7"
 DEFAULT_LXD_STORAGE_POOL = "default"
 DEFAULT_LXD_PROFILE = "default"
 DEFAULT_LXD_BRIDGE_PREFIX = "lxdbr"
@@ -77,6 +93,8 @@ class LxdManager:
     # (gemma4 / lemonade bound to 127.0.0.1) inside the nimbus LXC, where the
     # openclaw container can reach it via docker's host-gateway alias.
     _PROVIDER_PROXY_DEVICE_NAME = "nimbus-provider-fwd"
+    # LXD proxy device that exposes the LXC agent daemon's HTTP API on the host.
+    _LXC_AGENT_PROXY_DEVICE_NAME = "nimbus-lxc-agent"
 
     def _bootstrap_in_progress(self) -> bool:
         return self._bootstrap_state in {
@@ -92,6 +110,91 @@ class LxdManager:
     def _has_bootstrap_marker(self, instance) -> bool:
         marker = self._read_file(instance, str(BOOTSTRAP_MARKER))
         return bool(marker and marker.strip() == BOOTSTRAP_VERSION)
+
+    def _has_packages_marker(self, instance) -> bool:
+        return self._read_file(instance, str(PACKAGES_MARKER)) is not None
+
+    def _has_agent_python_marker(self, instance) -> bool:
+        return self._read_file(instance, str(AGENT_PYTHON_MARKER)) is not None
+
+    def _import_seeded_image(self) -> None:
+        """Import a pre-built LXC image tarball.
+
+        Checks two locations in priority order:
+          1. $SNAP_COMMON/lxc-seed/ — injected into the disk image at build time
+             (deleted after import to reclaim space).
+          2. $SNAP/lxc-seed/       — bundled inside the snap itself; read-only,
+             so it stays in place after import (the alias check avoids re-import).
+
+        No-ops silently when the tarball is absent in both locations.
+        """
+        snap_common = os.environ.get("SNAP_COMMON", "")
+        snap = os.environ.get("SNAP", "")
+
+        seed_path: Path | None = None
+        for candidate in filter(None, [
+            Path(snap_common) / "lxc-seed" / "nimbus-lxc-seed.tar.gz" if snap_common else None,
+            Path(snap) / "lxc-seed" / "nimbus-lxc-seed.tar.gz" if snap else None,
+        ]):
+            if candidate.exists():
+                seed_path = candidate
+                break
+
+        if seed_path is None:
+            return
+
+        alias = settings.lxd_local_image_alias or "nimbus-runtime"
+
+        try:
+            self.client().images.get_by_alias(alias)
+            logger.info("Seeded LXC image already imported as '%s'", alias)
+            if snap_common and str(seed_path).startswith(snap_common + os.sep):
+                seed_path.unlink(missing_ok=True)
+            return
+        except NotFound:
+            pass
+
+        logger.info("Importing seeded LXC image from %s", seed_path)
+        tmpdir = Path(tempfile.mkdtemp())
+        try:
+            with tarfile.open(seed_path) as tf:
+                tf.extractall(tmpdir)
+
+            unified_path = tmpdir / "image.tar.gz"   # unified export (newer LXD)
+            meta_path    = tmpdir / "meta.tar.gz"    # split export — metadata half
+            rootfs_path  = tmpdir / "rootfs"         # split export — rootfs half
+
+            if unified_path.exists():
+                logger.info("Seeded image is unified format")
+                with open(unified_path, "rb") as f:
+                    image = self.client().images.create(f.read(), wait=True)
+            elif meta_path.exists() and rootfs_path.exists():
+                logger.info("Seeded image is split format")
+                with open(meta_path, "rb") as mf, open(rootfs_path, "rb") as rf:
+                    image = self.client().images.create(rf.read(), metadata=mf.read(), wait=True)
+            else:
+                logger.error(
+                    "Seeded LXC image is malformed (expected image.tar.gz or meta.tar.gz+rootfs): %s",
+                    list(tmpdir.iterdir()),
+                )
+                return
+
+            image.add_alias(alias, "Nimbus pre-built runtime")
+            logger.info(
+                "Seeded LXC image imported as '%s' (fingerprint: %s)",
+                alias,
+                image.fingerprint,
+            )
+            # Delete writable copies to reclaim disk space; $SNAP is read-only.
+            if snap_common and str(seed_path).startswith(snap_common + os.sep):
+                seed_path.unlink(missing_ok=True)
+        except Exception as exc:
+            logger.warning(
+                "Failed to import seeded LXC image: %s — will pull from remote on next bootstrap",
+                exc,
+            )
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
     def client(self) -> Client:
         client = getattr(self._local, "client", None)
@@ -129,6 +232,105 @@ class LxdManager:
                 idx += 1
                 continue
             return name
+
+    def _ensure_nm_ignores_lxd(self) -> None:
+        """Write a NetworkManager drop-in that prevents NM from managing LXD
+        bridge and veth interfaces.
+
+        When NM tries DHCP on a veth it can't reach, it marks the interface
+        failed and detaches it from lxdbr0 — breaking all container networking
+        (both external DNS and host→container port forwarding).  This fix is
+        idempotent and runs on every boot so it survives NM snap updates.
+        """
+        dropin_content = (
+            "[keyfile]\n"
+            "unmanaged-devices=interface-name:lxdbr*;interface-name:veth*\n"
+        )
+        # Try both the standard path (works on Ubuntu Server / with network-control
+        # snap interface) and the NM snap's own data directory (Ubuntu Core).
+        candidates = [
+            Path("/etc/NetworkManager/conf.d/90-lxd-unmanaged.conf"),
+            Path("/var/snap/network-manager/common/etc/NetworkManager/conf.d/90-lxd-unmanaged.conf"),
+        ]
+        wrote = False
+        for dropin in candidates:
+            try:
+                dropin.parent.mkdir(parents=True, exist_ok=True)
+                if not dropin.exists() or dropin.read_text() != dropin_content:
+                    dropin.write_text(dropin_content)
+                    logger.info("Wrote NM drop-in to prevent LXD interface management: %s", dropin)
+                    wrote = True
+            except OSError:
+                pass  # Path not writable under this snap confinement; try next
+
+        if wrote:
+            # Restart NM so the new policy takes effect immediately.
+            for cmd in (
+                ["snap", "restart", "network-manager"],
+                ["systemctl", "restart", "NetworkManager"],
+            ):
+                try:
+                    result = subprocess.run(cmd, capture_output=True, timeout=30)
+                    if result.returncode == 0:
+                        logger.info("Restarted NetworkManager after drop-in update")
+                        break
+                except (FileNotFoundError, subprocess.TimeoutExpired):
+                    pass
+
+    def _ensure_lxd_nat_rules(self) -> None:
+        """Ensure LXD's iptables-legacy MASQUERADE and FORWARD rules exist.
+
+        When NetworkManager is restarted it flushes iptables-legacy, removing
+        LXD's MASQUERADE and FORWARD rules.  Without them the container's
+        private source IP is never NATed, so external responses never arrive.
+
+        We add missing rules directly with iptables-legacy rather than calling
+        network.save(), which would restart the bridge and disrupt running
+        containers (they lose their default route).
+        """
+        import ipaddress as _ipaddress
+
+        for network in self._managed_networks():
+            if network.config.get("ipv4.nat") != "true":
+                continue
+            bridge = network.name
+            # Resolve "auto" to the actual interface address.
+            raw_addr = network.config.get("ipv4.address", "")
+            if not raw_addr or raw_addr in ("none", "auto"):
+                try:
+                    out = subprocess.run(
+                        ["ip", "-4", "-o", "addr", "show", "dev", bridge],
+                        capture_output=True, text=True,
+                    ).stdout
+                    raw_addr = next(
+                        (p for p in out.split() if "/" in p and not p.startswith("peer")),
+                        "",
+                    )
+                except Exception:
+                    pass
+            if not raw_addr or "/" not in raw_addr:
+                logger.warning("Could not determine subnet for %s — skipping NAT rules", bridge)
+                continue
+            try:
+                subnet = str(_ipaddress.ip_interface(raw_addr).network)
+            except ValueError:
+                continue
+
+            rules = [
+                (["-t", "nat", "-C", "POSTROUTING", "-s", subnet, "!", "-d", subnet, "-j", "MASQUERADE"],
+                 ["-t", "nat", "-A", "POSTROUTING", "-s", subnet, "!", "-d", subnet, "-j", "MASQUERADE"]),
+                (["-C", "FORWARD", "-o", bridge, "-j", "ACCEPT"],
+                 ["-A", "FORWARD", "-o", bridge, "-j", "ACCEPT"]),
+                (["-C", "FORWARD", "-i", bridge, "-j", "ACCEPT"],
+                 ["-A", "FORWARD", "-i", bridge, "-j", "ACCEPT"]),
+            ]
+            for check_args, add_args in rules:
+                try:
+                    if subprocess.run(["iptables-legacy"] + check_args, capture_output=True).returncode != 0:
+                        subprocess.run(["iptables-legacy"] + add_args, capture_output=True, check=True)
+                        logger.info("Added iptables-legacy rule for %s: %s", bridge, " ".join(add_args))
+                except Exception as exc:
+                    logger.warning("Could not add iptables-legacy rule: %s", exc)
 
     def ensure_initialized(self) -> None:
         client = self.client()
@@ -261,8 +463,12 @@ class LxdManager:
         raise RuntimeError("Could not create LXD instance from any configured image source:\n" + "\n".join(errors))
 
     def _image_source_candidates(self) -> list[dict[str, str]]:
-        aliases = self._image_alias_candidates(settings.lxd_image_alias)
         candidates: list[dict[str, str]] = []
+
+        if settings.lxd_local_image_alias:
+            candidates.append({"type": "image", "alias": settings.lxd_local_image_alias})
+
+        aliases = self._image_alias_candidates(settings.lxd_image_alias)
         seen: set[tuple[str, str, str]] = set()
 
         def add(server: str, protocol: str, alias: str) -> None:
@@ -535,6 +741,74 @@ class LxdManager:
             lines.append(f"NIMBUS_API_TOKEN={settings.lxd_agent_token}")
         return "\n".join(lines) + "\n"
 
+    def _configure_openclaw_ws_proxy(self, instance) -> None:
+        """Set up LXD proxies for OpenClaw's UI (18789) and gateway WS API (18790) ports.
+
+        Both ports are published as a range by Docker so the snapshot regex
+        won't detect them individually — we pin them here explicitly.
+        """
+        from services.openclaw import OPENCLAW_PORT, OPENCLAW_UI_PORT
+        devices = self._instance_devices(instance)
+        changed = False
+
+        ui_name = self._proxy_device_name("openclaw")
+        ui_desired = self._app_proxy_device(OPENCLAW_UI_PORT)
+        if devices.get(ui_name) != ui_desired:
+            devices[ui_name] = ui_desired
+            changed = True
+
+        ws_name = f"{self._proxy_device_name('openclaw')}-ws"
+        ws_desired = self._app_proxy_device(OPENCLAW_PORT)
+        if devices.get(ws_name) != ws_desired:
+            devices[ws_name] = ws_desired
+            changed = True
+
+        if changed:
+            self._save_instance_devices(instance, devices)
+
+    def _configure_lxc_agent_proxy(self, instance) -> None:
+        devices = self._instance_devices(instance)
+        name = self._LXC_AGENT_PROXY_DEVICE_NAME
+        desired = {
+            "type": "proxy",
+            "bind": "host",
+            "listen": f"tcp:{settings.lxd_publish_host}:{LXC_AGENT_PORT}",
+            "connect": f"tcp:127.0.0.1:{LXC_AGENT_PORT}",
+        }
+        if devices.get(name) == desired:
+            return
+        devices[name] = desired
+        self._save_instance_devices(instance, devices)
+
+    def _ensure_lxc_agent(self, instance) -> None:
+        """Push the LXC agent daemon and (re)start it if the version changed."""
+        current = self._read_file(instance, str(LXC_AGENT_VERSION_MARKER))
+        if current and current.strip() == _LXC_AGENT_VERSION:
+            # Agent is up to date — still ensure the proxy device exists (it
+            # won't be present on a freshly started seeded-image container).
+            self._configure_lxc_agent_proxy(instance)
+            return
+
+        logger.info("Installing LXC agent daemon v%s", _LXC_AGENT_VERSION)
+        agent_src = BACKEND_SOURCE_DIR / "agent"
+        if not agent_src.exists():
+            logger.warning("LXC agent source not found at %s — skipping", agent_src)
+            return
+
+        self._run(instance, ["mkdir", "-p", "/opt/nimbus/backend/agent"])
+        instance.files.recursive_put(str(agent_src), "/opt/nimbus/backend/agent")
+        self._write_file(
+            instance,
+            "/etc/systemd/system/nimbus-lxc-agent.service",
+            LXC_AGENT_SERVICE_SOURCE.read_text(),
+        )
+        self._run(instance, ["systemctl", "daemon-reload"])
+        self._run(instance, ["systemctl", "enable", "nimbus-lxc-agent"])
+        self._run(instance, ["systemctl", "restart", "nimbus-lxc-agent"], acceptable={0, 1})
+        self._write_file(instance, str(LXC_AGENT_VERSION_MARKER), _LXC_AGENT_VERSION + "\n")
+        self._configure_lxc_agent_proxy(instance)
+        logger.info("LXC agent daemon installed and started")
+
     def _push_agent_payload(self, instance) -> None:
         self._run(instance, ["mkdir", "-p", "/opt/nimbus", "/var/lib/nimbus/store", "/var/lib/nimbus/installed"])
         instance.files.recursive_put(str(BACKEND_SOURCE_DIR), "/opt/nimbus/backend")
@@ -570,7 +844,19 @@ class LxdManager:
         self._run(instance, ["/opt/nimbus-venv/bin/pip", "install", "-r", "/opt/nimbus/backend/requirements.txt"])
 
     def _enable_services(self, instance) -> None:
-        self._run(instance, ["systemctl", "enable", "--now", "docker"])
+        # Write Docker DNS config unconditionally so it takes effect whether
+        # packages were just installed or came pre-built in the seeded image
+        # (which skips _install_runtime_packages).  Without this, Docker falls
+        # back to the LXC's 127.0.0.53 systemd-resolved stub, which returns
+        # SERVFAIL for registry-1.docker.io and breaks all image pulls.
+        self._run(instance, ["mkdir", "-p", "/etc/docker"])
+        self._write_file(
+            instance,
+            "/etc/docker/daemon.json",
+            '{"dns": ["1.1.1.1", "8.8.8.8"]}\n',
+        )
+        self._run(instance, ["systemctl", "restart", "docker"])
+        self._run(instance, ["systemctl", "enable", "docker"])
         self._run(instance, ["systemctl", "daemon-reload"])
         self._run(instance, ["systemctl", "enable", "nimbus"])
         self._run(instance, ["systemctl", "restart", "nimbus"])
@@ -579,26 +865,44 @@ class LxdManager:
         with self._lock:
             try:
                 self._set_bootstrap_state("ensuring-daemon")
+                self._ensure_nm_ignores_lxd()
                 self.ensure_initialized()
+                self._ensure_lxd_nat_rules()
                 self._set_bootstrap_state("ensuring-profile")
                 self.ensure_profile()
+                self._set_bootstrap_state("importing-image")
+                self._import_seeded_image()
                 self._set_bootstrap_state("ensuring-container")
                 instance = self.ensure_started()
                 if self._has_bootstrap_marker(instance):
                     self._set_bootstrap_state("starting-agent")
                     self._wait_for_docker(instance)
+                    self._repatch_provider_apps(instance)
+                    self._ensure_lxc_agent(instance)
                     self._set_bootstrap_state("ready")
                     return
 
                 self._set_bootstrap_state("installing-runtime")
-                self._wait_for_container_dns(instance)
-                self._install_runtime_packages(instance)
+                packages_preinstalled = self._has_packages_marker(instance)
+                agent_python_preinstalled = self._has_agent_python_marker(instance)
+                if packages_preinstalled and agent_python_preinstalled:
+                    logger.info("Packages and Python env preinstalled — skipping network-dependent setup")
+                else:
+                    self._wait_for_container_dns(instance)
+                    if not packages_preinstalled:
+                        self._install_runtime_packages(instance)
+                    else:
+                        logger.info("Packages already preinstalled — skipping APT install")
                 self._set_bootstrap_state("pushing-agent")
                 self._push_agent_payload(instance)
                 self._set_bootstrap_state("installing-agent-python")
-                self._install_agent_python(instance)
+                if not agent_python_preinstalled:
+                    self._install_agent_python(instance)
+                else:
+                    logger.info("Python env already preinstalled — skipping venv/pip setup")
                 self._set_bootstrap_state("starting-agent")
                 self._enable_services(instance)
+                self._ensure_lxc_agent(instance)
                 self._write_file(instance, str(BOOTSTRAP_MARKER), BOOTSTRAP_VERSION + "\n")
                 self._set_bootstrap_state("ready")
             except (ClientConnectionFailed, LXDAPIException, RuntimeError) as exc:
@@ -670,7 +974,7 @@ import sys
 
 root = pathlib.Path(sys.argv[1])
 apps = {}
-port_re = re.compile(r'(?:0\\.0\\.0\\.0|\\[::\\]):(\\d+)->\\d+/(?:tcp|udp)')
+port_re = re.compile(r'(?:0\\.0\\.0\\.0|\\[::\\]):(\\d+)(?:-\\d+)?->\\d+(?:-\\d+)?/(?:tcp|udp)')
 
 if root.exists():
     for d in sorted((p for p in root.iterdir() if p.is_dir()), key=lambda p: p.name):
@@ -746,7 +1050,6 @@ print(json.dumps(apps), end='')
         try:
             src.mkdir(parents=True, exist_ok=True)
             try:
-                import os
                 os.chmod(src, 0o777)
             except OSError:
                 pass
@@ -818,15 +1121,192 @@ print(json.dumps(apps), end='')
             if spec.uid >= 0:
                 self._run(instance, ["chown", f"{spec.uid}:{spec.gid}", spec.path])
 
+    def _to_container_url(self, host_url: str) -> str:
+        """Rewrite a host-loopback URL to one reachable from inside docker-in-LXC."""
+        return host_url.replace("localhost", "host.docker.internal").replace(
+            "127.0.0.1", "host.docker.internal"
+        )
+
+    def _configure_hermes_provider(self, instance, data_dir: Path) -> None:
+        """Pre-write hermes data files so the gateway starts with the
+        configured LLM backend on first boot.
+
+        Hermes resolves the provider via auth.json (active_provider) before
+        falling back to env-var auto-detection.  We use the built-in 'lmstudio'
+        provider (openai_chat transport, reads LM_BASE_URL/LM_API_KEY) rather
+        than 'openai-api' (codex_responses transport) so standard chat-
+        completions endpoints like lemonade are fully compatible.
+        """
+        import json as _json
+        from services.model_provider import get_provider_config
+        cfg = get_provider_config()
+        container_base = self._to_container_url(cfg.base_url)
+        hermes_dir = str(data_dir / "data" / "hermes")
+        self._run(instance, ["mkdir", "-p", hermes_dir])
+        self._run(instance, ["chmod", "777", hermes_dir])
+        # Write LM Studio env vars to hermes .env so they survive container
+        # restarts even if the docker-compose environment changes.
+        env_content = (
+            f"LM_BASE_URL={container_base}\n"
+            "LM_API_KEY=nimbus-local\n"
+            f"HERMES_MODEL={cfg.model_id}\n"
+        )
+        self._write_file(instance, f"{hermes_dir}/.env", env_content, mode=0o600)
+        # auth.json: set active_provider so resolve_provider() returns "lmstudio"
+        # before it can fall through to the OPENAI_API_KEY → "openrouter" path.
+        auth_store = {
+            "version": 1,
+            "providers": {},
+            "active_provider": "lmstudio",
+        }
+        self._write_file(
+            instance,
+            f"{hermes_dir}/auth.json",
+            _json.dumps(auth_store, indent=2) + "\n",
+            mode=0o600,
+        )
+        # config.yaml: default model so the user doesn't need to run hermes setup.
+        config_content = (
+            f"model: lmstudio/{cfg.model_id}\n"
+            "skills:\n"
+            "  external_dirs:\n"
+            "    - /app/umbrel-context/skills\n"
+            "plugins:\n"
+            "  enabled:\n"
+            "    - umbrel-runtime\n"
+        )
+        self._write_file(instance, f"{hermes_dir}/config.yaml", config_content)
+        # Hermes runs as uid 1000; LXD file writes land as root.
+        self._run(instance, ["chown", "1000:1000",
+                              f"{hermes_dir}/.env",
+                              f"{hermes_dir}/auth.json",
+                              f"{hermes_dir}/config.yaml"])
+
+    def _configure_picoclaw_provider(self, instance, data_dir: Path) -> None:
+        """Pre-write picoclaw config.json so it boots with the configured LLM backend."""
+        import json
+        from services.model_provider import get_provider_config
+        cfg = get_provider_config()
+        container_base = self._to_container_url(cfg.base_url)
+        picoclaw_dir = str(data_dir / "data")
+        self._run(instance, ["mkdir", "-p", picoclaw_dir])
+        self._run(instance, ["chmod", "777", picoclaw_dir])
+        config = {
+            "model_list": [
+                {
+                    "model_name": "lemonade",
+                    "provider": "openai",
+                    "model": cfg.model_id,
+                    "api_base": container_base,
+                }
+            ],
+            "agents": {
+                "defaults": {
+                    "provider": "openai",
+                    "model_name": "lemonade",
+                }
+            },
+        }
+        self._write_file(
+            instance,
+            f"{picoclaw_dir}/config.json",
+            json.dumps(config, indent=2) + "\n",
+        )
+        # Picoclaw runs as uid 1000; LXD file writes land as root.
+        self._run(instance, ["chown", "1000:1000", f"{picoclaw_dir}/config.json"])
+
+    def _repatch_provider_apps(self, instance) -> None:
+        """Re-apply model-provider configuration to installed provider-aware apps.
+
+        Called at each container startup so a snap update propagates new
+        provider configuration without requiring the user to reinstall the app.
+        """
+        # Apps configured via compose env var injection
+        compose_checks = {
+            "openclaw": "NIMBUS_OPENCLAW_BASE_URL",
+            "anything-llm": "GENERIC_OPEN_AI_BASE_PATH",
+        }
+        for app_id, marker in compose_checks.items():
+            env_file = str(CONTAINER_INSTALLED_DIR / app_id / ".env")
+            compose_file = str(CONTAINER_INSTALLED_DIR / app_id / "docker-compose.yml")
+            env_text = self._read_file(instance, env_file)
+            if not env_text:
+                continue
+            existing = self._read_file(instance, compose_file) or ""
+            if marker in existing:
+                continue
+            logger.info("Repatching provider overlay for %s", app_id)
+            try:
+                if app_id == "openclaw":
+                    self._push_openclaw_overlay(instance)
+                    self._configure_openclaw_ws_proxy(instance)
+                self._configure_provider_proxy(instance)
+                bundle = docker.build_app_bundle(
+                    app_id,
+                    installed_dir=CONTAINER_INSTALLED_DIR,
+                    env_text=env_text,
+                    overlay_dir=CONTAINER_OVERLAY_DIR,
+                )
+                self._write_file(instance, compose_file, bundle.compose_text)
+                self._run(
+                    instance,
+                    [
+                        "docker", "compose", "-p", app_id,
+                        "-f", compose_file, "--env-file", env_file,
+                        "up", "-d", "--remove-orphans",
+                    ],
+                    acceptable={0, 1},
+                )
+            except Exception as exc:
+                logger.warning("Failed to repatch %s: %s", app_id, exc)
+
+        # Apps configured via data files (compose env vars are insufficient)
+        for app_id in ("hermes-agent", "picoclaw"):
+            env_file = str(CONTAINER_INSTALLED_DIR / app_id / ".env")
+            env_text = self._read_file(instance, env_file)
+            if not env_text:
+                continue
+            data_dir = CONTAINER_INSTALLED_DIR / app_id / "data"
+            needs_restart = False
+            try:
+                if app_id == "hermes-agent":
+                    hermes_auth = self._read_file(instance, str(data_dir / "data" / "hermes" / "auth.json")) or ""
+                    if "lmstudio" not in hermes_auth:
+                        logger.info("Writing hermes provider data files")
+                        self._configure_provider_proxy(instance)
+                        self._configure_hermes_provider(instance, data_dir)
+                        needs_restart = True
+                elif app_id == "picoclaw":
+                    picoclaw_cfg = self._read_file(instance, str(data_dir / "data" / "config.json")) or ""
+                    if "lemonade" not in picoclaw_cfg:
+                        logger.info("Writing picoclaw provider config")
+                        self._configure_provider_proxy(instance)
+                        self._configure_picoclaw_provider(instance, data_dir)
+                        needs_restart = True
+                if needs_restart:
+                    compose_file = str(CONTAINER_INSTALLED_DIR / app_id / "docker-compose.yml")
+                    self._run(
+                        instance,
+                        [
+                            "docker", "compose", "-p", app_id,
+                            "-f", compose_file, "--env-file", env_file,
+                            "up", "-d", "--remove-orphans",
+                        ],
+                        acceptable={0, 1},
+                    )
+            except Exception as exc:
+                logger.warning("Failed to repatch data files for %s: %s", app_id, exc)
+
     def install_app(self, app_id: str) -> None:
         self.ensure_bootstrapped()
         instance = self.ensure_started()
         if app_id == "openclaw":
             self._push_openclaw_overlay(instance)
             self._ensure_openclaw_workspace_device(instance)
+        if app_id in ("openclaw", "hermes-agent", "anything-llm", "picoclaw"):
             # Install the LXD proxy device that bridges the host's loopback
             # model service into the LXC before docker compose comes up, so
-            # the openclaw gateway can reach it on its first request.
+            # the gateway can reach it on its first request.
             self._configure_provider_proxy(instance)
         bundle = docker.build_app_bundle(
             app_id,
@@ -838,24 +1318,26 @@ print(json.dumps(apps), end='')
         self._write_file(instance, f"{bundle.app_dir}/.env", bundle.env_text, mode=0o600)
         if bundle.version:
             self._write_file(instance, f"{bundle.app_dir}/.nimbus-version", bundle.version + "\n")
+        if app_id == "hermes-agent":
+            self._configure_hermes_provider(instance, bundle.data_dir)
+        if app_id == "picoclaw":
+            self._configure_picoclaw_provider(instance, bundle.data_dir)
         self._wait_for_container_dns(instance)
-        self._run(
-            instance,
-            [
-                "docker",
-                "compose",
-                "-p",
-                app_id,
-                "-f",
-                f"{bundle.app_dir}/docker-compose.yml",
-                "--env-file",
-                f"{bundle.app_dir}/.env",
-                "up",
-                "-d",
-                "--remove-orphans",
-            ],
-        )
+        compose_cmd = [
+            "docker", "compose",
+            "-p", app_id,
+            "-f", f"{bundle.app_dir}/docker-compose.yml",
+            "--env-file", f"{bundle.app_dir}/.env",
+        ]
+        # Pull images separately before starting so that progress output keeps
+        # the LXD exec WebSocket alive during long downloads.  Running
+        # "up -d" alone is silent during the pull phase, which causes the exec
+        # session to be killed after a few minutes on large images.
+        self._run(instance, [*compose_cmd, "pull"])
+        self._run(instance, [*compose_cmd, "up", "-d", "--remove-orphans"])
         self._configure_app_proxy(instance, app_id, bundle.published_port)
+        if app_id == "openclaw":
+            self._configure_openclaw_ws_proxy(instance)
         self._invalidate_snapshot()
 
     def update_app(self, app_id: str) -> None:
@@ -867,6 +1349,7 @@ print(json.dumps(apps), end='')
         if app_id == "openclaw":
             self._push_openclaw_overlay(instance)
             self._ensure_openclaw_workspace_device(instance)
+        if app_id in ("openclaw", "hermes-agent"):
             self._configure_provider_proxy(instance)
         bundle = docker.build_app_bundle(
             app_id,
@@ -913,6 +1396,8 @@ print(json.dumps(apps), end='')
             ],
         )
         self._configure_app_proxy(instance, app_id, bundle.published_port)
+        if app_id == "openclaw":
+            self._configure_openclaw_ws_proxy(instance)
         self._invalidate_snapshot()
 
     def uninstall_app(self, app_id: str) -> None:
@@ -938,6 +1423,21 @@ print(json.dumps(apps), end='')
                 acceptable={0, 1},
             )
         self._configure_app_proxy(instance, app_id, None)
+        # Remove any app-specific LXD devices before the directory removal so
+        # bind mounts are properly unmounted first.  For openclaw this includes
+        # the gateway WS proxy and the workspace bind-mount; if the bind mount
+        # is still active when shutil.rmtree runs it silently fails to delete
+        # the mount point, leaving the installed directory intact and making
+        # the app appear still installed.
+        devices = self._instance_devices(instance)
+        extra_devices = [
+            f"{self._proxy_device_name(app_id)}-ws",
+            f"{app_id}-workspace",
+        ]
+        if any(d in devices for d in extra_devices):
+            for d in extra_devices:
+                devices.pop(d, None)
+            self._save_instance_devices(instance, devices)
         self._run(
             instance,
             [

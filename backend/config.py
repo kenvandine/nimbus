@@ -5,6 +5,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
+_DEFAULT_APPSTORE_WHITELIST = [
+    "openclaw", "hermes-agent", "picoclaw", "immich",
+]
+
+
 def _env_bool(name: str, default: bool) -> bool:
     value = os.getenv(name)
     if value is None:
@@ -52,6 +57,7 @@ class Settings:
     lxd_image_server: str
     lxd_image_protocol: str
     lxd_image_alias: str
+    lxd_local_image_alias: str
     lxd_agent_port: int
     lxd_agent_bind_host: str
     lxd_agent_token: str | None
@@ -60,6 +66,8 @@ class Settings:
     preseed_apps: list[str] = field(default_factory=list)
     # Whether the App Store UI is shown (default True; set NIMBUS_APPSTORE_VISIBLE=false to hide)
     appstore_visible: bool = True
+    # App IDs shown in the App Store. Overridden by NIMBUS_APPSTORE_WHITELIST (comma-separated).
+    appstore_whitelist: list[str] = field(default_factory=list)
     # Root directory exposed by the file browser
     files_root: Path = field(default_factory=lambda: Path.home())
     # Directory containing nimbus-shipped overlay files for Umbrel apps
@@ -83,11 +91,22 @@ def _build_settings() -> Settings:
     if remote_base_url:
         remote_base_url = remote_base_url.rstrip("/")
 
-    # openclaw is always preseeded; user-supplied apps are appended after it
-    _user_apps = _parse_preseed_apps(os.getenv("NIMBUS_PRESEED_APPS"))
-    preseed_apps = ["openclaw"] + [a for a in _user_apps if a != "openclaw"]
-
     appstore_visible = _env_bool("NIMBUS_APPSTORE_VISIBLE", True)
+
+    whitelist_env = os.getenv("NIMBUS_APPSTORE_WHITELIST", "").strip()
+    if whitelist_env:
+        appstore_whitelist = [a.strip() for a in whitelist_env.split(",") if a.strip()]
+    else:
+        appstore_whitelist = list(_DEFAULT_APPSTORE_WHITELIST)
+
+    # When the App Store is visible, users install openclaw themselves; skip
+    # auto-preseed so first-boot doesn't block on it. When the store is hidden,
+    # preseed openclaw automatically since there's no other way to get it.
+    _user_apps = _parse_preseed_apps(os.getenv("NIMBUS_PRESEED_APPS"))
+    if appstore_visible:
+        preseed_apps = [a for a in _user_apps if a != "openclaw"]
+    else:
+        preseed_apps = ["openclaw"] + [a for a in _user_apps if a != "openclaw"]
 
     files_root_env = os.getenv("NIMBUS_FILES_ROOT")
     files_root = Path(files_root_env) if files_root_env else Path.home()
@@ -136,12 +155,14 @@ def _build_settings() -> Settings:
         lxd_image_server=os.getenv("NIMBUS_LXD_IMAGE_SERVER", "https://cloud-images.ubuntu.com/releases"),
         lxd_image_protocol=os.getenv("NIMBUS_LXD_IMAGE_PROTOCOL", "simplestreams"),
         lxd_image_alias=os.getenv("NIMBUS_LXD_IMAGE_ALIAS", "24.04"),
+        lxd_local_image_alias=os.getenv("NIMBUS_LXD_LOCAL_IMAGE_ALIAS", ""),
         lxd_agent_port=int(os.getenv("NIMBUS_LXD_AGENT_PORT", "8000")),
         lxd_agent_bind_host=os.getenv("NIMBUS_LXD_AGENT_BIND_HOST", "127.0.0.1"),
         lxd_agent_token=os.getenv("NIMBUS_LXD_AGENT_TOKEN") or os.getenv("NIMBUS_API_TOKEN"),
         lxd_publish_host=os.getenv("NIMBUS_LXD_PUBLISH_HOST", "0.0.0.0"),
         preseed_apps=preseed_apps,
         appstore_visible=appstore_visible,
+        appstore_whitelist=appstore_whitelist,
         files_root=files_root,
         overlay_dir=overlay_dir,
         model_provider=model_provider,

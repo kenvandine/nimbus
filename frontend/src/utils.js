@@ -1,31 +1,39 @@
 let _kioskFallback = null
 
+// Apps that set X-Frame-Options: DENY / frame-ancestors 'none' — cannot be
+// embedded in an iframe regardless of origin.  Open directly instead.
+const NO_IFRAME_APPS = new Set(['openclaw'])
+
 export function setKioskFallback(fn) {
   _kioskFallback = fn
 }
 
-function isLocalAccess() {
+export function isLocalAccess() {
   const h = window.location.hostname
   return h === 'localhost' || h === '127.0.0.1' || h === '::1'
 }
 
-/**
- * Open an app URL.  Strategy:
- *
- * 1. Always try window.open first — a new tab is free of iframe restrictions
- *    (X-Frame-Options, CSP frame-ancestors, mixed-content rules) that would
- *    silently block or refuse third-party apps like OpenClaw.
- *
- * 2. If window.open was blocked (popup blocker or kiosk full-screen mode)
- *    AND we're on local/kiosk access, fall back to the in-app iframe overlay
- *    so the user still has a visible "Back to Nimbus" path.
- *    Last resort: full-page navigation (user can press Back).
- */
 export function openApp(url, meta = {}) {
+  if (isLocalAccess()) {
+    // Rewrite any external IP/hostname to localhost so the request resolves
+    // on the device itself.  The LXD proxy listens on 0.0.0.0 so localhost
+    // always reaches it; the LAN IP only works from remote clients.
+    const localUrl = rewriteToLocalhost(url)
+    if (_kioskFallback) {
+      if (NO_IFRAME_APPS.has(meta.id)) {
+        // App blocks iframe embedding — show remote-access instructions instead.
+        _kioskFallback(localUrl, { ...meta, remoteOnly: true, remoteUrl: url })
+      } else {
+        _kioskFallback(localUrl, meta)
+      }
+      return
+    }
+    window.location.href = localUrl
+    return
+  }
   const opened = window.open(url, '_blank', 'noopener,noreferrer')
-  if (!opened && isLocalAccess()) {
-    if (_kioskFallback) _kioskFallback(url, meta)
-    else window.location.href = url
+  if (!opened) {
+    window.location.href = url
   }
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { getActiveInstalls, listApps, getStats, powerOffSystem, restartSystem, uninstallApp, getAuthStatus, logout } from './api.js'
-import { openApp, setKioskFallback } from './utils.js'
+import { openApp, setKioskFallback, isLocalAccess } from './utils.js'
 import Dock from './components/Dock.jsx'
 import Window from './components/Window.jsx'
 import AppStore from './components/AppStore.jsx'
@@ -8,19 +8,35 @@ import DeviceInfo from './components/DeviceInfo.jsx'
 import FileBrowser from './components/FileBrowser.jsx'
 import AppLogViewer from './components/AppLogViewer.jsx'
 import OpenClawWidget from './components/OpenClawWidget.jsx'
+import HermesWidget from './components/HermesWidget.jsx'
 import Settings from './components/Settings.jsx'
 import AppModal from './components/AppModal.jsx'
 import Oobe from './components/Oobe.jsx'
 import Login from './components/Login.jsx'
+import KioskReadyScreen from './components/KioskReadyScreen.jsx'
 
 const POLL_INTERVAL = 5000
 
-// openclaw is a pressed (always-installed) app. Treat the appliance as
-// "still setting up" until openclaw is installed AND running, so the dock
-// doesn't show a non-functional OpenClaw icon during first boot.
-function isOpenClawReady(apps) {
-  const oc = apps?.find(a => a.id === 'openclaw')
-  return !!(oc && oc.installed && oc.running)
+function RemoteOnlyMessage({ name, remoteUrl }) {
+  let nimbuUrl = remoteUrl || ''
+  try {
+    const { hostname } = new URL(remoteUrl)
+    nimbuUrl = `http://${hostname}`
+  } catch {}
+  return (
+    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 24px' }}>
+      <div style={{ maxWidth: 480, textAlign: 'center', color: 'rgba(255,255,255,0.85)' }}>
+        <div style={{ fontSize: 48, marginBottom: 20 }}>📱</div>
+        <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 12 }}>{name} requires a remote device</div>
+        <div style={{ fontSize: 15, color: 'rgba(255,255,255,0.6)', lineHeight: 1.6, marginBottom: 28 }}>
+          This app cannot be displayed on the local screen. Open it on your computer or mobile device connected to the same Wi-Fi network.
+        </div>
+        <div style={{ background: 'rgba(79,195,247,0.1)', border: '1px solid rgba(79,195,247,0.3)', borderRadius: 12, padding: '14px 20px', fontSize: 18, fontWeight: 700, color: '#81d4fa', letterSpacing: '0.01em' }}>
+          {nimbuUrl}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function describeSetupState(stats, apps, activeInstalls) {
@@ -36,22 +52,6 @@ function describeSetupState(stats, apps, activeInstalls) {
   const lxdReady =
     stats.container_bootstrapped && stats.container_status === 'running' && stats.bootstrap_state === 'ready'
   if (lxdReady) {
-    if (activeInstalls?.includes('openclaw')) {
-      return {
-        title: 'Installing OpenClaw',
-        message: 'Setting up the OpenClaw agent. This can take a couple of minutes on first boot.',
-        ready: false,
-        error: false,
-      }
-    }
-    if (!isOpenClawReady(apps)) {
-      return {
-        title: 'Starting OpenClaw',
-        message: 'Waiting for the OpenClaw agent to come online.',
-        ready: false,
-        error: false,
-      }
-    }
     return { ready: true }
   }
 
@@ -61,6 +61,7 @@ function describeSetupState(stats, apps, activeInstalls) {
         idle: 'Preparing the managed environment.',
         'waiting-for-network': 'Waiting for network connectivity before setting up the managed environment.',
         'ensuring-profile': 'Configuring the LXD profile for nested container support.',
+        'importing-image': 'Importing pre-built container image.',
         'ensuring-container': 'Creating and starting the managed LXD container.',
         'installing-runtime': 'Installing Docker and required system packages in the managed container.',
         'pushing-agent': 'Copying Nimbus services into the managed container.',
@@ -71,6 +72,7 @@ function describeSetupState(stats, apps, activeInstalls) {
     : {
         idle: 'Nimbus is checking the managed container and restoring app status.',
         'ensuring-profile': 'Nimbus is checking the managed container configuration.',
+        'importing-image': 'Nimbus is importing the pre-built container image.',
         'ensuring-container': 'Nimbus is starting the managed container.',
         'starting-agent': 'Nimbus is starting the managed services.',
         ready: 'Nimbus is finishing startup.',
@@ -147,7 +149,7 @@ export default function App() {
   }
 
   useEffect(() => {
-    setKioskFallback((url, meta) => setAppFrame({ url, name: meta.name || '' }))
+    setKioskFallback((url, meta) => setAppFrame({ url, name: meta.name || '', remoteOnly: meta.remoteOnly || false, remoteUrl: meta.remoteUrl }))
     checkAuth().then(status => {
       if (!status || status.authenticated) fetchAll()
       else setLoading(false)
@@ -228,11 +230,48 @@ export default function App() {
 
   const runningApps = apps.filter(a => a.running)
   const updatableCount = apps.filter(a => a.update_available).length
+  const openclawInstalled = apps.some(a => a.id === 'openclaw' && a.installed)
+  const hermesInstalled = apps.some(a => a.id === 'hermes-agent' && a.installed)
 
   const n = runningApps.length
   const cols = n === 0 ? 1 : n <= 3 ? n : Math.ceil(Math.sqrt(n))
   const errorMessage = error?.startsWith('Cannot reach backend') ? error : `Cannot reach backend — ${error}`
   const setupState = describeSetupState(stats, apps, activeInstalls)
+
+  const kioskStyle = <style>{`@keyframes spin { to { transform: rotate(360deg); } } * { box-sizing: border-box; } body { margin: 0; overflow: hidden; }`}</style>
+
+  if (isLocalAccess()) {
+    if (!oobeComplete) {
+      return (
+        <>
+          <div style={{ position: 'fixed', inset: 0, background: 'hsl(215,75%,8%)' }} />
+          <Oobe
+            online={stats?.online ?? false}
+            onComplete={() => {
+              oobeCompletedRef.current = true
+              setOobeComplete(true)
+              checkAuth().then(() => fetchAll())
+            }}
+          />
+          {kioskStyle}
+        </>
+      )
+    }
+    const showReconnect = stats !== null && !stats.online
+    return (
+      <>
+        <KioskReadyScreen stats={stats} />
+        {showReconnect && (
+          <Oobe
+            networkOnly
+            online={false}
+            onComplete={() => fetchAll()}
+          />
+        )}
+        {kioskStyle}
+      </>
+    )
+  }
 
   return (
     <div style={{ ...styles.desktop, background: `linear-gradient(145deg, hsl(${hue},75%,${light}%) 0%, hsl(${hue + 10},60%,${light + 8}%) 60%, hsl(200,55%,${light + 22}%) 100%)` }}>
@@ -288,8 +327,13 @@ export default function App() {
         </div>
       </div>
 
-      {/* OpenClaw agent widget */}
-      <OpenClawWidget />
+      {/* Widget stack — bottom left, hermes above openclaw */}
+      {(openclawInstalled || hermesInstalled) && (
+        <div style={styles.widgetStack}>
+          {hermesInstalled && <HermesWidget />}
+          {openclawInstalled && <OpenClawWidget />}
+        </div>
+      )}
 
       {/* Desktop app icons — running apps */}
       <div style={styles.desktopArea}>
@@ -311,7 +355,7 @@ export default function App() {
               <DesktopIcon
                 key={app.id}
                 app={app}
-                onClick={() => { if (app.open_url) openApp(app.open_url, { name: app.name }) }}
+                onClick={() => { if (app.open_url) openApp(app.open_url, { name: app.name, id: app.id }) }}
                 onContextMenu={(e) => {
                   e.preventDefault()
                   setContextMenu({ app, x: e.clientX, y: e.clientY })
@@ -373,7 +417,7 @@ export default function App() {
           onClick={e => e.stopPropagation()}
         >
           {contextMenu.app.open_url && (
-            <button style={styles.ctxItem} onClick={() => { openApp(contextMenu.app.open_url, { name: contextMenu.app.name }); setContextMenu(null) }}>
+            <button style={styles.ctxItem} onClick={() => { openApp(contextMenu.app.open_url, { name: contextMenu.app.name, id: contextMenu.app.id }); setContextMenu(null) }}>
               Open ↗
             </button>
           )}
@@ -418,11 +462,17 @@ export default function App() {
           <div style={styles.frameBar}>
             <button style={styles.frameBack} onClick={() => setAppFrame(null)}>← Back to Nimbus</button>
             {appFrame.name && <span style={styles.frameTitle}>{appFrame.name}</span>}
-            <a href={appFrame.url} target="_blank" rel="noopener noreferrer" style={styles.frameExternal}>
-              Open in new tab ↗
-            </a>
+            {!appFrame.remoteOnly && (
+              <a href={appFrame.url} target="_blank" rel="noopener noreferrer" style={styles.frameExternal}>
+                Open in new tab ↗
+              </a>
+            )}
           </div>
-          <iframe src={appFrame.url} style={styles.frameContent} title={appFrame.name} />
+          {appFrame.remoteOnly ? (
+            <RemoteOnlyMessage name={appFrame.name} remoteUrl={appFrame.remoteUrl} />
+          ) : (
+            <iframe src={appFrame.url} style={styles.frameContent} title={appFrame.name} />
+          )}
         </div>
       )}
 
@@ -473,6 +523,16 @@ const styles = {
     color: 'white',
     position: 'relative',
     transition: 'background 3s ease',
+  },
+  widgetStack: {
+    position: 'fixed',
+    bottom: '90px',
+    left: '18px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+    zIndex: 10,
+    alignItems: 'flex-start',
   },
   topBar: {
     position: 'absolute',

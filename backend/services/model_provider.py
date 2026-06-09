@@ -140,6 +140,13 @@ def get_state() -> ProviderState:
     return _lemonade_state()
 
 
+def _container_url(base_url: str) -> str:
+    """Rewrite a host-loopback URL to one reachable from inside docker-in-LXC."""
+    return base_url.replace("localhost", "host.docker.internal").replace(
+        "127.0.0.1", "host.docker.internal"
+    )
+
+
 def gateway_environment() -> dict[str, str]:
     """Env vars to inject into the openclaw gateway container so the setup
     wrapper configures the right backend."""
@@ -147,12 +154,11 @@ def gateway_environment() -> dict[str, str]:
     # In LXD mode the gateway runs inside docker-in-LXC and reaches the host
     # via host.docker.internal — rewrite localhost in the base URL to that
     # alias so the openclaw wizard records a URL the container can resolve.
-    container_url = cfg.base_url.replace("localhost", "host.docker.internal")
-    container_url = container_url.replace("127.0.0.1", "host.docker.internal")
+    container_base = _container_url(cfg.base_url)
     # The wrapper concatenates NIMBUS_OPENCLAW_BASE_URL + NIMBUS_OPENCLAW_API_PATH;
     # split the configured full URL so the operator's path (e.g. /v1 vs /api/v1)
     # wins over the wrapper's provider-keyed default.
-    parsed = urlparse(container_url)
+    parsed = urlparse(container_base)
     prefix = urlunparse((parsed.scheme, parsed.netloc, "", "", "", ""))
     api_path = parsed.path or ""
     return {
@@ -162,6 +168,50 @@ def gateway_environment() -> dict[str, str]:
         "NIMBUS_OPENCLAW_PROVIDER_ID": cfg.provider_id,
         "NIMBUS_OPENCLAW_COMPATIBILITY": cfg.compatibility,
         "NIMBUS_MODEL_PROVIDER": settings.model_provider,
+    }
+
+
+def hermes_container_environment() -> dict[str, str]:
+    """Env vars to inject into the hermes-agent gateway container so it uses
+    the configured local-LLM backend (lemonade or gemma4) via the OpenAI
+    compatibility layer.
+
+    Uses the lmstudio provider (openai_chat transport) so hermes routes to
+    LM_BASE_URL instead of defaulting to openrouter when OPENAI_API_KEY is set.
+    """
+    cfg = get_provider_config()
+    container_base = _container_url(cfg.base_url)
+    return {
+        # lmstudio provider env vars — used when auth.json sets active_provider: lmstudio
+        "LM_BASE_URL": container_base,
+        "LM_API_KEY": "nimbus-local",
+        # Keep standard OpenAI vars for any tooling that reads them directly
+        "OPENAI_BASE_URL": container_base,
+        "OPENAI_API_KEY": "nimbus-local",
+        "HERMES_MODEL": cfg.model_id,
+    }
+
+
+def anythingllm_container_environment() -> dict[str, str]:
+    """Env vars to inject into the AnythingLLM container to pre-select the
+    local-LLM backend as the LLM provider via the generic-openai adapter."""
+    cfg = get_provider_config()
+    return {
+        "LLM_PROVIDER": "generic-openai",
+        "GENERIC_OPEN_AI_BASE_PATH": _container_url(cfg.base_url),
+        "GENERIC_OPEN_AI_API_KEY": "nimbus-local",
+        "GENERIC_OPEN_AI_MODEL_PREF": cfg.model_id,
+        "GENERIC_OPEN_AI_MAX_TOKENS": "4096",
+    }
+
+
+def picoclaw_container_environment() -> dict[str, str]:
+    """Env vars to inject into the PicoClaw container as a best-effort attempt
+    to point it at the local-LLM backend via standard OpenAI SDK env vars."""
+    cfg = get_provider_config()
+    return {
+        "OPENAI_BASE_URL": _container_url(cfg.base_url),
+        "OPENAI_API_KEY": "nimbus-local",
     }
 
 

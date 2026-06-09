@@ -1,17 +1,19 @@
 #!/bin/sh
 # Snap configure hook for the nimbus appliance controller.
 #
-# Validates the model-provider, openai-url, appstore-visible, and preseed-apps
-# snap options and restarts the nimbus daemon so the new settings take effect.
-# The daemon reads these via `snapctl get ...` at launch (see
-# snap/local/nimbus-launch) and exports NIMBUS_MODEL_PROVIDER /
-# NIMBUS_OPENAI_URL / NIMBUS_APPSTORE_VISIBLE / NIMBUS_PRESEED_APPS.
+# Validates the model-provider, openai-url, appstore-visible, preseed-apps,
+# and appstore-whitelist snap options and restarts the nimbus daemon so the new
+# settings take effect. The daemon reads these via `snapctl get ...` at launch
+# (see snap/local/nimbus-launch) and exports NIMBUS_MODEL_PROVIDER /
+# NIMBUS_OPENAI_URL / NIMBUS_APPSTORE_VISIBLE / NIMBUS_PRESEED_APPS /
+# NIMBUS_APPSTORE_WHITELIST.
 set -eu
 
 provider="$(snapctl get model-provider 2>/dev/null || true)"
 openai_url="$(snapctl get openai-url 2>/dev/null || true)"
 appstore_visible="$(snapctl get appstore-visible 2>/dev/null || true)"
 preseed_apps="$(snapctl get preseed-apps 2>/dev/null || true)"
+appstore_whitelist="$(snapctl get appstore-whitelist 2>/dev/null || true)"
 
 # Validate model-provider if set; clearing it falls back to the env default.
 if [ -n "$provider" ]; then

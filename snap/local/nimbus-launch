@@ -41,6 +41,10 @@ if command -v snapctl >/dev/null 2>&1; then
   if [ -n "$preseed_apps" ]; then
     export NIMBUS_PRESEED_APPS="$preseed_apps"
   fi
+  appstore_whitelist="$(snapctl get appstore-whitelist 2>/dev/null || true)"
+  if [ -n "$appstore_whitelist" ]; then
+    export NIMBUS_APPSTORE_WHITELIST="$appstore_whitelist"
+  fi
 fi
 
 # Marker the configure hook checks before issuing a snapctl restart, so we

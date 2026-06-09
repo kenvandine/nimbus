@@ -88,6 +88,7 @@ def _prepare_compose_data(
     compose_src: Path,
     *,
     overlay_dir: Optional[Path] = None,
+    env_vars: Optional[dict[str, str]] = None,
 ) -> dict:
     """Return compose data patched for standalone (non-Umbrel) use.
 
@@ -154,11 +155,23 @@ def _prepare_compose_data(
     if app_id == "openclaw":
         from services.model_provider import gateway_environment
         resolved_overlay = overlay_dir or (settings.overlay_dir / "openclaw-overlay")
+        gw_env = gateway_environment()
+        if env_vars and "APP_SEED" in env_vars:
+            gw_env["APP_SEED"] = env_vars["APP_SEED"]
         _apply_openclaw_overlay(
             services,
             resolved_overlay,
-            gateway_environment(),
+            gw_env,
         )
+    if app_id == "hermes-agent":
+        from services.model_provider import hermes_container_environment
+        _apply_hermes_overlay(services, hermes_container_environment())
+    if app_id == "anything-llm":
+        from services.model_provider import anythingllm_container_environment
+        _apply_service_provider_overlay(services, "app", anythingllm_container_environment())
+    if app_id == "picoclaw":
+        from services.model_provider import picoclaw_container_environment
+        _apply_service_provider_overlay(services, "server", picoclaw_container_environment())
 
     data["services"] = services
     # Drop obsolete version key to silence docker compose warnings.
@@ -208,6 +221,14 @@ def _apply_openclaw_overlay(
     # upstream /app/setup-server.cjs.
     gateway["command"] = ["node", "/app/setup-wrapper.cjs"]
 
+    # Ensure the gateway WS API port is exposed so the host nimbus can poll it.
+    from services.openclaw import OPENCLAW_PORT
+    ports = list(gateway.get("ports") or [])
+    ws_mapping = f"{OPENCLAW_PORT}:{OPENCLAW_PORT}"
+    if not any(str(p) == ws_mapping or (isinstance(p, dict) and str(p.get("published")) == str(OPENCLAW_PORT)) for p in ports):
+        ports.append(ws_mapping)
+    gateway["ports"] = ports
+
     if extra_env:
         existing = gateway.get("environment")
         if isinstance(existing, list):
@@ -218,6 +239,40 @@ def _apply_openclaw_overlay(
             env_dict = dict(existing) if isinstance(existing, dict) else {}
             env_dict.update(extra_env)
             gateway["environment"] = env_dict
+
+
+def _apply_service_provider_overlay(
+    services: dict,
+    service_name: str,
+    extra_env: dict[str, str],
+) -> None:
+    """Inject host.docker.internal and provider env vars into a named service."""
+    svc = services.get(service_name)
+    if not isinstance(svc, dict):
+        return
+
+    extra_hosts = list(svc.get("extra_hosts") or [])
+    if not any(h.startswith("host.docker.internal:") for h in extra_hosts):
+        extra_hosts.append("host.docker.internal:host-gateway")
+    svc["extra_hosts"] = extra_hosts
+
+    existing = svc.get("environment")
+    if isinstance(existing, list):
+        env_dict = dict(e.split("=", 1) for e in existing if "=" in e)
+        env_dict.update(extra_env)
+        svc["environment"] = [f"{k}={v}" for k, v in env_dict.items()]
+    else:
+        env_dict = dict(existing) if isinstance(existing, dict) else {}
+        env_dict.update(extra_env)
+        svc["environment"] = env_dict
+
+
+def _apply_hermes_overlay(
+    services: dict,
+    extra_env: dict[str, str],
+) -> None:
+    """Inject the local-LLM backend config into the hermes-agent gateway service."""
+    _apply_service_provider_overlay(services, "gateway", extra_env)
 
 
 def _prepare_compose(app_id: str, compose_src: Path, app_dir: Path) -> Path:
@@ -533,6 +588,7 @@ def build_app_bundle(
         app_id,
         compose_src,
         overlay_dir=overlay_dir,
+        env_vars=env_vars,
     )
     volume_paths = _collect_volume_paths(compose_data, env_vars)
     meta = get_app_meta(app_id)

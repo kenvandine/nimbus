@@ -27,21 +27,17 @@ LEMONADE_BASE_URL = os.getenv("NIMBUS_LEMONADE_BASE_URL", "http://localhost:1330
 # gets the 9B.
 _MODEL_35B = {
     "model_name":     "user.Qwen3.6-35B-A3B-MTP-GGUF",
-    "checkpoints":    {
-        "main":   "unsloth/Qwen3.6-35B-A3B-MTP-GGUF:Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
-        "mmproj": "mmproj-F16.gguf",
-    },
-    "labels":         ["vision", "tool-calling"],
+    "checkpoint":     "unsloth/Qwen3.6-35B-A3B-MTP-GGUF:Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf",
+    "mmproj":         "mmproj-F16.gguf",
+    "labels":         ["vision", "tool-calling", "mtp"],
     "recipe":         "llamacpp",
     "recipe_options": {"ctx_size": 32768},
 }
 
 _MODEL_9B = {
     "model_name":     "user.Qwen3.5-9B-GGUF",
-    "checkpoints":    {
-        "main":   "unsloth/Qwen3.5-9B-GGUF:Qwen3.5-9B-Q4_K_M.gguf",
-        "mmproj": "mmproj-F16.gguf",
-    },
+    "checkpoint":     "unsloth/Qwen3.5-9B-GGUF:Qwen3.5-9B-UD-Q4_K_XL.gguf",
+    "mmproj":         "mmproj-F16.gguf",
     "labels":         ["vision", "tool-calling"],
     "recipe":         "llamacpp",
     "recipe_options": {"ctx_size": 32768},
@@ -67,7 +63,7 @@ def _select_model() -> dict:
             for line in f:
                 if line.startswith("MemTotal:"):
                     kb = int(line.split()[1])
-                    if kb * 1024 >= 64 * _GiB:
+                    if kb * 1024 >= 48 * _GiB:
                         return _MODEL_35B
                     break
     except OSError:

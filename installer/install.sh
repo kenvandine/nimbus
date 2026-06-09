@@ -54,6 +54,10 @@ The system will power off in $seconds $label." 20 72
     exec /sbin/poweroff
 }
 
+if command -v efibootmgr >/dev/null 2>&1; then
+    bash "${SCRIPT_DIR}/clear-ubuntu-uefi-entries.sh" || true
+fi
+
 whiptail --title "Nimbus Appliance Installer" --msgbox \
 "This installer will write the Nimbus appliance OS image to the internal \
 disk of this machine.

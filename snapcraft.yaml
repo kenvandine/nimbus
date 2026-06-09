@@ -1,6 +1,6 @@
 name: nimbus
 base: core24
-version: "0.2.1"
+version: "0.3.0"
 summary: Nimbus LXD application controller
 description: |
   Nimbus is a host-side controller for an Ubuntu Core appliance that manages a
@@ -22,6 +22,7 @@ apps:
       - network-manager
       - network-observe
       - network-control
+      - system-observe
       - lxd
       #- snapd-control
       #- shutdown
@@ -30,7 +31,7 @@ apps:
       LXD_DIR: /var/snap/lxd/common/lxd
       NIMBUS_CONTROL_MODE: lxd
       NIMBUS_BIND_HOST: 0.0.0.0
-      NIMBUS_PORT: "8000"
+      NIMBUS_PORT: "80"
       NIMBUS_SERVE_FRONTEND: "true"
       NIMBUS_REFRESH_STORE_ON_STARTUP: "true"
       NIMBUS_STORE_DIR: $SNAP_COMMON/store
@@ -38,6 +39,7 @@ apps:
       NIMBUS_LXD_AUTO_BOOTSTRAP: "true"
       NIMBUS_LXD_CONTAINER_NAME: nimbus
       NIMBUS_LXD_PROFILE_NAME: nimbus-hosting
+      NIMBUS_LXD_LOCAL_IMAGE_ALIAS: "nimbus-runtime"
       # Additional Umbrel app IDs to auto-install on first run (comma-separated).
       # openclaw is always preseeded automatically. Overridden at launch from
       # `snap get nimbus preseed-apps` if set.
@@ -117,6 +119,11 @@ parts:
       cp snap/local/nimbus-reset "$CRAFT_PART_INSTALL/bin/nimbus-reset"
       chmod +x "$CRAFT_PART_INSTALL/bin/nimbus-reset"
       cp snap/local/nimbus_reset.py "$CRAFT_PART_INSTALL/bin/nimbus_reset.py"
+      if [ -f "$CRAFT_PART_BUILD/lxc-seed/nimbus-lxc-seed.tar.gz" ]; then
+        mkdir -p "$CRAFT_PART_INSTALL/lxc-seed"
+        cp "$CRAFT_PART_BUILD/lxc-seed/nimbus-lxc-seed.tar.gz" "$CRAFT_PART_INSTALL/lxc-seed/"
+        echo "Bundled LXC seed image ($(du -sh "$CRAFT_PART_INSTALL/lxc-seed/nimbus-lxc-seed.tar.gz" | cut -f1))"
+      fi
 
 hooks:
   configure:

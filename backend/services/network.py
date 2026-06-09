@@ -65,6 +65,26 @@ def is_online() -> bool:
     return False
 
 
+def get_primary_interface_ip() -> str | None:
+    """Synchronous variant — returns the LAN IP or None if not determinable."""
+    if _cached_ip:
+        return _cached_ip
+    iface = get_primary_interface() or settings.primary_interface
+    try:
+        import socket
+        import psutil
+        for addr in psutil.net_if_addrs().get(iface, []):
+            if addr.family == socket.AF_INET:
+                return addr.address
+        for addrs in psutil.net_if_addrs().values():
+            for addr in addrs:
+                if addr.family == socket.AF_INET and not addr.address.startswith(("127.", "172.")):
+                    return addr.address
+    except Exception:
+        pass
+    return None
+
+
 async def get_host_ip() -> str:
     global _cached_ip
     if _cached_ip:

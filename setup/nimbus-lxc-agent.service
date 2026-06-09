@@ -1,0 +1,16 @@
+[Unit]
+Description=Nimbus LXC Agent
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/opt/nimbus-venv/bin/python /opt/nimbus/backend/agent/daemon.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nimbus-lxc-agent
+
+[Install]
+WantedBy=multi-user.target

@@ -170,16 +170,12 @@ function PullProgress({ lemonade }) {
 
 const styles = {
   widget: {
-    position: 'fixed',
-    bottom: '90px',
-    left: '18px',
     width: '220px',
     background: 'rgba(8,16,28,0.82)',
     border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: '14px',
     boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
     backdropFilter: 'blur(18px)',
-    zIndex: 10,
     overflow: 'hidden',
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   },
