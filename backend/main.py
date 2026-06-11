@@ -85,9 +85,56 @@ if _snap_common:
 STATIC_DIR = Path(__file__).parent / "static"
 
 
+async def _run_http_redirect(http_port: int, https_port: int) -> None:
+    """Accept plain-HTTP connections and return a 301 redirect to HTTPS."""
+    import asyncio
+
+    async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        try:
+            raw = await asyncio.wait_for(reader.read(4096), timeout=5.0)
+            path = "/"
+            host = "localhost"
+            lines = raw.split(b"\r\n")
+            if lines:
+                parts = lines[0].split()
+                if len(parts) >= 2:
+                    path = parts[1].decode(errors="replace")
+            for line in lines[1:]:
+                if line.lower().startswith(b"host:"):
+                    host = line[5:].decode(errors="replace").strip().split(":")[0]
+                    break
+            port_suffix = f":{https_port}" if https_port != 443 else ""
+            location = f"https://{host}{port_suffix}{path}"
+            writer.write(
+                f"HTTP/1.1 301 Moved Permanently\r\n"
+                f"Location: {location}\r\n"
+                f"Content-Length: 0\r\n"
+                f"Connection: close\r\n\r\n".encode()
+            )
+            await writer.drain()
+        except Exception:
+            pass
+        finally:
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+    server = await asyncio.start_server(_handle, "0.0.0.0", http_port)
+    logger.info("HTTP→HTTPS redirect listening on port %d", http_port)
+    async with server:
+        await server.serve_forever()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     store_task = None
+    redirect_task = None
+    if settings.tls_enabled:
+        redirect_task = asyncio.create_task(
+            _run_http_redirect(settings.http_redirect_port, int(os.environ.get("NIMBUS_PORT", "443")))
+        )
     if settings.refresh_store_on_startup:
         logger.info("Refreshing app store on startup...")
         try:
@@ -98,6 +145,12 @@ async def lifespan(app: FastAPI):
     await get_control_plane().initialize()
     openclaw_service.start()
     yield
+    if redirect_task and not redirect_task.done():
+        redirect_task.cancel()
+        try:
+            await redirect_task
+        except asyncio.CancelledError:
+            pass
     if store_task and not store_task.done():
         store_task.cancel()
         try:

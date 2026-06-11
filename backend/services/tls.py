@@ -4,12 +4,15 @@ import datetime
 import ipaddress
 import logging
 import os
+import socket
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 _TLS_DIR_ENV = "NIMBUS_TLS_DIR"
 _DEFAULT_TLS_DIR = "/var/snap/nimbus/common/tls"
+# Regenerate when fewer than this many days remain on the cert.
+_RENEW_BEFORE_DAYS = 30
 
 
 def _tls_dir() -> Path:
@@ -30,11 +33,50 @@ def key_path() -> Path:
     return _tls_dir() / "nimbus.key"
 
 
+def _collect_local_ips() -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+    """Return all IP addresses assigned to this host."""
+    ips: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
+    seen: set[str] = set()
+    for addr_str in ("127.0.0.1", "::1"):
+        ips.append(ipaddress.ip_address(addr_str))
+        seen.add(addr_str)
+    try:
+        hostname = socket.gethostname()
+        for info in socket.getaddrinfo(hostname, None):
+            addr_str = info[4][0]
+            if addr_str in seen:
+                continue
+            try:
+                ips.append(ipaddress.ip_address(addr_str))
+                seen.add(addr_str)
+            except ValueError:
+                pass
+    except Exception:
+        pass
+    return ips
+
+
+def _cert_needs_renewal(crt: Path) -> bool:
+    """Return True when the cert is missing, unreadable, or expiring soon."""
+    try:
+        from cryptography import x509
+        cert = x509.load_pem_x509_certificate(crt.read_bytes())
+        try:
+            not_after = cert.not_valid_after_utc
+        except AttributeError:
+            # cryptography < 42 returns a naive datetime in UTC
+            not_after = cert.not_valid_after.replace(tzinfo=datetime.timezone.utc)
+        remaining = not_after - datetime.datetime.now(datetime.timezone.utc)
+        return remaining.days < _RENEW_BEFORE_DAYS
+    except Exception:
+        return True
+
+
 def ensure_tls_cert(hostname: str = "nimbus.local") -> tuple[Path, Path]:
     """Return (cert_path, key_path), generating a self-signed cert if needed."""
     crt = cert_path()
     key = key_path()
-    if crt.exists() and key.exists():
+    if crt.exists() and key.exists() and not _cert_needs_renewal(crt):
         return crt, key
 
     logger.info("Generating self-signed TLS certificate for %s", hostname)
@@ -54,8 +96,8 @@ def ensure_tls_cert(hostname: str = "nimbus.local") -> tuple[Path, Path]:
     ])
 
     san_entries: list = [x509.DNSName(hostname), x509.DNSName("localhost")]
-    for addr_str in ("127.0.0.1", "::1"):
-        san_entries.append(x509.IPAddress(ipaddress.ip_address(addr_str)))
+    for ip in _collect_local_ips():
+        san_entries.append(x509.IPAddress(ip))
 
     now = datetime.datetime.now(datetime.timezone.utc)
     cert = (

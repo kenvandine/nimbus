@@ -2,11 +2,9 @@
 # Snap configure hook for the nimbus appliance controller.
 #
 # Validates the model-provider, openai-url, appstore-visible, preseed-apps,
-# and appstore-whitelist snap options and restarts the nimbus daemon so the new
-# settings take effect. The daemon reads these via `snapctl get ...` at launch
-# (see snap/local/nimbus-launch) and exports NIMBUS_MODEL_PROVIDER /
-# NIMBUS_OPENAI_URL / NIMBUS_APPSTORE_VISIBLE / NIMBUS_PRESEED_APPS /
-# NIMBUS_APPSTORE_WHITELIST.
+# appstore-whitelist, provisioning-url, and provisioning-token snap options
+# and restarts the nimbus daemon so the new settings take effect.  The daemon
+# reads these via `snapctl get ...` at launch (see snap/local/nimbus-launch).
 set -eu
 
 provider="$(snapctl get model-provider 2>/dev/null || true)"
@@ -14,6 +12,8 @@ openai_url="$(snapctl get openai-url 2>/dev/null || true)"
 appstore_visible="$(snapctl get appstore-visible 2>/dev/null || true)"
 preseed_apps="$(snapctl get preseed-apps 2>/dev/null || true)"
 appstore_whitelist="$(snapctl get appstore-whitelist 2>/dev/null || true)"
+provisioning_url="$(snapctl get provisioning-url 2>/dev/null || true)"
+provisioning_token="$(snapctl get provisioning-token 2>/dev/null || true)"
 
 # Validate model-provider if set; clearing it falls back to the env default.
 if [ -n "$provider" ]; then
@@ -47,6 +47,18 @@ if [ -n "$appstore_visible" ]; then
             ;;
         *)
             echo "Invalid appstore-visible '$appstore_visible'. Valid values: true, false" >&2
+            exit 1
+            ;;
+    esac
+fi
+
+# Validate provisioning-url if set.
+if [ -n "$provisioning_url" ]; then
+    case "$provisioning_url" in
+        http://*|https://*)
+            ;;
+        *)
+            echo "Invalid provisioning-url '$provisioning_url'. Must start with http:// or https://" >&2
             exit 1
             ;;
     esac

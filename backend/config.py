@@ -68,6 +68,15 @@ class Settings:
     appstore_visible: bool = True
     # App IDs shown in the App Store. Overridden by NIMBUS_APPSTORE_WHITELIST (comma-separated).
     appstore_whitelist: list[str] = field(default_factory=list)
+    # TLS settings
+    tls_enabled: bool = False
+    # Port the plain-HTTP redirect listener binds when TLS is enabled.
+    http_redirect_port: int = 80
+    # ACME / Let's Encrypt provisioning backend
+    provisioning_url: str | None = None
+    provisioning_token: str | None = None
+    # Set to True to use Let's Encrypt staging (for testing; certs not trusted)
+    acme_staging: bool = False
     # Root directory exposed by the file browser
     files_root: Path = field(default_factory=lambda: Path.home())
     # Directory containing nimbus-shipped overlay files for Umbrel apps
@@ -163,6 +172,11 @@ def _build_settings() -> Settings:
         preseed_apps=preseed_apps,
         appstore_visible=appstore_visible,
         appstore_whitelist=appstore_whitelist,
+        tls_enabled=_env_bool("NIMBUS_TLS", False),
+        http_redirect_port=int(os.getenv("NIMBUS_HTTP_REDIRECT_PORT", "80")),
+        provisioning_url=(os.getenv("NIMBUS_PROVISIONING_URL") or "").rstrip("/") or None,
+        provisioning_token=os.getenv("NIMBUS_PROVISIONING_TOKEN") or None,
+        acme_staging=_env_bool("NIMBUS_ACME_STAGING", False),
         files_root=files_root,
         overlay_dir=overlay_dir,
         model_provider=model_provider,

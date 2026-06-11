@@ -30,7 +30,8 @@ apps:
       LXD_DIR: /var/snap/lxd/common/lxd
       NIMBUS_CONTROL_MODE: lxd
       NIMBUS_BIND_HOST: 0.0.0.0
-      NIMBUS_PORT: "80"
+      NIMBUS_PORT: "443"
+      NIMBUS_TLS: "1"
       NIMBUS_SERVE_FRONTEND: "true"
       NIMBUS_REFRESH_STORE_ON_STARTUP: "true"
       NIMBUS_STORE_DIR: $SNAP_COMMON/store
@@ -60,6 +61,15 @@ apps:
       # gemma4 -> http://127.0.0.1:8336/v1). Must include the /v1 or /api/v1
       # path suffix.
       NIMBUS_OPENAI_URL: ""
+      # Let's Encrypt provisioning backend.  When set, the device obtains a
+      # publicly-trusted cert for its assigned subdomain via ACME DNS-01.
+      # When unset, a self-signed cert is generated automatically instead.
+      # NIMBUS_PROVISIONING_URL: "https://api.nimbusappliance.app"
+      # NIMBUS_PROVISIONING_TOKEN: ""  # set via: snap set nimbus provisioning-token=<token>
+      NIMBUS_PROVISIONING_URL: ""
+      NIMBUS_PROVISIONING_TOKEN: ""
+      # Set to "1" to use Let's Encrypt staging (for testing only).
+      NIMBUS_ACME_STAGING: "0"
 
   reset:
     command: bin/nimbus-reset
@@ -99,6 +109,8 @@ parts:
       - python-jose[cryptography]>=3.3.0
       - cryptography>=41.0.0
       - sse-starlette>=1.6.0
+      - acme>=2.6.0
+      - josepy>=1.13.0
     stage-packages:
       - ca-certificates
       - git
