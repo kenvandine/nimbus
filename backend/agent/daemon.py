@@ -19,7 +19,7 @@ import logging
 import sys
 from pathlib import Path
 
-DAEMON_VERSION = "7"
+DAEMON_VERSION = "8"
 INSTALLED_DIR = Path("/var/lib/nimbus/installed")
 DOCKER_DAEMON_JSON = Path("/etc/docker/daemon.json")
 RESOLVED_DROPIN_DIR = Path("/etc/systemd/resolved.conf.d")
@@ -346,6 +346,56 @@ async def _snap_refresh(name: str, channel: str | None = None) -> dict:
     }
 
 
+async def _snap_list() -> list[dict]:
+    """Return list of all installed snaps via `snap list`."""
+    proc = await asyncio.create_subprocess_exec(
+        "snap", "list", "--unicode=never",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    stdout, _ = await proc.communicate()
+    snaps = []
+    lines = stdout.decode().splitlines()
+    for line in lines[1:]:
+        parts = line.split()
+        if len(parts) >= 5:
+            snaps.append({
+                "name": parts[0],
+                "version": parts[1],
+                "revision": parts[2],
+                "tracking": parts[3],
+                "publisher": parts[4],
+                "notes": parts[5] if len(parts) > 5 else "",
+            })
+    return snaps
+
+
+async def _snap_info(name: str) -> dict | None:
+    """Return info for a specific snap, or None if not installed."""
+    proc = await asyncio.create_subprocess_exec(
+        "snap", "list", "--unicode=never", name,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    stdout, _ = await proc.communicate()
+    if proc.returncode != 0:
+        return None
+    lines = stdout.decode().splitlines()
+    for line in lines[1:]:
+        parts = line.split()
+        if len(parts) >= 5 and parts[0] == name:
+            return {
+                "name": parts[0],
+                "version": parts[1],
+                "revision": parts[2],
+                "tracking": parts[3],
+                "publisher": parts[4],
+                "notes": parts[5] if len(parts) > 5 else "",
+                "installed": True,
+            }
+    return None
+
+
 # ── HTTP API ───────────────────────────────────────────────────────────────────
 
 async def _read_body(reader: asyncio.StreamReader, headers: dict[str, str]) -> bytes:
@@ -393,6 +443,17 @@ async def _route(method: str, path: str, body: bytes) -> tuple[int, dict]:
             return 400, {"error": "name required"}
         result = await _snap_refresh(name, req.get("channel"))
         return (200 if result["ok"] else 500), result
+
+    if method == "GET" and path == "/snaps":
+        snaps = await _snap_list()
+        return 200, {"snaps": snaps}
+
+    if method == "GET" and path.startswith("/snaps/") and len(path.split("/")) == 3:
+        snap_name = path.split("/")[2]
+        info = await _snap_info(snap_name)
+        if info is None:
+            return 404, {"error": "snap not installed", "name": snap_name}
+        return 200, info
 
     return 404, {"error": "not found"}
 

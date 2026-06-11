@@ -17,6 +17,7 @@ from routers.auth import router as auth_router
 from routers.files import router as files_router
 from routers.network import router as network_router
 from routers.openclaw import router as openclaw_router
+from routers.snap_store import router as snap_store_router
 from routers.system import router as system_router
 from routers.terminal import router as terminal_router
 from routers.snapshots import router as snapshots_router
@@ -173,6 +174,7 @@ app.include_router(apps_router)
 app.include_router(files_router)
 app.include_router(network_router)
 app.include_router(openclaw_router)
+app.include_router(snap_store_router)
 app.include_router(system_router)
 app.include_router(terminal_router)
 app.include_router(snapshots_router)

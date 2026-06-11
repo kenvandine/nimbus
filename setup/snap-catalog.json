@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "store_id": "ai-labs",
+  "display_name": "AI Labs",
+  "description": "Curated AI and productivity apps for Nimbus Appliance",
+  "snaps": [
+    {
+      "name": "lemonade-server",
+      "category": "ai",
+      "featured": true,
+      "description_override": "Local LLM inference server optimised for AMD hardware"
+    },
+    {
+      "name": "ollama",
+      "category": "ai",
+      "featured": true
+    },
+    {
+      "name": "nextcloud",
+      "category": "productivity",
+      "featured": true
+    },
+    {
+      "name": "gitea",
+      "category": "development"
+    },
+    {
+      "name": "jellyfin",
+      "category": "media"
+    },
+    {
+      "name": "home-assistant-snap",
+      "category": "home-automation"
+    },
+    {
+      "name": "grafana",
+      "category": "monitoring"
+    },
+    {
+      "name": "prometheus",
+      "category": "monitoring"
+    }
+  ]
+}
