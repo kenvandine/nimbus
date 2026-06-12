@@ -45,7 +45,7 @@ LXC_AGENT_SERVICE_SOURCE = SETUP_DIR / "nimbus-lxc-agent.service"
 LXC_AGENT_VERSION_MARKER = Path("/var/lib/nimbus/.lxc-agent-version")
 LXC_AGENT_PORT = 9001
 # Bump this whenever agent/daemon.py changes to trigger a re-deploy on next startup.
-_LXC_AGENT_VERSION = "8"
+_LXC_AGENT_VERSION = "9"
 DEFAULT_LXD_STORAGE_POOL = "default"
 DEFAULT_LXD_PROFILE = "default"
 DEFAULT_LXD_BRIDGE_PREFIX = "lxdbr"
@@ -605,6 +605,84 @@ class LxdManager:
 
         devices[name] = desired
         self._save_instance_devices(instance, devices)
+
+    def _snap_proxy_device_name(self, snap_name: str, port: int) -> str:
+        safe = re.sub(r"[^a-zA-Z0-9-]", "-", snap_name)
+        return f"nimbus-snap-{safe}-{port}"
+
+    def _occupied_host_ports(self, devices: dict) -> dict[int, str]:
+        """Return host_port -> device_name for every proxy device in the instance."""
+        occupied: dict[int, str] = {}
+        for name, device in devices.items():
+            if device.get("type") != "proxy":
+                continue
+            listen = device.get("listen", "")
+            # listen format: "tcp:<bind_addr>:<port>"
+            parts = listen.rsplit(":", 1)
+            if len(parts) == 2:
+                try:
+                    occupied[int(parts[1])] = name
+                except ValueError:
+                    pass
+        return occupied
+
+    def setup_snap_port_proxies(self, snap_name: str, ports: list[int]) -> None:
+        """Add LXD host→container proxy devices for each of the snap's ports.
+
+        Logs a warning for ports already owned by a different device (conflict)
+        but still sets up the non-conflicting ones.
+        """
+        instance = self.get_instance()
+        if instance is None:
+            return
+        devices = self._instance_devices(instance)
+        occupied = self._occupied_host_ports(devices)
+        changed = False
+        for port in ports:
+            dev_name = self._snap_proxy_device_name(snap_name, port)
+            desired = self._app_proxy_device(port)
+            existing_owner = occupied.get(port)
+            if existing_owner and existing_owner != dev_name:
+                logger.warning(
+                    "Port %d requested by snap '%s' is already in use by LXD device '%s' — skipping",
+                    port, snap_name, existing_owner,
+                )
+                continue
+            if devices.get(dev_name) != desired:
+                devices[dev_name] = desired
+                changed = True
+        if changed:
+            self._save_instance_devices(instance, devices)
+
+    def teardown_snap_port_proxies(self, snap_name: str, ports: list[int]) -> None:
+        """Remove LXD proxy devices that were set up for the snap's ports."""
+        instance = self.get_instance()
+        if instance is None:
+            return
+        devices = self._instance_devices(instance)
+        changed = False
+        for port in ports:
+            dev_name = self._snap_proxy_device_name(snap_name, port)
+            if dev_name in devices:
+                devices.pop(dev_name)
+                changed = True
+        if changed:
+            self._save_instance_devices(instance, devices)
+
+    def get_conflicting_ports(self, snap_name: str, ports: list[int]) -> list[int]:
+        """Return ports from `ports` that are already in use by a different device."""
+        instance = self.get_instance()
+        if instance is None:
+            return []
+        devices = self._instance_devices(instance)
+        occupied = self._occupied_host_ports(devices)
+        conflicts = []
+        for port in ports:
+            dev_name = self._snap_proxy_device_name(snap_name, port)
+            owner = occupied.get(port)
+            if owner and owner != dev_name:
+                conflicts.append(port)
+        return conflicts
 
     def _reconcile_app_proxies(self, instance, installed: dict[str, dict[str, str | int | bool | None]]) -> None:
         devices = self._instance_devices(instance)

@@ -5,40 +5,32 @@
   "description": "Curated AI and productivity apps for Nimbus Appliance",
   "snaps": [
     {
-      "name": "lemonade-server",
-      "category": "ai",
-      "featured": true,
-      "description_override": "Local LLM inference server optimised for AMD hardware"
-    },
-    {
       "name": "ollama",
       "category": "ai",
-      "featured": true
+      "featured": true,
+      "ports": [11434]
     },
     {
       "name": "nextcloud",
       "category": "productivity",
-      "featured": true
+      "featured": true,
+      "ports": [80, 443]
     },
     {
-      "name": "gitea",
-      "category": "development"
+      "name": "forgejo",
+      "category": "development",
+      "ports": [3000]
     },
     {
-      "name": "jellyfin",
-      "category": "media"
+      "name": "dilyn-jellyfin",
+      "category": "media",
+      "ports": [8096]
     },
     {
-      "name": "home-assistant-snap",
-      "category": "home-automation"
-    },
-    {
-      "name": "grafana",
-      "category": "monitoring"
-    },
-    {
-      "name": "prometheus",
-      "category": "monitoring"
+      "name": "dilyn-immich",
+      "category": "media",
+      "featured": true,
+      "ports": [2283]
     }
   ]
 }

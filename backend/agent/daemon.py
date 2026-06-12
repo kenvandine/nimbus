@@ -19,7 +19,7 @@ import logging
 import sys
 from pathlib import Path
 
-DAEMON_VERSION = "8"
+DAEMON_VERSION = "9"
 INSTALLED_DIR = Path("/var/lib/nimbus/installed")
 DOCKER_DAEMON_JSON = Path("/etc/docker/daemon.json")
 RESOLVED_DROPIN_DIR = Path("/etc/systemd/resolved.conf.d")
@@ -301,9 +301,12 @@ async def _dns_health_loop() -> None:
 
 # ── Snap management (future) ───────────────────────────────────────────────────
 
-async def _snap_install(name: str, channel: str = "stable") -> dict:
+async def _snap_install(name: str, channel: str = "stable", classic: bool = False) -> dict:
+    cmd = ["snap", "install", name, "--channel", channel]
+    if classic:
+        cmd.append("--classic")
     proc = await asyncio.create_subprocess_exec(
-        "snap", "install", name, "--channel", channel,
+        *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -419,7 +422,8 @@ async def _route(method: str, path: str, body: bytes) -> tuple[int, dict]:
         name = req.get("name", "").strip()
         if not name:
             return 400, {"error": "name required"}
-        result = await _snap_install(name, req.get("channel", "stable"))
+        classic = bool(req.get("classic", False))
+        result = await _snap_install(name, req.get("channel", "stable"), classic=classic)
         return (200 if result["ok"] else 500), result
 
     if method == "POST" and path == "/snaps/remove":

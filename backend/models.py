@@ -18,6 +18,10 @@ class AppMeta(BaseModel):
     default_username: str = ""
     default_password: str = ""
     deterministic_password: bool = False
+    # snap-specific fields
+    app_type: str = "docker"          # "docker" | "snap"
+    confinement: Optional[str] = None  # "strict" | "classic" | "devmode"
+    ports: list[int] = []              # catalog-declared ports for snap apps
 
 
 class AppStatus(BaseModel):

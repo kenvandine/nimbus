@@ -1,6 +1,8 @@
 """AI Labs snap store router."""
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -8,6 +10,8 @@ from pydantic import BaseModel
 
 from auth import require_api_token
 from services import container_snaps, snap_store
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/snap-store",
@@ -23,6 +27,14 @@ class InstallRequest(BaseModel):
 
 class RefreshRequest(BaseModel):
     channel: str | None = None
+
+
+def _get_lxd_manager():
+    from config import settings
+    if settings.control_mode != "lxd":
+        return None
+    from services.lxd import get_lxd_manager
+    return get_lxd_manager()
 
 
 @router.get("/catalog")
@@ -51,12 +63,40 @@ async def install_snap(req: InstallRequest) -> dict[str, Any]:
     allowed = {s["name"] for s in catalog.get("snaps", [])}
     if req.name not in allowed:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail=f"'{req.name}' is not in the AI Labs catalog")
+
+    # Check port conflicts before installing
+    ports = snap_store.get_snap_ports(req.name)
+    manager = _get_lxd_manager()
+    if manager and ports:
+        conflicts = await asyncio.to_thread(manager.get_conflicting_ports, req.name, ports)
+        if conflicts:
+            conflict_ports = ", ".join(str(p) for p in conflicts)
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail=f"Port(s) {conflict_ports} are already in use by another installed app",
+            )
+
+    # Determine if classic confinement is required
     try:
-        result = await container_snaps.install_container_snap(req.name, req.channel)
+        meta = await snap_store.fetch_snap_metadata(req.name)
+        classic = meta.get("confinement") == "classic"
+    except Exception:
+        classic = False
+
+    try:
+        result = await container_snaps.install_container_snap(req.name, req.channel, classic=classic)
     except Exception as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
     if not result.get("ok"):
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail=result.get("stderr", "install failed"))
+
+    # Set up LXD port proxy devices for the snap's ports
+    if manager and ports:
+        try:
+            await asyncio.to_thread(manager.setup_snap_port_proxies, req.name, ports)
+        except Exception as exc:
+            logger.warning("Could not set up port proxies for snap '%s': %s", req.name, exc)
+
     return result
 
 
@@ -69,6 +109,16 @@ async def remove_snap(name: str) -> dict[str, Any]:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
     if not result.get("ok"):
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail=result.get("stderr", "remove failed"))
+
+    # Tear down LXD port proxy devices
+    ports = snap_store.get_snap_ports(name)
+    manager = _get_lxd_manager()
+    if manager and ports:
+        try:
+            await asyncio.to_thread(manager.teardown_snap_port_proxies, name, ports)
+        except Exception as exc:
+            logger.warning("Could not tear down port proxies for snap '%s': %s", name, exc)
+
     return result
 
 

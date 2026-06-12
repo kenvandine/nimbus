@@ -10,6 +10,8 @@ from typing import Any
 
 import httpx
 
+from models import AppMeta
+
 logger = logging.getLogger(__name__)
 
 _SNAPCRAFT_API = "https://api.snapcraft.io/v2/snaps/info"
@@ -99,3 +101,44 @@ async def get_catalog_with_metadata() -> dict:
         merged["name"] = name
         enriched.append(merged)
     return {**catalog, "snaps": enriched}
+
+
+def get_snap_ports(name: str) -> list[int]:
+    """Return the declared web ports for a snap from the catalog."""
+    catalog = load_catalog()
+    for entry in catalog.get("snaps", []):
+        if entry["name"] == name:
+            return list(entry.get("ports", []))
+    return []
+
+
+def is_snap_catalog_app(app_id: str) -> bool:
+    """Return True if app_id is a snap in the AI Labs catalog."""
+    catalog = load_catalog()
+    return any(s["name"] == app_id for s in catalog.get("snaps", []))
+
+
+async def get_catalog_app_metas() -> list[AppMeta]:
+    """Return AppMeta objects for every snap in the catalog, enriched with Store data."""
+    catalog = load_catalog()
+    result: list[AppMeta] = []
+    for entry in catalog.get("snaps", []):
+        name = entry["name"]
+        meta = await fetch_snap_metadata(name)
+        categories = meta.get("categories") or ([entry.get("category", "")] if entry.get("category") else [])
+        result.append(AppMeta(
+            id=name,
+            name=meta.get("title") or name,
+            tagline=meta.get("summary", ""),
+            description=entry.get("description_override") or meta.get("description", ""),
+            icon=meta.get("icon_url") or "",
+            categories=[c for c in categories if c],
+            website=meta.get("website", ""),
+            developer=meta.get("publisher", ""),
+            version=meta.get("version", ""),
+            gallery=meta.get("screenshots", []),
+            confinement=meta.get("confinement") or None,
+            app_type="snap",
+            ports=list(entry.get("ports", [])),
+        ))
+    return result

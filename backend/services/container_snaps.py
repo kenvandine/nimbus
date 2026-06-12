@@ -41,12 +41,15 @@ async def get_container_snap(name: str) -> dict[str, Any] | None:
         return None
 
 
-async def install_container_snap(name: str, channel: str = "stable") -> dict[str, Any]:
+async def install_container_snap(name: str, channel: str = "stable", classic: bool = False) -> dict[str, Any]:
     """Install a snap in the LXD container. Returns agent result dict."""
+    payload: dict[str, Any] = {"name": name, "channel": channel}
+    if classic:
+        payload["classic"] = True
     async with httpx.AsyncClient(timeout=300) as client:
         resp = await client.post(
             _agent_url("/snaps/install"),
-            json={"name": name, "channel": channel},
+            json=payload,
         )
         resp.raise_for_status()
         return resp.json()

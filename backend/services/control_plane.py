@@ -537,7 +537,31 @@ class LxdControlPlane:
         host_ip = await network.get_host_ip()
         store_apps = await self._call_manager(self._list_apps_sync, host_ip)
         sys = await system_apps.get_system_apps(host_ip)
-        return sys + store_apps
+        snap_apps = await self._list_snap_apps(host_ip)
+        return sys + store_apps + snap_apps
+
+    async def _list_snap_apps(self, host_ip: str | None) -> list[AppDetail]:
+        from services import snap_store, container_snaps
+        try:
+            snap_metas, installed_snaps = await asyncio.gather(
+                snap_store.get_catalog_app_metas(),
+                container_snaps.list_container_snaps(),
+            )
+        except Exception as exc:
+            logger.warning("Could not list snap catalog apps: %s", exc)
+            return []
+        installed_map = {s["name"]: s for s in installed_snaps}
+        result: list[AppDetail] = []
+        for meta in snap_metas:
+            snap_info = installed_map.get(meta.id)
+            if snap_info:
+                port = meta.ports[0] if meta.ports else None
+                open_url = network.build_open_url(host_ip, port) if port and host_ip else None
+                status = AppStatus(installed=True, running=True, port=port, open_url=open_url)
+            else:
+                status = AppStatus(installed=False)
+            result.append(AppDetail(**{**meta.model_dump(), **status.model_dump()}))
+        return result
 
     async def get_app(self, app_id: str) -> AppDetail:
         if app_id == "lemonade":
@@ -546,6 +570,13 @@ class LxdControlPlane:
         if app_id == "gemma4":
             host_ip = await network.get_host_ip()
             return system_apps.get_gemma4_app(host_ip)
+        from services import snap_store, container_snaps
+        if snap_store.is_snap_catalog_app(app_id):
+            snap_apps = await self._list_snap_apps(await network.get_host_ip())
+            detail = next((a for a in snap_apps if a.id == app_id), None)
+            if detail is None:
+                raise HTTPException(status_code=404, detail=f"App '{app_id}' not found in snap catalog")
+            return detail
         meta = store.get_app_meta(app_id)
         if meta is None:
             raise HTTPException(status_code=404, detail=f"App '{app_id}' not found in store")
@@ -638,6 +669,9 @@ class LxdControlPlane:
             self._updating.discard(app_id)
 
     async def request_install(self, app_id: str) -> dict:
+        from services import snap_store, container_snaps
+        if snap_store.is_snap_catalog_app(app_id):
+            return await self._request_snap_install(app_id)
         if store.get_app_meta(app_id) is None:
             raise HTTPException(status_code=404, detail=f"App '{app_id}' not found in store")
         if app_id in self._installing:
@@ -648,7 +682,64 @@ class LxdControlPlane:
         asyncio.create_task(self._do_install(app_id))
         return {"status": "installing"}
 
+    async def _request_snap_install(self, snap_name: str) -> dict:
+        from services import snap_store, container_snaps
+        if snap_name in self._installing:
+            return {"status": "already_installing"}
+        installed = await container_snaps.list_container_snaps()
+        if any(s["name"] == snap_name for s in installed):
+            return {"status": "already_installed"}
+        ports = snap_store.get_snap_ports(snap_name)
+        if ports:
+            conflicts = await asyncio.to_thread(self.manager.get_conflicting_ports, snap_name, ports)
+            if conflicts:
+                conflict_ports = ", ".join(str(p) for p in conflicts)
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Port(s) {conflict_ports} are already in use by another installed app",
+                )
+        self._installing.add(snap_name)
+        asyncio.create_task(self._do_snap_install(snap_name))
+        return {"status": "installing"}
+
+    async def _do_snap_install(self, snap_name: str) -> None:
+        from services import snap_store, container_snaps
+        try:
+            meta = await snap_store.fetch_snap_metadata(snap_name)
+            classic = meta.get("confinement") == "classic"
+            result = await container_snaps.install_container_snap(snap_name, classic=classic)
+            if not result.get("ok"):
+                raise RuntimeError(f"Snap install failed: {result.get('stderr', '')}")
+            ports = snap_store.get_snap_ports(snap_name)
+            if ports:
+                await asyncio.to_thread(self.manager.setup_snap_port_proxies, snap_name, ports)
+            logger.info("Snap install completed for %s", snap_name)
+        except Exception as exc:
+            logger.error("Snap install failed for %s: %s", snap_name, exc)
+        finally:
+            self._installing.discard(snap_name)
+
+    async def _do_snap_update(self, snap_name: str) -> None:
+        from services import container_snaps
+        try:
+            result = await container_snaps.refresh_container_snap(snap_name)
+            if not result.get("ok"):
+                logger.warning("Snap refresh returned error for %s: %s", snap_name, result.get("stderr", ""))
+            else:
+                logger.info("Snap refresh completed for %s", snap_name)
+        except Exception as exc:
+            logger.error("Snap update failed for %s: %s", snap_name, exc)
+        finally:
+            self._updating.discard(snap_name)
+
     async def request_update(self, app_id: str) -> dict:
+        from services import snap_store
+        if snap_store.is_snap_catalog_app(app_id):
+            if app_id in self._updating:
+                return {"status": "already_updating"}
+            self._updating.add(app_id)
+            asyncio.create_task(self._do_snap_update(app_id))
+            return {"status": "updating"}
         installed = await self._call_manager(self.manager.installed_app_ids)
         if app_id not in installed:
             raise HTTPException(status_code=404, detail=f"App '{app_id}' is not installed")
@@ -658,10 +749,26 @@ class LxdControlPlane:
         return {"status": "updating"}
 
     async def uninstall_app(self, app_id: str) -> dict:
+        from services import snap_store
+        if snap_store.is_snap_catalog_app(app_id):
+            return await self._uninstall_snap(app_id)
         installed = await self._call_manager(self.manager.installed_app_ids)
         if app_id not in installed:
             raise HTTPException(status_code=404, detail=f"App '{app_id}' is not installed")
         await self._call_manager(self.manager.uninstall_app, app_id)
+        return {"status": "uninstalled"}
+
+    async def _uninstall_snap(self, snap_name: str) -> dict:
+        from services import snap_store, container_snaps
+        result = await container_snaps.remove_container_snap(snap_name)
+        if not result.get("ok"):
+            raise HTTPException(status_code=500, detail=result.get("stderr", "remove failed"))
+        ports = snap_store.get_snap_ports(snap_name)
+        if ports:
+            try:
+                await asyncio.to_thread(self.manager.teardown_snap_port_proxies, snap_name, ports)
+            except Exception as exc:
+                logger.warning("Could not tear down port proxies for snap '%s': %s", snap_name, exc)
         return {"status": "uninstalled"}
 
     async def active_installs(self) -> list[str]:
