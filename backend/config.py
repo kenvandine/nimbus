@@ -165,7 +165,7 @@ def _build_settings() -> Settings:
         lxd_image_protocol=os.getenv("NIMBUS_LXD_IMAGE_PROTOCOL", "simplestreams"),
         lxd_image_alias=os.getenv("NIMBUS_LXD_IMAGE_ALIAS", "24.04"),
         lxd_local_image_alias=os.getenv("NIMBUS_LXD_LOCAL_IMAGE_ALIAS", ""),
-        lxd_agent_port=int(os.getenv("NIMBUS_LXD_AGENT_PORT", "8000")),
+        lxd_agent_port=int(os.getenv("NIMBUS_LXD_AGENT_PORT", "9001")),
         lxd_agent_bind_host=os.getenv("NIMBUS_LXD_AGENT_BIND_HOST", "127.0.0.1"),
         lxd_agent_token=os.getenv("NIMBUS_LXD_AGENT_TOKEN") or os.getenv("NIMBUS_API_TOKEN"),
         lxd_publish_host=os.getenv("NIMBUS_LXD_PUBLISH_HOST", "0.0.0.0"),
