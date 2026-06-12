@@ -47,9 +47,15 @@ async def _open_lxc_pty(container: str, cols: int, rows: int):
 
     env = dict(os.environ)
     env["TERM"] = "xterm-256color"
+    env["COLUMNS"] = str(cols)
+    env["LINES"] = str(rows)
 
     proc = await asyncio.create_subprocess_exec(
-        lxc, "exec", container, "--", "/bin/bash", "-l",
+        lxc, "exec", container,
+        "--env", f"TERM=xterm-256color",
+        "--env", f"COLUMNS={cols}",
+        "--env", f"LINES={rows}",
+        "--", "/bin/bash", "-l",
         stdin=slave_fd,
         stdout=slave_fd,
         stderr=slave_fd,
@@ -64,19 +70,33 @@ async def _open_lxc_pty(container: str, cols: int, rows: int):
 @router.websocket("/ws/terminal")
 async def terminal_ws(
     websocket: WebSocket,
-    token: str = Query(...),
+    token: str = Query(default=""),
 ) -> None:
-    # Verify auth token before accepting
+    from auth import SESSION_COOKIE
     from services.auth import verify_session_token, account_exists
+
+    # Prefer the session cookie (sent automatically by the browser) over the
+    # query param token.  The cookie is more reliable — the query param can be
+    # empty when auth status hasn't loaded yet in the frontend.
+    cookie_token = websocket.cookies.get(SESSION_COOKIE, "")
+    effective_token = cookie_token or token
+
     if account_exists():
-        username = verify_session_token(token)
+        username = verify_session_token(effective_token)
         if not username:
-            # Also allow NIMBUS_API_TOKEN
-            if not (settings.api_token and token == settings.api_token):
+            if not (settings.api_token and effective_token == settings.api_token):
+                await websocket.accept()
+                await websocket.send_text(
+                    json.dumps({"error": "Authentication required — please log in and try again"})
+                )
                 await websocket.close(code=4001)
                 return
 
     if settings.control_mode != "lxd":
+        await websocket.accept()
+        await websocket.send_text(
+            json.dumps({"error": "Terminal is only available in LXD mode"})
+        )
         await websocket.close(code=4003)
         return
 
@@ -89,7 +109,7 @@ async def terminal_ws(
             settings.lxd_container_name, cols=80, rows=24
         )
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         async def pty_to_ws():
             """Read PTY output and forward to WebSocket."""
