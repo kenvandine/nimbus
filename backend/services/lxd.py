@@ -802,6 +802,7 @@ class LxdManager:
             "NIMBUS_REFRESH_STORE_ON_STARTUP=true",
             "NIMBUS_STORE_DIR=/var/lib/nimbus/store",
             "NIMBUS_INSTALLED_DIR=/var/lib/nimbus/installed",
+            "NIMBUS_FILES_ROOT=/home/nimbus",
             f"NIMBUS_MODEL_PROVIDER={settings.model_provider}",
             f"NIMBUS_OPENAI_URL={settings.openai_url}",
         ]
@@ -850,6 +851,16 @@ class LxdManager:
 
     def _has_nimbus_user_marker(self, instance) -> bool:
         return self._read_file(instance, str(NIMBUS_USER_MARKER)) is not None
+
+    def _update_agent_env(self, instance) -> None:
+        """Rewrite /etc/default/nimbus with the current settings and restart.
+
+        Called on every startup so that configuration changes (e.g. new env
+        vars like NIMBUS_FILES_ROOT) take effect on already-bootstrapped
+        containers without requiring a full re-bootstrap.
+        """
+        self._write_file(instance, "/etc/default/nimbus", self._agent_env(), mode=0o600)
+        self._run(instance, ["systemctl", "restart", "nimbus"], acceptable={0, 1})
 
     def _setup_nimbus_user(self, instance) -> None:
         """Create the nimbus system user and configure it for snap service execution.
@@ -991,6 +1002,7 @@ class LxdManager:
                     self._wait_for_docker(instance)
                     self._repatch_provider_apps(instance)
                     self._setup_nimbus_user(instance)
+                    self._update_agent_env(instance)
                     self._ensure_lxc_agent(instance)
                     self._set_bootstrap_state("ready")
                     return
