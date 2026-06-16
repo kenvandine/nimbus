@@ -844,17 +844,23 @@ class LxdControlPlane:
             onboard = nimbus_store.get_onboard_cmd(snap)
             if onboard:
                 await asyncio.sleep(3)
-                # If the model provider is still preparing (e.g. lemonade is
-                # pulling the default model), wait for it before running the
-                # onboard command.  Many onboards (e.g. openclaw.lemonade --auto)
-                # probe the LLM backend and will fail if it isn't ready yet.
-                if not model_provider.is_ready():
-                    logger.info(
-                        "Waiting for model provider before onboard for %s (status: %s)",
-                        snap_name, model_provider.get_state().status,
-                    )
-                    await model_provider.wait_until_ready(timeout=1800.0)
-                    await asyncio.sleep(2)
+                # Always ensure the model provider is ready before running the
+                # onboard command. Many onboards (e.g. openclaw.lemonade --auto,
+                # hermes-agent.lemonade --auto) probe the LLM backend and fail
+                # if it isn't loaded yet.
+                #
+                # ensure_ready_task() is idempotent: if the model is already
+                # loaded it completes in seconds. We kick it off here so that
+                # even if the nimbus service restarted (resetting the in-memory
+                # pull state to "idle") the provider is re-verified before we
+                # attempt the onboard.
+                model_provider.ensure_ready_task()
+                logger.info(
+                    "Waiting for model provider before onboard for %s (status: %s)",
+                    snap_name, model_provider.get_state().status,
+                )
+                await model_provider.wait_until_ready(timeout=1800.0)
+                await asyncio.sleep(2)
                 cmd, args = onboard
                 logger.info("Running onboard for %s: %s %s", snap_name, cmd, " ".join(args))
                 try:
