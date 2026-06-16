@@ -19,7 +19,7 @@ import logging
 import sys
 from pathlib import Path
 
-DAEMON_VERSION = "15"
+DAEMON_VERSION = "16"
 INSTALLED_DIR = Path("/var/lib/nimbus/installed")
 DOCKER_DAEMON_JSON = Path("/etc/docker/daemon.json")
 RESOLVED_DROPIN_DIR = Path("/etc/systemd/resolved.conf.d")
@@ -692,8 +692,15 @@ async def _route(method: str, path: str, body: bytes) -> tuple[int, dict]:
 
 
 async def _handle_journal_sse(path: str, writer: asyncio.StreamWriter) -> None:
-    """Stream journalctl output as SSE over a persistent connection."""
+    """Stream journalctl output as SSE over a persistent connection.
+
+    Query params:
+      lines=N   — number of historical lines to show (default 200)
+      unit=NAME — stream a specific systemd user unit (snap service) as the
+                  nimbus user instead of the system nimbus service journal
+    """
     lines = 200
+    unit = None
     if "?" in path:
         for param in path.split("?", 1)[1].split("&"):
             if param.startswith("lines="):
@@ -701,6 +708,9 @@ async def _handle_journal_sse(path: str, writer: asyncio.StreamWriter) -> None:
                     lines = max(1, min(2000, int(param[6:])))
                 except ValueError:
                     pass
+            elif param.startswith("unit="):
+                import urllib.parse
+                unit = urllib.parse.unquote(param[5:]).strip()
 
     writer.write(
         b"HTTP/1.1 200 OK\r\n"
@@ -714,11 +724,29 @@ async def _handle_journal_sse(path: str, writer: asyncio.StreamWriter) -> None:
 
     proc = None
     try:
+        if unit:
+            # Stream a specific systemd user service (snap gateway) as nimbus.
+            uid = _nimbus_uid()
+            if uid is not None:
+                cmd = _runuser_prefix(uid) + [
+                    "journalctl", "--user", "-u", unit,
+                    "-f", f"-n{lines}", "--no-pager", "--output=short-iso",
+                ]
+            else:
+                cmd = [
+                    "journalctl", "--user", "-u", unit,
+                    "-f", f"-n{lines}", "--no-pager", "--output=short-iso",
+                ]
+        else:
+            cmd = [
+                "journalctl", "-u", "nimbus",
+                "-f", f"-n{lines}", "--no-pager", "--output=short-iso",
+            ]
         proc = await asyncio.create_subprocess_exec(
-            "journalctl", "-u", "nimbus",
-            "-f", f"-n{lines}", "--no-pager", "--output=short-iso",
+            *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
+            env=_user_env() if unit else None,
         )
         assert proc.stdout is not None
         async for raw in proc.stdout:
