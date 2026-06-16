@@ -346,13 +346,21 @@ def _user_env() -> dict:
     return env
 
 
-async def _systemctl_user(action: str, service_name: str) -> dict:
-    """Run `systemctl --user <action> <service_name>` as root."""
-    allowed = {"start", "stop", "restart", "status", "is-active"}
+async def _systemctl_user(action: str, service_name: str = "") -> dict:
+    """Run `systemctl --user <action> [<service_name>]` as root.
+
+    `daemon-reload` does not take a service name; all other actions require one.
+    """
+    allowed = {"start", "stop", "restart", "status", "is-active", "daemon-reload"}
     if action not in allowed:
         return {"ok": False, "stderr": f"unsupported action: {action}"}
+    cmd = ["systemctl", "--user", action]
+    if action != "daemon-reload":
+        if not service_name:
+            return {"ok": False, "stderr": "service_name required for this action"}
+        cmd.append(service_name)
     proc = await asyncio.create_subprocess_exec(
-        "systemctl", "--user", action, service_name,
+        *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=_user_env(),
@@ -574,8 +582,10 @@ async def _route(method: str, path: str, body: bytes) -> tuple[int, dict]:
             return 400, {"error": "invalid JSON"}
         name = req.get("name", "").strip()
         action = req.get("action", "").strip()
-        if not name or not action:
-            return 400, {"error": "name and action required"}
+        if not action:
+            return 400, {"error": "action required"}
+        if action != "daemon-reload" and not name:
+            return 400, {"error": "name required"}
         result = await _systemctl_user(action, name)
         return (200 if result["ok"] else 500), result
 

@@ -91,6 +91,21 @@ async def service_action(service_name: str, action: str) -> dict[str, Any]:
         return resp.json()
 
 
+async def reload_user_daemon() -> dict[str, Any]:
+    """Run `systemctl --user daemon-reload` in the LXD container.
+
+    Call this after an onboard script installs a new systemd user unit file
+    so the unit is visible to subsequent start/restart calls.
+    """
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            _agent_url("/snaps/service"),
+            json={"action": "daemon-reload"},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
 async def run_snap_cmd(cmd: str, args: list[str]) -> dict[str, Any]:
     """Run a snap command (e.g. nullclaw.lemonade --auto) in the LXD container."""
     async with httpx.AsyncClient(timeout=120) as client:

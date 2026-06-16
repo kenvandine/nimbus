@@ -787,6 +787,30 @@ class LxdControlPlane:
                         )
                 except Exception as exc:
                     logger.warning("Onboard failed for %s (non-fatal): %s", snap_name, exc)
+
+            # Ensure the background gateway service is running after install.
+            # The onboard script installs the systemd unit file but its own
+            # `systemctl --user` calls can silently fail inside the snap sandbox
+            # (e.g. if the D-Bus session was not yet available when the script
+            # ran).  We explicitly daemon-reload + start here, through the agent
+            # which always has a proper D-Bus session via loginctl linger.
+            service_name = nimbus_store.get_service_name(snap)
+            if service_name:
+                try:
+                    await container_snaps.reload_user_daemon()
+                    svc = await container_snaps.service_action(service_name, "start")
+                    if svc.get("ok"):
+                        logger.info("Service %s started for %s", service_name, snap_name)
+                    else:
+                        logger.warning(
+                            "Could not start service %s for %s: %s",
+                            service_name, snap_name, svc.get("stderr", ""),
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        "Could not start service %s for %s (non-fatal): %s",
+                        service_name, snap_name, exc,
+                    )
         except Exception as exc:
             logger.error("Sideload failed for %s: %s", snap_name, exc)
         finally:
