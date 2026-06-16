@@ -96,6 +96,7 @@ hook validates the value and restarts the daemon immediately.
 | `appstore-visible` | `false` (default) · `true` | Show or hide the Umbrel app store tab in the UI. |
 | `preseed-apps` | Comma-separated app IDs (empty) | Extra app IDs to auto-install on first boot. `openclaw` is always preseeded when the store is hidden. |
 | `appstore-whitelist` | Comma-separated app IDs | Override the default allow-list of apps shown in the store. |
+| `app-store-type` | `nimbus` (default) · `umbrel` | App catalog backend: `nimbus` uses the Nimbus JSON catalog; `umbrel` clones the full Umbrel git repo. |
 | `provisioning-url` | HTTPS URL (unset) | ACME provisioning backend for Let's Encrypt TLS certificates. |
 | `provisioning-token` | String (unset) | Authentication token for the provisioning backend. |
 
@@ -152,6 +153,22 @@ Override which apps are shown in the store (defaults to `openclaw,hermes-agent,p
 ```bash
 sudo snap set nimbus appstore-whitelist=openclaw,immich,nextcloud
 ```
+
+### App store backend
+
+Switch between the Nimbus curated catalog (default) and the full Umbrel git catalog:
+
+```bash
+# Default — fast JSON catalog hosted at github.com/kenvandine/nimbus-app-store
+sudo snap set nimbus app-store-type=nimbus
+
+# Full Umbrel catalog — clones github.com/getumbrel/umbrel-apps on startup
+sudo snap set nimbus app-store-type=umbrel
+```
+
+The `nimbus` catalog is a curated subset optimised for appliance use. The `umbrel`
+catalog provides the full Umbrel app library but requires a git clone on startup
+and may include apps that depend on Umbrel-specific infrastructure.
 
 ### TLS / HTTPS
 
