@@ -63,6 +63,38 @@ async def _get_openclaw_token() -> str | None:
     return _openclaw_token
 
 
+async def _patch_openclaw_config() -> None:
+    """Set gateway.controlUi.allowInsecureAuth=true in openclaw.json.
+
+    OpenClaw's setup-server UI requires a secure browser context (HTTPS) for
+    device-identity auth by default. Since Nimbus proxies it over plain HTTP,
+    we patch the config after install to enable token-only auth without a
+    secure context requirement.
+    """
+    from services import container_snaps
+    _CONFIG = "/home/nimbus/.openclaw/openclaw.json"
+    content = await container_snaps.read_container_file(_CONFIG)
+    if not content:
+        logger.warning("openclaw.json not found — skipping insecure-auth patch")
+        return
+    try:
+        cfg = json.loads(content)
+    except json.JSONDecodeError as exc:
+        logger.warning("Could not parse openclaw.json: %s", exc)
+        return
+    gateway = cfg.setdefault("gateway", {})
+    control_ui = gateway.setdefault("controlUi", {})
+    if control_ui.get("allowInsecureAuth") is True:
+        return  # already set
+    control_ui["allowInsecureAuth"] = True
+    ok = await container_snaps.write_container_file(_CONFIG, json.dumps(cfg, indent=2))
+    if ok:
+        logger.info("Patched openclaw.json: allowInsecureAuth=true")
+        _invalidate_openclaw_token_cache()
+    else:
+        logger.warning("Failed to write patched openclaw.json")
+
+
 def _invalidate_openclaw_token_cache() -> None:
     """Call after openclaw is installed/uninstalled so the token is re-read."""
     global _openclaw_token, _openclaw_token_checked
@@ -845,6 +877,10 @@ class LxdControlPlane:
             # (e.g. if the D-Bus session was not yet available when the script
             # ran).  We explicitly daemon-reload + start here, through the agent
             # which always has a proper D-Bus session via loginctl linger.
+            if snap_name == "openclaw":
+                # Patch openclaw's config to allow token auth over plain HTTP
+                # (Nimbus proxies the UI over HTTP, not HTTPS).
+                await _patch_openclaw_config()
             service_name = nimbus_store.get_service_name(snap)
             if service_name:
                 try:

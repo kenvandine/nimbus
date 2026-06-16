@@ -158,3 +158,17 @@ async def read_container_file(path: str) -> str | None:
     except Exception as exc:
         logger.warning("Could not read container file %s: %s", path, exc)
         return None
+
+
+async def write_container_file(path: str, content: str) -> bool:
+    """Write content to a file in the LXD container via the agent. Returns True on success."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                _agent_url("/files/write"),
+                json={"path": path, "content": content},
+            )
+            return resp.status_code == 200 and resp.json().get("ok", False)
+    except Exception as exc:
+        logger.warning("Could not write container file %s: %s", path, exc)
+        return False

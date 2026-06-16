@@ -19,7 +19,7 @@ import logging
 import sys
 from pathlib import Path
 
-DAEMON_VERSION = "16"
+DAEMON_VERSION = "17"
 INSTALLED_DIR = Path("/var/lib/nimbus/installed")
 DOCKER_DAEMON_JSON = Path("/etc/docker/daemon.json")
 RESOLVED_DROPIN_DIR = Path("/etc/systemd/resolved.conf.d")
@@ -685,6 +685,27 @@ async def _route(method: str, path: str, body: bytes) -> tuple[int, dict]:
                 return 200, {"path": file_path, "content": fh.read()}
         except FileNotFoundError:
             return 404, {"error": "file not found", "path": file_path}
+        except Exception as exc:
+            return 500, {"error": str(exc)}
+
+    if method == "POST" and path == "/files/write":
+        try:
+            req = json.loads(body)
+        except json.JSONDecodeError:
+            return 400, {"error": "invalid JSON"}
+        file_path = req.get("path", "").strip()
+        content = req.get("content")
+        if not file_path or content is None:
+            return 400, {"error": "path and content required"}
+        allowed_prefixes = ("/home/", "/root/", "/etc/default/")
+        if not any(file_path.startswith(p) for p in allowed_prefixes):
+            return 403, {"error": "path not permitted"}
+        try:
+            import os
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            with open(file_path, "w") as fh:
+                fh.write(content)
+            return 200, {"ok": True, "path": file_path}
         except Exception as exc:
             return 500, {"error": str(exc)}
 
