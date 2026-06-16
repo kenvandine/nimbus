@@ -76,6 +76,8 @@ class LxdManager:
         self._bootstrap_error: str | None = None
         self._snapshot_lock = threading.Lock()
         self._snapshot_cache: AppRuntimeSnapshot | None = None
+        self._snapshotting = False
+        self._last_good_container_info: ContainerInfo | None = None
 
     def _set_bootstrap_state(self, state: str, error: str | None = None) -> None:
         self._bootstrap_state = state
@@ -976,6 +978,12 @@ class LxdManager:
                 raise
 
     def container_info(self) -> ContainerInfo:
+        # While a snapshot is in progress LXD may briefly report the container
+        # as non-running (e.g. "frozen"), which would cause the UI to show the
+        # "setting up" screen.  Return the last known-good state instead.
+        if self._snapshotting and self._last_good_container_info is not None:
+            return self._last_good_container_info
+
         try:
             instance = self.get_instance()
         except (ClientConnectionFailed, LXDAPIException) as exc:
@@ -1005,7 +1013,7 @@ class LxdManager:
         if status == "running":
             bootstrapped = self._has_bootstrap_marker(instance)
 
-        return ContainerInfo(
+        info = ContainerInfo(
             name=settings.lxd_container_name,
             exists=True,
             status=status,
@@ -1014,6 +1022,12 @@ class LxdManager:
             bootstrap_state=self._bootstrap_state,
             bootstrap_error=self._bootstrap_error,
         )
+
+        # Cache the last fully-ready info so we can serve it during snapshots.
+        if bootstrapped and status == "running" and self._bootstrap_state == "ready":
+            self._last_good_container_info = info
+
+        return info
 
     def installed_app_ids(self) -> list[str]:
         return sorted(self.app_runtime_snapshot().installed.keys())
@@ -1537,7 +1551,11 @@ print(json.dumps(apps), end='')
         instance = self.get_instance()
         if instance is None:
             raise RuntimeError("Container does not exist")
-        instance.snapshots.create(name, stateful=stateful, wait=True)
+        self._snapshotting = True
+        try:
+            instance.snapshots.create(name, stateful=stateful, wait=True)
+        finally:
+            self._snapshotting = False
 
     def delete_snapshot(self, name: str) -> None:
         instance = self.get_instance()
