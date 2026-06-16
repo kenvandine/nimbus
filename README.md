@@ -1,8 +1,6 @@
 # Nimbus
 
-A self-hosted personal app store for managing apps from the [Umbrel app catalog](https://github.com/getumbrel/umbrel-apps). Nimbus can still run in the original all-in-one LXD container, but it now also supports a host-controller model where the UI/API runs outside the container, manages LXD directly with `pylxd`, and bootstraps an in-container Nimbus agent.
-
-![Nimbus UI](https://getumbrel.github.io/umbrel-apps-gallery/immich/1.jpg)
+A self-hosted appliance controller that manages Docker-based apps from the [Nimbus app catalog](https://github.com/kenvandine/nimbus-app-store) (a curated subset of [Umbrel apps](https://github.com/getumbrel/umbrel-apps)). Nimbus runs on the host as a strict snap, manages an LXD container for all app workloads, and exposes a full-featured web UI with authentication, a terminal, file browser, Wi-Fi configuration, firewall, SSH key management, container snapshots, and an AI chat assistant (OpenClaw).
 
 ---
 
@@ -10,16 +8,21 @@ A self-hosted personal app store for managing apps from the [Umbrel app catalog]
 
 ```
 Host (Linux + LXD)
-├── Nimbus controller (snap or service on host)
-│   ├── Frontend + public API
-│   ├── LXD control path via pylxd + LXD socket
-│   ├── Host device management (snapd refresh, reboot, power off)
+├── Nimbus controller snap
+│   ├── HTTPS UI + REST API  (port 443, TLS auto-provisioned)
+│   ├── LXD control path via pylxd (lxd snap interface)
+│   ├── Host device management (restart, power-off, snap updates)
+│   ├── Wi-Fi / NetworkManager management
+│   ├── Firewall (ufw) management
+│   ├── SSH authorized-key management
+│   ├── TLS provisioning (self-signed or ACME/Let's Encrypt)
 │   └── Container bootstrap + orchestration
 └── nimbus (LXD container, security.nesting=true)
     ├── Nimbus agent (bootstrapped by host controller)
     ├── Docker Engine
     │   ├── <app-1> containers  (e.g. Immich)
-    │   └── <app-2> containers  (e.g. File Browser)
+    │   └── <app-2> containers  (e.g. OpenClaw)
+    ├── Snap daemon (snapd — for AI-Labs snap catalog)
     └── App data and compose projects
 ```
 
@@ -28,7 +31,8 @@ Host (Linux + LXD)
 | Backend | Python 3.12 · FastAPI · uvicorn |
 | Frontend | React 18 · Vite |
 | Container runtime | Docker Engine + Compose v2 (inside LXD) |
-| App catalog | [getumbrel/umbrel-apps](https://github.com/getumbrel/umbrel-apps) |
+| App catalog | [kenvandine/nimbus-app-store](https://github.com/kenvandine/nimbus-app-store) (default) or [getumbrel/umbrel-apps](https://github.com/getumbrel/umbrel-apps) |
+| TLS | Self-signed (auto) or ACME DNS-01 via Let's Encrypt |
 
 ---
 
@@ -36,174 +40,14 @@ Host (Linux + LXD)
 
 - Linux host with [LXD](https://canonical.com/lxd) installed and initialised (`lxd init`)
 - Internet access from the host (to pull Docker images and app metadata)
-- ~4 GB free disk space for the app catalog clone and container images
-- `snapcraft` if you want to build the strict snap locally
+- ~4 GB free disk space for the app catalog and container images
+- `snapcraft` if you want to build the snap locally
 
 ---
 
-## Deployment modes
-
-### 1. Local mode (current default)
-
-Nimbus runs fully inside the LXD container exactly as before:
-
-- `NIMBUS_CONTROL_MODE=local`
-- `NIMBUS_SERVE_FRONTEND=true`
-- `NIMBUS_BIND_HOST=127.0.0.1`
-
-### 2. Split mode (host controller + managed container)
-
-This is the stepping stone toward a strictly confined snap on Ubuntu Core:
-
-- **Host controller**: runs the UI/public API with `NIMBUS_CONTROL_MODE=lxd`
-- **Transport**: uses `pylxd` against the local LXD socket instead of shelling out to `lxc`
-- **Managed container**: a `nimbus` LXD container runs Docker and app workloads
-- **Container agent**: Nimbus is pushed into the container and started in `NIMBUS_CONTROL_MODE=local`, but the host controller remains the primary control path
-- **Bootstrap**: the host controller creates the nested-container profile, creates/starts the `nimbus` container, pushes the backend + service files, installs runtime packages, and starts the agent
-
-Example host-controller environment:
-
-```bash
-NIMBUS_CONTROL_MODE=lxd
-NIMBUS_SERVE_FRONTEND=true
-NIMBUS_REFRESH_STORE_ON_STARTUP=true
-NIMBUS_LXD_AUTO_BOOTSTRAP=true
-LXD_DIR=/var/snap/lxd/common/lxd
-NIMBUS_LXD_IMAGE_SERVER=https://cloud-images.ubuntu.com/releases
-NIMBUS_LXD_IMAGE_ALIAS=24.04
-NIMBUS_LXD_PUBLISH_HOST=0.0.0.0
-```
-
-Example in-container agent environment:
-
-```bash
-NIMBUS_CONTROL_MODE=local
-NIMBUS_API_TOKEN=<shared-secret>
-NIMBUS_SERVE_FRONTEND=false
-NIMBUS_BIND_HOST=0.0.0.0
-```
-
-### Security note
-
-Nimbus now prefers the **more secure design**: keep Nimbus on the host and use direct LXD socket/API operations from the snap (`lxd` interface) with tightly scoped exec/file operations. The in-container agent is bootstrapped as an internal service, but app lifecycle and Docker orchestration are driven by the host controller through LXD rather than a network-exposed control API.
-
-## Strict snap packaging
-
-This repository now includes a `snapcraft.yaml` for the host controller snap.
-
-The snap:
-
-- runs the Nimbus UI/API as a strict daemon
-- plugs `lxd` for direct LXD socket access
-- plugs `snapd-control` for host device management operations
-- builds the React frontend into `backend/static`
-- auto-bootstraps the managed `nimbus` container on first start
-- publishes installed app ports from the managed container onto the host with LXD proxy devices
-- can update the host `core24`, `snapd`, `lxd`, and Nimbus snaps and request host restart / power-off actions through snapd
-
-Build locally with:
-
-```bash
-snapcraft
-```
-
-Install and connect the required interfaces:
-
-```bash
-sudo snap install --dangerous ./nimbus_*.snap
-sudo snap connect nimbus:lxd lxd:lxd
-sudo snap connect nimbus:snapd-control
-```
-
-The packaged daemon listens on port `8000` and defaults to:
-
-```bash
-NIMBUS_CONTROL_MODE=lxd
-NIMBUS_LXD_AUTO_BOOTSTRAP=true
-LXD_DIR=/var/snap/lxd/common/lxd
-```
-
-In controller mode:
-
-- the Nimbus UI/API is served from the **host**
-- Docker apps run **inside** the managed `nimbus` container
-- published app URLs should use the **host LAN IP**, not the container bridge IP
-
-### Snap settings
-
-All settings are applied with `snap set nimbus <key>=<value>` and take effect
-immediately (the configure hook validates and restarts the daemon).
-
-#### Model provider
-
-OpenClaw is preconfigured against a local-LLM backend running as a host snap.
-
-```bash
-# Default — uses the lemonade-server snap on localhost:13305
-sudo snap set nimbus model-provider=lemonade-server
-
-# Alternative — uses the gemma4 inference snap; nimbus discovers the chat port
-# from /var/snap/gemma4/common/status.json (or `gemma4 status` if reachable)
-sudo snap set nimbus model-provider=inference-snap-gemma4
-```
-
-Whichever provider is selected must be preseeded in the appliance image (the
-Ubuntu Core model.json) — nimbus does not install snaps on demand.
-
-The wiring is delivered to OpenClaw through env vars on the gateway container
-(`NIMBUS_OPENCLAW_BASE_URL`, `NIMBUS_OPENCLAW_MODEL_ID`,
-`NIMBUS_OPENCLAW_PROVIDER_ID`, `NIMBUS_OPENCLAW_COMPATIBILITY`) read by
-`openclaw-overlay/setup-wrapper.cjs`. For dev runs you can override any of
-them, plus `NIMBUS_GEMMA4_BASE_URL` if you want to point gemma4 at a custom
-port.
-
-#### OpenAI-compatible endpoint
-
-Override the URL the model provider is reached at (useful for non-standard
-ports or remote backends):
-
-```bash
-sudo snap set nimbus openai-url=http://127.0.0.1:8336/v1
-```
-
-Must include the `/v1` or `/api/v1` path suffix. Clear with
-`snap unset nimbus openai-url` to revert to the per-provider default.
-
-#### App store visibility
-
-The Umbrel app store is hidden by default on appliance images. Enable it:
-
-```bash
-sudo snap set nimbus appstore-visible=true
-```
-
-#### Preseed apps
-
-Extra Umbrel app IDs to auto-install on first boot (comma-separated).
-`openclaw` is always preseeded automatically.
-
-```bash
-sudo snap set nimbus preseed-apps=nextcloud,home-assistant
-```
-
-Apps in this list are installed once; removing them from the list does not
-uninstall them.
-
-### Factory reset
-
-`nimbus.reset` wipes all installed app data and clears the preseed state so
-apps are reinstalled automatically on the next daemon start. The managed LXD
-container and its runtime (Docker, Python, agent) are preserved.
-
-```bash
-sudo nimbus.reset
-```
-
-The command prompts for confirmation before doing anything destructive.
-
 ## Quick start
 
-### Option A: strict snap controller mode
+### Snap install (recommended)
 
 Build and install the snap:
 
@@ -214,112 +58,264 @@ sudo snap connect nimbus:lxd lxd:lxd
 sudo snap connect nimbus:snapd-control
 ```
 
-Then open:
+Then open `https://<host-ip>` in a browser. On first boot:
 
-```text
-http://<host-ip>:8000
-```
+1. Nimbus creates and bootstraps the managed `nimbus` LXD container automatically.
+2. An out-of-box experience (OOBE) guides you through initial account creation.
+3. The OpenClaw AI assistant and any preseed apps are installed automatically.
 
-On first boot, Nimbus will create and prepare the managed `nimbus` LXD container automatically.
+> **TLS**: the snap defaults to HTTPS on port 443. A self-signed certificate is
+> generated automatically on first start. See [TLS / HTTPS](#tls--https) to
+> configure Let's Encrypt.
 
-### Option B: local/container mode
+### Local / container mode (development)
 
-Use the legacy helper scripts if you want Nimbus to run fully inside the LXD container:
-
-#### 1. Bootstrap the LXD container
-
-From the repo root:
+Use the helper scripts if you want Nimbus to run fully inside the LXD container:
 
 ```bash
+# 1. Create and configure the LXD container
 ./setup/lxd-setup.sh
-```
 
-This will:
-- Create a `nimbus-hosting` LXD profile with `security.nesting=true` and the required syscall intercepts
-- Launch an Ubuntu 24.04 LXD container named `nimbus`
-- Install Docker, Python 3, Node.js, and all Python dependencies into a venv at `/opt/nimbus-venv`
-- Create data directories and install the systemd service
-
-#### 2. Deploy the application
-
-```bash
+# 2. Push code + build frontend + restart service
 ./setup/deploy.sh
 ```
 
-This pushes the backend and frontend into the container, builds the React app, and starts (or restarts) the Nimbus systemd service.
-
-#### 3. Open the UI
-
-```
-http://<container-ip>:8000
-```
-
-Find the container IP with `lxc list nimbus`.
+Then open `http://<container-ip>:8000`. Find the container IP with `lxc list nimbus`.
 
 ---
 
-## Updating after code changes
+## Snap settings
+
+All settings are applied with `snap set nimbus <key>=<value>`. The configure
+hook validates the value and restarts the daemon immediately.
+
+| Setting | Values / default | Description |
+|---|---|---|
+| `model-provider` | `lemonade-server` (default) · `inference-snap-gemma4` | Local-LLM backend OpenClaw is configured against. |
+| `openai-url` | URL (unset → per-provider default) | Override the OpenAI-compatible API URL. Must include `/v1` or `/api/v1`. |
+| `appstore-visible` | `false` (default) · `true` | Show or hide the Umbrel app store tab in the UI. |
+| `preseed-apps` | Comma-separated app IDs (empty) | Extra app IDs to auto-install on first boot. `openclaw` is always preseeded when the store is hidden. |
+| `appstore-whitelist` | Comma-separated app IDs | Override the default allow-list of apps shown in the store. |
+| `provisioning-url` | HTTPS URL (unset) | ACME provisioning backend for Let's Encrypt TLS certificates. |
+| `provisioning-token` | String (unset) | Authentication token for the provisioning backend. |
+
+### Model provider
 
 ```bash
-./setup/deploy.sh
+# Default — uses the lemonade-server snap (port 13305)
+sudo snap set nimbus model-provider=lemonade-server
+
+# Alternative — uses the gemma4 inference snap (port 8336)
+sudo snap set nimbus model-provider=inference-snap-gemma4
 ```
 
-The deploy script always pushes the latest code, rebuilds the frontend, and restarts the service. Installed apps are not affected.
+The selected provider must be preseeded in the Ubuntu Core model assertion — Nimbus does not install snaps on demand. OpenClaw is wired to the provider via environment variables (`NIMBUS_OPENCLAW_BASE_URL`, `NIMBUS_OPENCLAW_MODEL_ID`, etc.) consumed by `openclaw-overlay/setup-wrapper.cjs`.
 
-To override service settings, create `/etc/default/nimbus` inside the target environment and set variables such as:
+### OpenAI-compatible endpoint
+
+Override the URL for the model backend (useful for non-standard ports or remote endpoints):
+
+```bash
+sudo snap set nimbus openai-url=http://127.0.0.1:8336/v1
+```
+
+Clear with `snap unset nimbus openai-url` to revert to the per-provider default.
+
+Per-provider defaults:
+- `lemonade-server` → `http://127.0.0.1:13305/api/v1`
+- `inference-snap-gemma4` → `http://127.0.0.1:8336/v1`
+
+### App store visibility
+
+The app store is hidden by default on appliance images (only curated apps are shown). Enable the full store:
+
+```bash
+sudo snap set nimbus appstore-visible=true
+```
+
+When the store is hidden, `openclaw` is always auto-installed on first boot. When it is visible, users install apps themselves.
+
+### Preseed apps
+
+Extra app IDs to auto-install on first boot (comma-separated):
+
+```bash
+sudo snap set nimbus preseed-apps=nextcloud,home-assistant
+```
+
+Apps in this list are installed once; removing an ID does not uninstall the app.
+
+### App store whitelist
+
+Override which apps are shown in the store (defaults to `openclaw,hermes-agent,picoclaw,immich`):
+
+```bash
+sudo snap set nimbus appstore-whitelist=openclaw,immich,nextcloud
+```
+
+### TLS / HTTPS
+
+The snap serves HTTPS on port 443 by default. A self-signed certificate is
+generated automatically on first start and stored in `$SNAP_COMMON/tls/`.
+
+For a publicly-trusted certificate via Let's Encrypt (ACME DNS-01):
+
+```bash
+sudo snap set nimbus provisioning-url=https://api.nimbusappliance.app
+sudo snap set nimbus provisioning-token=<your-token>
+```
+
+When `provisioning-url` is set, Nimbus registers the device with the
+provisioning backend, obtains an assigned subdomain, and requests a certificate
+via ACME DNS-01 on startup. The certificate is renewed automatically.
+
+To use Let's Encrypt staging (testing only — certificates are not trusted):
+
+```bash
+NIMBUS_ACME_STAGING=1  # set in the snap environment or /etc/default/nimbus
+```
+
+---
+
+## Factory reset
+
+`nimbus.reset` wipes all installed app data and clears the preseed state so apps are reinstalled automatically on the next daemon start. The managed LXD container and its runtime (Docker, Python, agent) are preserved.
+
+```bash
+sudo nimbus.reset
+```
+
+The command prompts for confirmation before doing anything destructive.
+
+---
+
+## Deployment modes
+
+### lxd (default snap mode)
+
+The host snap manages an LXD container. All app workloads run inside the container; the Nimbus UI and API run on the host.
+
+```bash
+NIMBUS_CONTROL_MODE=lxd
+NIMBUS_LXD_AUTO_BOOTSTRAP=true
+LXD_DIR=/var/snap/lxd/common/lxd
+```
+
+### local (in-container / development)
+
+Nimbus runs fully inside the LXD container. Useful for development or the legacy deployment path.
 
 ```bash
 NIMBUS_CONTROL_MODE=local
-NIMBUS_BIND_HOST=127.0.0.1
-NIMBUS_PORT=8000
-NIMBUS_API_TOKEN=
-NIMBUS_REMOTE_BASE_URL=
-NIMBUS_REMOTE_TOKEN=
 NIMBUS_SERVE_FRONTEND=true
-NIMBUS_REFRESH_STORE_ON_STARTUP=true
+NIMBUS_BIND_HOST=0.0.0.0
 ```
 
-Useful controller-mode environment variables:
+---
 
-```bash
-NIMBUS_PRIMARY_INTERFACE=eth0
-NIMBUS_LXD_CONTAINER_NAME=nimbus
-NIMBUS_LXD_PROFILE_NAME=nimbus-hosting
-NIMBUS_LXD_IMAGE_SERVER=https://cloud-images.ubuntu.com/releases
-NIMBUS_LXD_IMAGE_PROTOCOL=simplestreams
-NIMBUS_LXD_IMAGE_ALIAS=24.04
-NIMBUS_LXD_PUBLISH_HOST=0.0.0.0
-```
+## Environment variables reference
+
+All variables can be set in `/etc/default/nimbus` (inside the container for `local` mode) or via the snap environment. Snap settings (above) override these where both apply.
+
+### Core
+
+| Variable | Default | Description |
+|---|---|---|
+| `NIMBUS_CONTROL_MODE` | `local` | `local`, `lxd`, or `remote` |
+| `NIMBUS_BIND_HOST` | `0.0.0.0` | Address uvicorn binds to |
+| `NIMBUS_PORT` | `443` (snap) / `8000` (local) | Listen port |
+| `NIMBUS_API_TOKEN` | — | Static bearer token for API auth (optional) |
+| `NIMBUS_SERVE_FRONTEND` | `true` | Serve the React SPA from the backend |
+| `NIMBUS_REFRESH_STORE_ON_STARTUP` | `true` (lxd/local) | Pull latest app catalog on start |
+
+### TLS
+
+| Variable | Default | Description |
+|---|---|---|
+| `NIMBUS_TLS` | `1` (snap) | Enable TLS (`1`/`true` or `0`/`false`) |
+| `NIMBUS_HTTP_REDIRECT_PORT` | `80` | Port for the HTTP → HTTPS redirect listener |
+| `NIMBUS_PROVISIONING_URL` | — | ACME provisioning backend URL |
+| `NIMBUS_PROVISIONING_TOKEN` | — | Token for the provisioning backend |
+| `NIMBUS_ACME_STAGING` | `0` | Use Let's Encrypt staging (`1` for testing) |
+
+### LXD controller
+
+| Variable | Default | Description |
+|---|---|---|
+| `NIMBUS_LXD_AUTO_BOOTSTRAP` | `true` (lxd) | Auto-create and bootstrap the managed container |
+| `NIMBUS_LXD_CONTAINER_NAME` | `nimbus` | Name of the managed LXD container |
+| `NIMBUS_LXD_PROFILE_NAME` | `nimbus-hosting` | LXD profile for the managed container |
+| `NIMBUS_LXD_IMAGE_SERVER` | `https://cloud-images.ubuntu.com/releases` | Remote image server |
+| `NIMBUS_LXD_IMAGE_PROTOCOL` | `simplestreams` | Image server protocol |
+| `NIMBUS_LXD_IMAGE_ALIAS` | `24.04` | Remote image alias |
+| `NIMBUS_LXD_LOCAL_IMAGE_ALIAS` | `nimbus-runtime` (snap) | Pre-seeded local image alias (skips download) |
+| `NIMBUS_LXD_PUBLISH_HOST` | `0.0.0.0` | Host address for LXD proxy devices |
+| `NIMBUS_LXD_AGENT_PORT` | `9001` | Port the in-container agent LXD proxy device listens on |
+| `NIMBUS_PRIMARY_INTERFACE` | `eth0` | Network interface used to derive the host LAN IP |
+| `LXD_DIR` | `/var/snap/lxd/common/lxd` | LXD state directory (snap default) |
+
+### App catalog
+
+| Variable | Default | Description |
+|---|---|---|
+| `NIMBUS_APP_STORE_TYPE` | `nimbus` | `nimbus` (JSON catalog) or `umbrel` (git repo) |
+| `NIMBUS_STORE_URL` | `https://raw.githubusercontent.com/kenvandine/nimbus-app-store/main/catalog.json` | URL of the Nimbus catalog JSON |
+| `NIMBUS_STORE_DIR` | `/var/lib/nimbus/store` | Local clone/cache directory |
+| `NIMBUS_INSTALLED_DIR` | `/var/lib/nimbus/installed` | Installed app bundle directory |
+| `NIMBUS_APPSTORE_VISIBLE` | `false` | Show the full app store tab |
+| `NIMBUS_APPSTORE_WHITELIST` | `openclaw,hermes-agent,picoclaw,immich` | Comma-separated visible app IDs |
+| `NIMBUS_PRESEED_APPS` | — | Comma-separated app IDs to auto-install on first boot |
+
+### AI / model provider
+
+| Variable | Default | Description |
+|---|---|---|
+| `NIMBUS_MODEL_PROVIDER` | `lemonade-server` | `lemonade-server` or `inference-snap-gemma4` |
+| `NIMBUS_OPENAI_URL` | Per-provider default | Full OpenAI-compatible API URL (including `/v1` suffix) |
+
+### Misc
+
+| Variable | Default | Description |
+|---|---|---|
+| `NIMBUS_FILES_ROOT` | `$HOME` (`$SNAP_COMMON` in snap) | Root directory exposed by the file browser |
+| `NIMBUS_OVERLAY_DIR` | `$SNAP/share` (snap) | Directory for Nimbus-shipped overlay files |
+
+---
 
 ## How LXD bootstrap works
 
-When Nimbus runs in `NIMBUS_CONTROL_MODE=lxd`, the host controller:
+When `NIMBUS_CONTROL_MODE=lxd`, the host controller:
 
-1. Ensures the `nimbus-hosting` LXD profile exists with nesting/syscall settings.
-2. Creates the `nimbus` Ubuntu container if it does not already exist.
-3. Starts the container and installs Docker, Compose, Python, and supporting packages.
-4. Pushes the Nimbus backend and systemd unit into the container via the LXD file API.
-5. Writes `/etc/default/nimbus` for the in-container agent and starts the `nimbus` systemd service.
-6. Uses direct LXD exec/file operations to manage Docker apps inside the container.
-7. Publishes installed app ports on the host with LXD proxy devices so apps are reachable from other machines on the network.
+1. Ensures the `nimbus-hosting` LXD profile exists with `security.nesting=true` and required syscall intercepts.
+2. Imports the pre-seeded local image (`nimbus-runtime`) if present, otherwise downloads Ubuntu 24.04.
+3. Creates and starts the `nimbus` LXD container.
+4. Installs Docker, Compose, Python, and supporting packages (skipped if pre-installed in the seed image).
+5. Pushes the Nimbus backend, systemd unit, and overlay files into the container via the LXD file API.
+6. Installs Python dependencies inside the container.
+7. Starts the `nimbus` systemd service (the in-container agent).
+8. Sets up an LXD proxy device so the host controller can reach the in-container agent.
+9. Publishes installed app ports on the host with LXD proxy devices.
 
-The in-container agent is bootstrapped as an internal service, but current app lifecycle operations in `lxd` mode are driven primarily by the host controller through `pylxd`.
+The bootstrap is idempotent — each step is skipped if already complete.
 
 ## Startup and readiness states
 
-In controller mode, Nimbus reports two different startup experiences:
+In controller mode the UI shows a startup banner until the container is fully ready.
 
-- **Setting up**: first-time provisioning of the managed LXD container
-- **Starting**: Nimbus is restarting and reconnecting to an already-bootstrapped container
+| State | First boot message | Subsequent boot message |
+|---|---|---|
+| `idle` | Preparing the managed environment. | Checking the managed container. |
+| `waiting-for-network` | Waiting for network before setting up. | — |
+| `ensuring-profile` | Configuring the LXD profile. | Checking container configuration. |
+| `importing-image` | Importing pre-built container image. | Importing container image. |
+| `ensuring-container` | Creating and starting the container. | Starting the managed container. |
+| `installing-runtime` | Installing Docker and system packages. | — |
+| `pushing-agent` | Copying Nimbus services into the container. | — |
+| `installing-agent-python` | Installing Python dependencies. | — |
+| `starting-agent` | Starting Nimbus services. | Starting managed services. |
+| `ready` | Finalizing setup. | Finishing startup. |
 
-Nimbus is considered fully ready when:
-
-- the managed container exists
-- the container is running
-- the bootstrap marker is present
-- `bootstrap_state` is `ready`
-
-Until then, the UI will show a startup banner instead of normal app status.
+Nimbus is considered fully ready when the container is running, the bootstrap marker is present, and `bootstrap_state == "ready"`.
 
 ---
 
@@ -328,54 +324,95 @@ Until then, the UI will show a startup banner instead of normal app status.
 ```
 nimbus/
 ├── setup/
-│   ├── lxd-setup.sh        # One-time container bootstrap
-│   ├── deploy.sh           # Push code + restart service
-│   └── nimbus.service      # systemd unit (installed into container)
+│   ├── lxd-setup.sh            # One-time container bootstrap (local mode)
+│   ├── deploy.sh               # Push code + restart service (local mode)
+│   └── nimbus.service          # systemd unit (installed into container)
 ├── backend/
-│   ├── auth.py             # API token helpers
-│   ├── config.py           # Runtime settings and mode selection
-│   ├── main.py             # FastAPI app, startup lifecycle
-│   ├── models.py           # Pydantic models (AppMeta, AppDetail, SystemStats)
+│   ├── auth.py                 # Session / bearer-token auth helpers
+│   ├── config.py               # Runtime settings (all env vars)
+│   ├── main.py                 # FastAPI app, startup lifecycle
+│   ├── models.py               # Pydantic models (AppDetail, SystemStats, …)
 │   ├── routers/
-│   │   ├── apps.py         # GET /api/apps, POST install/update/uninstall, icon endpoint
-│   │   ├── openclaw.py     # GET /api/openclaw/status
-│   │   └── system.py       # GET /api/system/stats
+│   │   ├── apps.py             # App install / update / uninstall / logs
+│   │   ├── auth.py             # Login, logout, account creation
+│   │   ├── files.py            # File browser (list / read / write)
+│   │   ├── firewall.py         # ufw firewall management (LXD mode)
+│   │   ├── keys.py             # Named API key store
+│   │   ├── models.py           # Model pull / status / available
+│   │   ├── network.py          # Network addresses, Wi-Fi, DNS
+│   │   ├── openclaw.py         # OpenClaw AI assistant status
+│   │   ├── snap_store.py       # AI-Labs snap catalog + container snap install
+│   │   ├── snapshots.py        # LXD container snapshots (create / restore / delete)
+│   │   ├── ssh.py              # SSH authorized-key management
+│   │   ├── system.py           # Stats, restart, power-off, update, logs, resources
+│   │   └── terminal.py         # WebSocket terminal (persistent LXD exec session)
 │   └── services/
-│       ├── control_plane.py # local/remote/lxd orchestration layer
-│       ├── lxd.py          # pylxd container bootstrap and app management
-│       ├── gemma4.py       # gemma4 inference snap status and port discovery
-│       ├── model_provider.py # OpenClaw provider config (lemonade / gemma4)
-│       ├── store.py        # Clone umbrel-apps repo, parse YAML metadata
-│       ├── docker.py       # docker compose install/uninstall, port detection
-│       ├── network.py      # Host IP detection for Open URLs
-│       ├── system_apps.py  # System-app metadata (openclaw)
-│       └── icons.py        # SVG icon generator (fallback when CDN unavailable)
+│       ├── api_keys.py         # Named key persistence
+│       ├── auth.py             # JWT session tokens, bcrypt password hashing
+│       ├── container_snaps.py  # snapd inside the LXD container
+│       ├── control_plane.py    # local / lxd orchestration layer
+│       ├── device.py           # OOBE state, host info
+│       ├── device_id.py        # Persistent per-device identifier
+│       ├── docker.py           # docker compose install / uninstall / logs
+│       ├── firewall.py         # ufw wrapper
+│       ├── gemma4.py           # gemma4 snap status and port discovery
+│       ├── icons.py            # SVG icon fallback generator
+│       ├── lemonade.py         # lemonade-server status and model pull
+│       ├── lxd.py              # pylxd bootstrap, app management, snapshots
+│       ├── model_provider.py   # OpenClaw provider config (lemonade / gemma4)
+│       ├── network.py          # Host IP detection, DNS management
+│       ├── nimbus_store.py     # Nimbus JSON catalog parser
+│       ├── openclaw.py         # OpenClaw reachability and agent discovery
+│       ├── provisioning.py     # TLS provisioning (self-signed or ACME DNS-01)
+│       ├── snap_store.py       # AI-Labs snap catalog loader
+│       ├── ssh.py              # authorized_keys management
+│       ├── store.py            # Umbrel git catalog parser
+│       ├── system_apps.py      # System-app metadata (openclaw, hermes-agent)
+│       ├── tls.py              # TLS certificate helpers
+│       └── wifi.py             # NetworkManager Wi-Fi management
 ├── frontend/
 │   ├── src/
-│   │   ├── App.jsx         # Root: animated gradient bg, tab nav, polling
-│   │   ├── api.js          # fetch wrappers for the backend API
+│   │   ├── App.jsx             # Root: SSE stats, routing, setup state
+│   │   ├── api.js              # fetch wrappers for the backend API
 │   │   └── components/
-│   │       ├── AppCard.jsx     # App card with Install / Open / Uninstall
-│   │       ├── AppModal.jsx    # Full detail view: gallery, description, actions
-│   │       ├── AppStore.jsx    # Browse tab with search
-│   │       ├── Installed.jsx   # Installed tab
-│   │       └── SystemStats.jsx # CPU / RAM / Disk gauges
+│   │       ├── AppCard.jsx         # App card (Install / Open / Uninstall)
+│   │       ├── AppLogViewer.jsx    # Streaming app log viewer
+│   │       ├── AppModal.jsx        # Full app detail (gallery, actions, logs)
+│   │       ├── AppStore.jsx        # Browse tab with search
+│   │       ├── DeviceInfo.jsx      # Device info, snapshots, resource limits
+│   │       ├── Dock.jsx            # Bottom dock navigation
+│   │       ├── FileBrowser.jsx     # File browser panel
+│   │       ├── FileEditor.jsx      # In-browser text editor
+│   │       ├── HermesWidget.jsx    # Hermes agent widget
+│   │       ├── Installed.jsx       # Installed apps tab
+│   │       ├── KioskReadyScreen.jsx # Kiosk boot / setup progress screen
+│   │       ├── Login.jsx           # Login screen
+│   │       ├── Oobe.jsx            # Out-of-box experience wizard
+│   │       ├── OpenClawWidget.jsx  # OpenClaw AI chat widget
+│   │       ├── ScreenLock.jsx      # Inactivity screen lock
+│   │       ├── Settings.jsx        # Settings panel (network, SSH, firewall, …)
+│   │       ├── SystemLogViewer.jsx # Host + container log streaming
+│   │       ├── SystemStats.jsx     # CPU / RAM / Disk gauges
+│   │       ├── TerminalPanel.jsx   # In-browser terminal (WebSocket)
+│   │       └── Window.jsx          # Floating window chrome
 │   ├── index.html
 │   ├── package.json
 │   └── vite.config.js
 ├── model/
-│   ├── build.sh            # Build Ubuntu Core model assertions and ISOs
-│   ├── nimbus-lemonade.json # Model definition (lemonade-server LLM backend)
-│   └── nimbus-gemma4.json  # Model definition (gemma4 inference snap backend)
+│   ├── build.sh                # Build Ubuntu Core model assertions and ISOs
+│   ├── nimbus-lemonade.json    # Model definition (lemonade-server LLM backend)
+│   └── nimbus-gemma4.json      # Model definition (gemma4 inference snap backend)
 ├── snap/
-│   ├── hooks/configure     # Validate and apply snap settings
+│   ├── hooks/configure         # Validate and apply snap settings; restart daemon
 │   └── local/
-│       ├── nimbus-launch   # Snap entrypoint for the controller daemon
-│       ├── nimbus-reset    # Snap entrypoint for the reset command
-│       └── nimbus_reset.py # Factory-reset logic (stop apps, wipe data)
-├── snapcraft.yaml          # Strict snap definition
-├── pyproject.toml          # Packaging metadata for the Snapcraft Python plugin
-└── SPEC.md                 # Original product specification
+│       ├── nimbus-launch       # Snap daemon entrypoint (reads snap settings, starts uvicorn)
+│       ├── nimbus-reset        # Snap reset command entrypoint
+│       └── nimbus_reset.py     # Factory-reset logic (stop apps, wipe data)
+├── openclaw-overlay/           # OpenClaw setup-wrapper and config assets
+├── lxc-seed/                   # Pre-built LXC image tarball (bundled into snap)
+├── snapcraft.yaml              # Strict snap definition
+├── pyproject.toml              # Python packaging metadata
+└── SPEC.md                     # Original product specification
 ```
 
 ---
@@ -384,86 +421,203 @@ nimbus/
 
 When you click **Install** on an app:
 
-1. The backend copies the app's `docker-compose.yml` from the cloned umbrel-apps catalog to `/var/lib/nimbus/installed/<app-id>/`.
+1. The backend copies the app's `docker-compose.yml` from the catalog to `/var/lib/nimbus/installed/<app-id>/`.
 2. The compose file is patched for standalone use:
-   - The Umbrel-internal `app_proxy` sidecar service is removed
-   - A host port mapping is injected (`<external-port>:<internal-port>`) so the app is reachable directly
-   - Old Compose v1 container hostname references (e.g. `immich_postgres_1`) are rewritten to Compose v2 service names (`postgres`)
-   - The obsolete `version:` key is dropped
-3. An `.env` file is written with `APP_DATA_DIR`, `APP_SEED`, and `UMBREL_ROOT` set to sensible local paths
-4. All bind-mount host directories are pre-created with open permissions so non-root container users can write to them
-5. `docker compose up -d` is run as a background task; the UI polls every 5 seconds to update status
+   - The Umbrel-internal `app_proxy` sidecar service is removed.
+   - A host port mapping is injected (`<external-port>:<internal-port>`).
+   - Old Compose v1 container hostname references (e.g. `immich_postgres_1`) are rewritten to Compose v2 service names (`postgres`).
+   - The obsolete `version:` key is dropped.
+3. An `.env` file is written with `APP_DATA_DIR`, `APP_SEED`, and `UMBREL_ROOT` set to sensible local paths.
+4. All bind-mount host directories are pre-created so non-root container users can write to them.
+5. `docker compose up -d` is run as a background task; the UI receives live install progress via SSE.
 
-App data is stored under `/var/lib/nimbus/installed/<app-id>/data/`.  
-Shared storage (e.g. for file manager apps) lives at `/var/lib/nimbus/data/storage`.
+App data lives under `/var/lib/nimbus/installed/<app-id>/data/`.  
+Shared storage lives at `/var/lib/nimbus/data/storage`.
 
-In `lxd` mode, Nimbus prepares the app bundle on the host, pushes it into the managed container, starts it with Docker Compose there, and exposes the app port on the host with an LXD proxy device.
+In `lxd` mode, Nimbus prepares the bundle on the host, pushes it into the managed container, runs Compose there, and exposes the app port on the host with an LXD proxy device.
 
-## Updating apps
+### Updating apps
 
-Nimbus now supports app updates through the UI and API:
+- The UI shows **Update available** when the catalog version differs from the installed version.
+- `POST /api/apps/{id}/update` runs `docker compose pull` then `up -d`.
+- A `POST /api/apps/check-updates` endpoint triggers an explicit update check.
 
-- the UI shows **Update available** when the installed version differs from the catalog version
-- `POST /api/apps/{id}/update` refreshes the bundle and runs `docker compose pull` / `up -d`
-- install and update operations run in the background
+---
+
+## AI Labs snap catalog
+
+In addition to Docker-based apps, Nimbus can install snaps inside the managed container from the AI Labs catalog. The catalog is fetched from a hosted JSON endpoint and installed via the container's `snapd`.
+
+Snap apps are surfaced in the **AI Labs** section of the UI alongside Docker apps. LXD proxy devices are created automatically for each snap's exposed ports.
 
 ---
 
 ## API reference
 
+All endpoints are prefixed with `/api/` and require authentication (session cookie or `Authorization: Bearer <token>` header) unless noted.
+
+### Apps
+
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/api/apps` | List all store apps with installed/running status |
 | `GET` | `/api/apps/{id}` | Single app detail |
-| `POST` | `/api/apps/{id}/install` | Install app (202, runs in background) |
-| `POST` | `/api/apps/{id}/update` | Update app in place (202, runs in background) |
+| `POST` | `/api/apps/{id}/install` | Install app (202, background) |
+| `POST` | `/api/apps/{id}/update` | Update app (202, background) |
 | `POST` | `/api/apps/{id}/uninstall` | Uninstall app and remove volumes |
 | `GET` | `/api/apps/{id}/icon.svg` | Generated SVG icon (fallback) |
+| `GET` | `/api/apps/{id}/logs` | SSE stream of app container logs |
 | `GET` | `/api/apps/installing/active` | List app IDs currently installing |
-| `GET` | `/api/system/stats` | CPU, RAM, disk usage and installed app count |
-| `POST` | `/api/system/restart` | Request a host restart through snapd |
-| `POST` | `/api/system/poweroff` | Request a host power-off through snapd |
-| `POST` | `/api/system/update` | Update supported host snaps (`core24`, `snapd`, `lxd`, Nimbus) |
+| `POST` | `/api/apps/check-updates` | Trigger an explicit update check |
+
+### System
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/system/stats` | CPU, RAM, disk, container state, app count |
+| `GET` | `/api/system/stats/stream` | SSE stream of stats (2-second interval) |
+| `POST` | `/api/system/restart` | Request a host restart via snapd |
+| `POST` | `/api/system/poweroff` | Request a host power-off via snapd |
+| `POST` | `/api/system/update` | Update host snaps (`core24`, `snapd`, `lxd`, `nimbus`) |
+| `POST` | `/api/system/oobe-complete` | Mark the OOBE wizard as complete |
+| `GET` | `/api/system/journal` | SSE stream of host (`source=host`) or container (`source=lxc`) logs |
+| `GET` | `/api/system/resources` | Get container CPU / memory limits (LXD mode) |
+| `PUT` | `/api/system/resources` | Set container CPU / memory limits (LXD mode) |
+| `GET` | `/api/system/ca-cert` | Download the Nimbus CA certificate |
+
+### Auth
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/auth/login` | Authenticate and receive a session cookie |
+| `POST` | `/api/auth/logout` | Invalidate the current session |
+| `POST` | `/api/auth/create-account` | Create the initial account (OOBE only) |
+| `GET` | `/api/auth/status` | Check auth state (account exists, session valid) |
+
+### Network
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/network/addresses` | All host network addresses |
+| `GET` | `/api/network/wifi/status` | Wi-Fi connection status |
+| `GET` | `/api/network/wifi/networks` | Scan for available Wi-Fi networks |
+| `POST` | `/api/network/wifi/connect` | Connect to a Wi-Fi network |
+| `POST` | `/api/network/wifi/disconnect` | Disconnect from Wi-Fi |
+| `GET` | `/api/network/dns` | Current DNS servers |
+| `PUT` | `/api/network/dns` | Set DNS servers |
+
+### SSH
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/ssh/status` | SSH service status |
+| `GET` | `/api/ssh/keys` | List authorized public keys |
+| `POST` | `/api/ssh/keys` | Add an authorized public key |
+| `DELETE` | `/api/ssh/keys/{fingerprint}` | Remove an authorized key |
+
+### Firewall (LXD mode)
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/firewall/status` | ufw status (enabled/disabled) |
+| `GET` | `/api/firewall/rules` | List firewall rules |
+| `POST` | `/api/firewall/rules` | Add a firewall rule |
+| `DELETE` | `/api/firewall/rules/{number}` | Delete a firewall rule by number |
+| `POST` | `/api/firewall/enable` | Enable ufw |
+| `POST` | `/api/firewall/disable` | Disable ufw |
+
+### Snapshots (LXD mode)
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/snapshots` | List container snapshots |
+| `POST` | `/api/snapshots` | Create a snapshot |
+| `DELETE` | `/api/snapshots/{name}` | Delete a snapshot |
+| `POST` | `/api/snapshots/{name}/restore` | Restore a snapshot |
+
+### Files
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/files/list` | List files/directories under `files_root` |
+| `GET` | `/api/files/read` | Read a file's contents |
+| `POST` | `/api/files/write` | Write (create or overwrite) a file |
+
+### AI / Models
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/models/status` | Model provider status and pull state |
+| `GET` | `/api/models/available` | List available models |
+| `POST` | `/api/models/pull` | Pull the default model |
+| `POST` | `/api/models/ensure` | Ensure the default model is present |
+
+### OpenClaw
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/openclaw/status` | OpenClaw reachability, agents, sessions, and model provider state |
+
+### AI Labs Snap Store
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/snap-store/catalog` | AI-Labs snap catalog with install status |
+| `POST` | `/api/snap-store/install` | Install a snap in the managed container |
+| `DELETE` | `/api/snap-store/{name}` | Remove a snap from the managed container |
+| `POST` | `/api/snap-store/{name}/refresh` | Refresh a snap to the latest version |
+
+### API Keys
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/keys` | List named API keys |
+| `POST` | `/api/keys` | Set a named API key |
+| `DELETE` | `/api/keys/{name}` | Delete a named API key |
+
+### Terminal
+
+| Endpoint | Description |
+|---|---|
+| `WS /ws/terminal` | Persistent WebSocket terminal session (LXD exec, bash in the managed container) |
 
 ---
 
 ## Logs and troubleshooting
 
 ```bash
-# Live Nimbus logs in local/container mode
-lxc exec nimbus -- journalctl -u nimbus -f
-
-# Live Nimbus logs for the strict snap controller
+# Live Nimbus logs (snap controller)
 sudo snap logs nimbus -f
 
-# Container status from the controller
+# Live Nimbus logs (local/container mode)
+lxc exec nimbus -- journalctl -u nimbus -f
+
+# Container status
 lxc info nimbus
 lxc info nimbus --show-log
 
-# Logs for a specific installed app
+# App container logs
 lxc exec nimbus -- docker compose -p <app-id> \
   -f /var/lib/nimbus/installed/<app-id>/docker-compose.yml logs -f
 
-# Show app containers
+# All app containers
 lxc exec nimbus -- docker ps -a
 ```
 
-If an app installs but is not reachable:
+The UI also provides a built-in log viewer under **Settings → Logs** that streams both host and container logs in real time.
 
-1. Check `sudo snap logs nimbus -n 200`
-2. Check the managed container state with `lxc info nimbus`
-3. Check app compose logs inside the container
-4. Confirm you are using the **host LAN IP** for the app URL, not the LXD bridge/container IP
+### App not reachable
 
-If an app is reachable only from the host, check:
+1. Check `sudo snap logs nimbus -n 200`.
+2. Check `lxc info nimbus` — container must be `Running`.
+3. Check compose logs inside the container.
+4. Confirm you are using the **host LAN IP**, not the LXD bridge/container IP.
+5. Check the LXD proxy device exists: `lxc config device show nimbus`.
+6. Check `NIMBUS_LXD_PUBLISH_HOST` is `0.0.0.0` (default).
 
-- the LXD proxy device exists on the `nimbus` container
-- host firewall rules allow the published TCP port
-- `NIMBUS_LXD_PUBLISH_HOST` is set appropriately (default: `0.0.0.0`)
+### Bootstrap stuck or failing
 
-If you see "Nimbus setup needs attention" on first boot, the LXD container
-bootstrap may have hit a transient error. The daemon retries automatically
-(up to 5 times, 30 seconds apart). If it remains stuck:
+The daemon retries the bootstrap up to 5 times, 30 seconds apart. If it remains stuck:
 
 ```bash
 sudo lxc stop nimbus --force
@@ -481,7 +635,6 @@ sudo nimbus.reset
 
 ## Known limitations
 
-- **App compatibility**: Apps that depend on Umbrel-specific infrastructure beyond `app_proxy` (custom networks, Umbrel API calls) may not work correctly.
-- **HTTPS varies by mode**: the strict snap controller currently serves plain HTTP by default; the legacy local/container setup still includes Caddy-related files in `setup/`, but that is separate from the snap controller path.
-- **Single user**: There is no authentication on the Nimbus UI itself — treat it as a local-network tool.
-- **Remote mode is transitional**: `remote` control mode still exists in the code, but `lxd` mode is the primary supported host-controller path.
+- **App compatibility**: Apps that depend on Umbrel-specific infrastructure beyond `app_proxy` may not work.
+- **Single user**: Only one account is supported. The UI is intended for local-network use.
+- **Remote mode**: `NIMBUS_CONTROL_MODE=remote` exists in the code but `lxd` mode is the primary supported path.
