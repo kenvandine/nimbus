@@ -225,3 +225,21 @@ def ensure_ready_task() -> asyncio.Task | None:
     if settings.model_provider == MODEL_PROVIDER_GEMMA4:
         return gemma4.wait_until_ready_task()
     return lemonade.ensure_default_model_task()
+
+
+async def wait_until_ready(timeout: float = 1800.0) -> bool:
+    """Block until the active model provider is ready (or timeout/failure).
+
+    Used by the snap onboard flow to ensure the LLM backend has a loaded model
+    before running configuration commands (e.g. ``openclaw.lemonade --auto``)
+    that probe the backend.
+    """
+    if settings.model_provider == MODEL_PROVIDER_GEMMA4:
+        return await gemma4.wait_until_ready(timeout=timeout)
+    return await lemonade.wait_until_ready(timeout=timeout)
+
+
+def is_ready() -> bool:
+    """Return True if the model provider is already in a ready/skipped state."""
+    state = get_state()
+    return state.status in ("ready", "skipped", "idle")

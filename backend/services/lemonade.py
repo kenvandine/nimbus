@@ -251,3 +251,22 @@ async def ensure_default_model() -> None:
 def ensure_default_model_task() -> asyncio.Task:
     """Fire-and-forget: schedule the pre-pull on the running event loop."""
     return asyncio.create_task(ensure_default_model())
+
+
+async def wait_until_ready(timeout: float = 1800.0) -> bool:
+    """Poll pull state until ready/skipped or timeout (default 30 min).
+
+    Returns True if the model is ready or the pull was skipped (lemonade
+    unreachable), False on failure or timeout.
+    """
+    deadline = asyncio.get_event_loop().time() + timeout
+    while True:
+        state = get_pull_state()
+        if state.status in ("ready", "skipped"):
+            return True
+        if state.status == "failed":
+            return False
+        if asyncio.get_event_loop().time() >= deadline:
+            logger.warning("wait_until_ready timed out after %.0fs", timeout)
+            return False
+        await asyncio.sleep(5)
