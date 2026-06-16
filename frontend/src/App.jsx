@@ -161,15 +161,19 @@ export default function App() {
   const oobeCompletedRef = useRef(false)
   const [locked, setLocked] = useState(false)
   const idleTimerRef = useRef(null)
+  const authStatusRef = useRef(null)
 
   async function checkAuth() {
     try {
       const status = await getAuthStatus()
+      authStatusRef.current = status
       setAuthStatus(status)
       return status
     } catch {
       // If auth endpoint fails, assume open access
-      setAuthStatus({ configured: false, authenticated: true, username: null })
+      const status = { configured: false, authenticated: true, username: null }
+      authStatusRef.current = status
+      setAuthStatus(status)
       return null
     }
   }
@@ -230,13 +234,17 @@ export default function App() {
   }
 
   async function fetchAppsAndInstalls() {
+    const auth = authStatusRef.current
+    if (auth?.configured && !auth?.authenticated) return
     try {
       const [appsData, active] = await Promise.all([listApps(), getActiveInstalls()])
       setApps(appsData)
       setActiveInstalls(active)
     } catch (e) {
       if (e.message.startsWith('401:')) {
-        setAuthStatus(prev => prev ? { ...prev, authenticated: false } : null)
+        const next = authStatusRef.current ? { ...authStatusRef.current, authenticated: false } : null
+        authStatusRef.current = next
+        setAuthStatus(next)
         checkAuth()
       }
     }
