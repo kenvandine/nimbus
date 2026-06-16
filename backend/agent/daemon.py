@@ -19,7 +19,7 @@ import logging
 import sys
 from pathlib import Path
 
-DAEMON_VERSION = "13"
+DAEMON_VERSION = "14"
 INSTALLED_DIR = Path("/var/lib/nimbus/installed")
 DOCKER_DAEMON_JSON = Path("/etc/docker/daemon.json")
 RESOLVED_DROPIN_DIR = Path("/etc/systemd/resolved.conf.d")
@@ -415,13 +415,17 @@ async def _systemctl_user(action: str, service_name: str = "") -> dict:
 
 
 async def _run_snap_cmd(cmd: str, args: list[str]) -> dict:
-    """Run a snap command (e.g. nullclaw.lemonade --auto) as the nimbus user.
+    """Run a snap command (e.g. nullclaw.lemonade) as the nimbus user.
 
     The command name is looked up under /snap/bin/.  Only commands whose name
     matches a simple identifier pattern (letters, digits, hyphens, dots) are
     accepted to prevent shell injection.  Classic snaps are installed system-
     wide but all user-session state (config, D-Bus, XDG dirs) should belong
     to nimbus rather than root.
+
+    ``y\\n`` is piped to stdin so that any interactive confirmation prompts
+    (e.g. "Configure OpenClaw to use Lemonade now? [Y/n]") are auto-accepted
+    without requiring the command to support a --yes / --auto flag.
     """
     import re
     import os
@@ -438,12 +442,13 @@ async def _run_snap_cmd(cmd: str, args: list[str]) -> dict:
     env = _user_env()
     proc = await asyncio.create_subprocess_exec(
         *full_cmd,
+        stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=env,
     )
     try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+        stdout, stderr = await asyncio.wait_for(proc.communicate(input=b"y\n"), timeout=120)
     except asyncio.TimeoutError:
         proc.kill()
         return {"ok": False, "stdout": "", "stderr": "command timed out after 120s"}
