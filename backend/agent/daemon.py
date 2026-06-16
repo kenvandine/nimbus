@@ -19,7 +19,7 @@ import logging
 import sys
 from pathlib import Path
 
-DAEMON_VERSION = "14"
+DAEMON_VERSION = "15"
 INSTALLED_DIR = Path("/var/lib/nimbus/installed")
 DOCKER_DAEMON_JSON = Path("/etc/docker/daemon.json")
 RESOLVED_DROPIN_DIR = Path("/etc/systemd/resolved.conf.d")
@@ -664,6 +664,29 @@ async def _route(method: str, path: str, body: bytes) -> tuple[int, dict]:
         if info is None:
             return 404, {"error": "snap not installed", "name": snap_name}
         return 200, info
+
+    if method == "GET" and path.startswith("/files/read"):
+        import os
+        file_path = None
+        if "?" in path:
+            for param in path.split("?", 1)[1].split("&"):
+                if param.startswith("path="):
+                    import urllib.parse
+                    file_path = urllib.parse.unquote(param[5:])
+                    break
+        if not file_path:
+            return 400, {"error": "path query parameter required"}
+        # Restrict to home directories and /etc/default to avoid arbitrary reads.
+        allowed_prefixes = ("/home/", "/root/", "/etc/default/")
+        if not any(file_path.startswith(p) for p in allowed_prefixes):
+            return 403, {"error": "path not permitted"}
+        try:
+            with open(file_path, "r") as fh:
+                return 200, {"path": file_path, "content": fh.read()}
+        except FileNotFoundError:
+            return 404, {"error": "file not found", "path": file_path}
+        except Exception as exc:
+            return 500, {"error": str(exc)}
 
     return 404, {"error": "not found"}
 

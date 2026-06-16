@@ -143,3 +143,18 @@ async def sideload_container_snap(
         )
         resp.raise_for_status()
         return resp.json()
+
+
+async def read_container_file(path: str) -> str | None:
+    """Read a file from the LXD container via the agent. Returns content or None on error."""
+    import urllib.parse
+    encoded = urllib.parse.quote(path, safe="")
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(_agent_url(f"/files/read?path={encoded}"))
+            if resp.status_code == 200:
+                return resp.json().get("content")
+            return None
+    except Exception as exc:
+        logger.warning("Could not read container file %s: %s", path, exc)
+        return None

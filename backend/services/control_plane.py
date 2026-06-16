@@ -37,6 +37,38 @@ _SNAP_UI_PORTS: dict[str, int] = {
 
 _PRESEED_STATE = ".preseed_apps_state"
 
+# Cached openclaw token to avoid reading the config file on every request.
+_openclaw_token: str | None = None
+_openclaw_token_checked: bool = False
+
+
+async def _get_openclaw_token() -> str | None:
+    """Read the openclaw auth token from the container config file (cached)."""
+    global _openclaw_token, _openclaw_token_checked
+    if _openclaw_token_checked:
+        return _openclaw_token
+    try:
+        from services import container_snaps
+        content = await container_snaps.read_container_file(
+            "/home/nimbus/.openclaw/openclaw.json"
+        )
+        if content:
+            data = json.loads(content)
+            _openclaw_token = (
+                data.get("gateway", {}).get("auth", {}).get("token") or None
+            )
+    except Exception as exc:
+        logger.debug("Could not read openclaw token: %s", exc)
+    _openclaw_token_checked = True
+    return _openclaw_token
+
+
+def _invalidate_openclaw_token_cache() -> None:
+    """Call after openclaw is installed/uninstalled so the token is re-read."""
+    global _openclaw_token, _openclaw_token_checked
+    _openclaw_token = None
+    _openclaw_token_checked = False
+
 
 def _load_preseed_state(data_dir: Path) -> set[str]:
     try:
@@ -597,6 +629,8 @@ class LxdControlPlane:
             logger.warning("Could not list nimbus store apps: %s", exc)
             return []
         installed_map = {s["name"]: s for s in installed_snaps}
+        # Pre-fetch openclaw token once for the whole list.
+        openclaw_token = await _get_openclaw_token()
         result: list[AppDetail] = []
         for meta in metas:
             snap_info = installed_map.get(meta.id)
@@ -607,6 +641,9 @@ class LxdControlPlane:
                 )
                 port = meta.ports[0] if meta.ports else _SNAP_UI_PORTS.get(meta.id)
                 open_url = network.build_open_url(host_ip, port) if port and host_ip else None
+                # Append the auth token to the URL for apps that support token auto-login.
+                if open_url and meta.id == "openclaw" and openclaw_token:
+                    open_url = f"{open_url}?token={openclaw_token}"
                 status = AppStatus(
                     installed=True,
                     running=True,
@@ -831,6 +868,10 @@ class LxdControlPlane:
             logger.error("Sideload failed for %s: %s", snap_name, exc)
         finally:
             self._installing.discard(snap_name)
+            # Invalidate the openclaw token cache so the new token is picked
+            # up on the next app list request.
+            if snap_name == "openclaw":
+                _invalidate_openclaw_token_cache()
 
     async def _do_nimbus_update(self, snap_name: str) -> None:
         from services import nimbus_store, container_snaps
