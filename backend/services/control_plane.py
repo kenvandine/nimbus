@@ -25,12 +25,14 @@ logger = logging.getLogger(__name__)
 # net for first-party apps that Nimbus knows about by name.
 #
 # Only snaps that expose a local HTTP UI are listed here.  Agent/gateway snaps
-# that only integrate with external chat platforms (hermes-agent, nullclaw,
-# picoclaw) have no local web UI and intentionally have no entry.
+# All known snap UI ports.
 _SNAP_UI_PORTS: dict[str, int] = {
-    "openclaw": 18789,   # setup-server / web UI (OPENCLAW_UI_PORT)
-    "zeroclaw": 3000,    # HTTP/WebSocket gateway with built-in web UI
-    "odysseus": 7000,    # full browser UI (ODYSSEUS_PORT default)
+    "openclaw":     18789,  # setup-server / web UI (OPENCLAW_UI_PORT)
+    "zeroclaw":     3000,   # HTTP/WebSocket gateway with built-in web UI
+    "odysseus":     7000,   # full browser UI (ODYSSEUS_PORT default)
+    "hermes-agent": 9119,   # web UI / gateway
+    "nullclaw":     32123,  # web UI / gateway
+    "picoclaw":     18800,  # web UI / gateway
 }
 
 _PRESEED_STATE = ".preseed_apps_state"
