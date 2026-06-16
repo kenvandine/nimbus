@@ -19,7 +19,7 @@ import logging
 import sys
 from pathlib import Path
 
-DAEMON_VERSION = "11"
+DAEMON_VERSION = "13"
 INSTALLED_DIR = Path("/var/lib/nimbus/installed")
 DOCKER_DAEMON_JSON = Path("/etc/docker/daemon.json")
 RESOLVED_DROPIN_DIR = Path("/etc/systemd/resolved.conf.d")
@@ -333,34 +333,75 @@ async def _snap_remove(name: str) -> dict:
 
 
 def _user_env() -> dict:
-    """Environment for systemctl --user commands run as root.
+    """Environment variables for the nimbus user session.
 
-    Root's XDG_RUNTIME_DIR is /run/user/0.  loginctl enable-linger is called
-    at daemon startup to ensure the user session (and thus the D-Bus socket)
-    exists without an active login.
+    Falls back to UID 0 if the nimbus user hasn't been provisioned yet.
     """
     import os
+    uid = _nimbus_uid() or 0
+    home = "/home/nimbus" if uid != 0 else "/root"
     env = dict(os.environ)
-    env.setdefault("XDG_RUNTIME_DIR", "/run/user/0")
-    env.setdefault("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/0/bus")
+    env["XDG_RUNTIME_DIR"] = f"/run/user/{uid}"
+    env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path=/run/user/{uid}/bus"
+    env["HOME"] = home
     return env
 
 
+def _nimbus_uid() -> int | None:
+    """Return the UID of the nimbus user, or None if it doesn't exist."""
+    try:
+        import pwd
+        return pwd.getpwnam("nimbus").pw_uid
+    except (KeyError, ImportError):
+        return None
+
+
+def _runuser_prefix(uid: int) -> list[str]:
+    """Build the runuser prefix to execute a command as the nimbus user.
+
+    runuser(1) is available on all Debian/Ubuntu systems and lets root
+    switch to a non-root user without a password.  We inject the D-Bus and
+    XDG_RUNTIME_DIR environment variables explicitly because the target
+    process inherits a minimal environment from runuser.
+    """
+    home = "/home/nimbus"
+    return [
+        "runuser", "-u", "nimbus", "--",
+        "env",
+        f"HOME={home}",
+        f"XDG_RUNTIME_DIR=/run/user/{uid}",
+        f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus",
+        "PATH=/snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    ]
+
+
 async def _systemctl_user(action: str, service_name: str = "") -> dict:
-    """Run `systemctl --user <action> [<service_name>]` as root.
+    """Run `systemctl --user <action> [<service_name>]` as the nimbus user.
 
     `daemon-reload` does not take a service name; all other actions require one.
+    Falls back to UID 0 (root) if the nimbus user hasn't been provisioned yet.
     """
     allowed = {"start", "stop", "restart", "status", "is-active", "daemon-reload"}
     if action not in allowed:
         return {"ok": False, "stderr": f"unsupported action: {action}"}
-    cmd = ["systemctl", "--user", action]
-    if action != "daemon-reload":
-        if not service_name:
-            return {"ok": False, "stderr": "service_name required for this action"}
-        cmd.append(service_name)
+    uid = _nimbus_uid()
+    if uid is not None:
+        # Run as the nimbus user which owns the snap user-services
+        sc_cmd = ["systemctl", "--user", action]
+        if action != "daemon-reload":
+            if not service_name:
+                return {"ok": False, "stderr": "service_name required for this action"}
+            sc_cmd.append(service_name)
+        full_cmd = _runuser_prefix(uid) + sc_cmd
+    else:
+        # Fallback: nimbus user not yet provisioned, run as root
+        full_cmd = ["systemctl", "--user", action]
+        if action != "daemon-reload":
+            if not service_name:
+                return {"ok": False, "stderr": "service_name required for this action"}
+            full_cmd.append(service_name)
     proc = await asyncio.create_subprocess_exec(
-        *cmd,
+        *full_cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=_user_env(),
@@ -374,11 +415,13 @@ async def _systemctl_user(action: str, service_name: str = "") -> dict:
 
 
 async def _run_snap_cmd(cmd: str, args: list[str]) -> dict:
-    """Run a snap command (e.g. nullclaw.lemonade --auto) as root.
+    """Run a snap command (e.g. nullclaw.lemonade --auto) as the nimbus user.
 
     The command name is looked up under /snap/bin/.  Only commands whose name
     matches a simple identifier pattern (letters, digits, hyphens, dots) are
-    accepted to prevent shell injection.
+    accepted to prevent shell injection.  Classic snaps are installed system-
+    wide but all user-session state (config, D-Bus, XDG dirs) should belong
+    to nimbus rather than root.
     """
     import re
     import os
@@ -387,9 +430,12 @@ async def _run_snap_cmd(cmd: str, args: list[str]) -> dict:
     snap_bin = f"/snap/bin/{cmd}"
     if not os.path.exists(snap_bin):
         return {"ok": False, "stdout": "", "stderr": f"not found: {snap_bin}"}
-    full_cmd = [snap_bin] + [str(a) for a in args]
+    uid = _nimbus_uid()
+    if uid is not None:
+        full_cmd = _runuser_prefix(uid) + [snap_bin] + [str(a) for a in args]
+    else:
+        full_cmd = [snap_bin] + [str(a) for a in args]
     env = _user_env()
-    env["PATH"] = "/snap/bin:" + env.get("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
     proc = await asyncio.create_subprocess_exec(
         *full_cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -717,15 +763,16 @@ async def _handle_http(reader: asyncio.StreamReader, writer: asyncio.StreamWrite
 
 
 async def _ensure_root_linger() -> None:
-    """Enable systemd linger for UID 0 so root's user session (and its D-Bus
-    socket at /run/user/0/bus) persists across boots without an active login.
-    This is required for systemctl --user commands issued by the agent."""
-    proc = await asyncio.create_subprocess_exec(
-        "loginctl", "enable-linger", "0",
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL,
-    )
-    await proc.communicate()
+    """Enable systemd linger for the nimbus user (and root as fallback) so the
+    user session and its D-Bus socket persist across boots without an active login.
+    This is required for systemctl --user commands and snap user-services."""
+    for target in ("nimbus", "0"):
+        proc = await asyncio.create_subprocess_exec(
+            "loginctl", "enable-linger", target,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.communicate()
 
 
 async def main() -> None:

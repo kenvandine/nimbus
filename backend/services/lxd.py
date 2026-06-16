@@ -42,10 +42,11 @@ BACKEND_SOURCE_DIR = Path(__file__).resolve().parents[1]
 SETUP_DIR = Path(__file__).resolve().parents[2] / "setup"
 AGENT_SERVICE_SOURCE = SETUP_DIR / "nimbus.service"
 LXC_AGENT_SERVICE_SOURCE = SETUP_DIR / "nimbus-lxc-agent.service"
+NIMBUS_USER_MARKER = Path("/var/lib/nimbus/.nimbus-user-setup")
 LXC_AGENT_VERSION_MARKER = Path("/var/lib/nimbus/.lxc-agent-version")
 LXC_AGENT_PORT = 9001
 # Bump this whenever agent/daemon.py changes to trigger a re-deploy on next startup.
-_LXC_AGENT_VERSION = "12"
+_LXC_AGENT_VERSION = "13"
 DEFAULT_LXD_STORAGE_POOL = "default"
 DEFAULT_LXD_PROFILE = "default"
 DEFAULT_LXD_BRIDGE_PREFIX = "lxdbr"
@@ -847,6 +848,49 @@ class LxdManager:
         devices[name] = desired
         self._save_instance_devices(instance, devices)
 
+    def _has_nimbus_user_marker(self, instance) -> bool:
+        return self._read_file(instance, str(NIMBUS_USER_MARKER)) is not None
+
+    def _setup_nimbus_user(self, instance) -> None:
+        """Create the nimbus system user and configure it for snap service execution.
+
+        The nimbus user owns all snap user-session services and is the default
+        interactive user in the embedded terminal.  Setup is idempotent — a marker
+        file prevents re-running on already-configured containers.
+        """
+        if self._has_nimbus_user_marker(instance):
+            return
+        logger.info("Setting up nimbus user in container")
+
+        # Create user if it doesn't exist yet
+        code, _, _ = self._run(instance, ["id", "-u", "nimbus"], acceptable={0, 1})
+        if code != 0:
+            self._run(instance, [
+                "useradd",
+                "--create-home",
+                "--shell", "/bin/bash",
+                "--groups", "sudo,docker",
+                "nimbus",
+            ])
+        else:
+            # User exists — make sure it has the required group memberships
+            self._run(instance, ["usermod", "-aG", "sudo,docker", "nimbus"], acceptable={0, 1})
+
+        # Passwordless sudo (required for terminal convenience and agent delegation)
+        self._write_file(
+            instance,
+            "/etc/sudoers.d/nimbus-nopasswd",
+            "nimbus ALL=(ALL) NOPASSWD:ALL\n",
+            mode=0o440,
+        )
+
+        # Persistent systemd user session: linger keeps the session alive so
+        # snap user-services and D-Bus are available even without an active login
+        self._run(instance, ["loginctl", "enable-linger", "nimbus"])
+
+        self._write_file(instance, str(NIMBUS_USER_MARKER), "1\n")
+        logger.info("nimbus user setup complete")
+
     def _ensure_lxc_agent(self, instance) -> None:
         """Push the LXC agent daemon and (re)start it if the version changed."""
         current = self._read_file(instance, str(LXC_AGENT_VERSION_MARKER))
@@ -946,6 +990,7 @@ class LxdManager:
                     self._set_bootstrap_state("starting-agent")
                     self._wait_for_docker(instance)
                     self._repatch_provider_apps(instance)
+                    self._setup_nimbus_user(instance)
                     self._ensure_lxc_agent(instance)
                     self._set_bootstrap_state("ready")
                     return
@@ -970,6 +1015,7 @@ class LxdManager:
                     logger.info("Python env already preinstalled — skipping venv/pip setup")
                 self._set_bootstrap_state("starting-agent")
                 self._enable_services(instance)
+                self._setup_nimbus_user(instance)
                 self._ensure_lxc_agent(instance)
                 self._write_file(instance, str(BOOTSTRAP_MARKER), BOOTSTRAP_VERSION + "\n")
                 self._set_bootstrap_state("ready")

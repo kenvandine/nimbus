@@ -37,7 +37,7 @@ function _connect(authToken) {
     // Show the banner only on the very first connection; on reconnect the
     // backend replays any missed output so the banner would be redundant.
     if (!_sessionStarted) {
-      _term.write('\r\n\x1b[1;32m✦ Nimbus Container Terminal\x1b[0m\r\n\r\n')
+      _term.write('\r\n\x1b[1;32m✦ Nimbus Container Terminal\x1b[0m \x1b[2m(nimbus user — sudo available)\x1b[0m\r\n\r\n')
       _sessionStarted = true
     }
     requestAnimationFrame(() => { _fit?.fit(); _sendResize() })

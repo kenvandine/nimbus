@@ -95,10 +95,9 @@ def _start_exec(container: str, cols: int, rows: int) -> tuple[str, dict]:
     manager = get_lxd_manager()
     client = manager.client()
     resp = client.api.instances[container].exec.post(json={
-        "command": ["/bin/bash", "-l"],
+        "command": ["sudo", "-u", "nimbus", "-i"],
         "environment": {
             "TERM": "xterm-256color",
-            "HOME": "/root",
             "COLUMNS": str(cols),
             "LINES": str(rows),
         },
