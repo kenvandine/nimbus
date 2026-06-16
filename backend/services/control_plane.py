@@ -794,8 +794,10 @@ class LxdControlPlane:
                         logger.info("Onboard completed for %s", snap_name)
                     else:
                         logger.warning(
-                            "Onboard returned non-zero for %s: %s",
-                            snap_name, ob_result.get("stderr", ""),
+                            "Onboard returned non-zero for %s | stdout: %s | stderr: %s",
+                            snap_name,
+                            ob_result.get("stdout", "").strip(),
+                            ob_result.get("stderr", "").strip(),
                         )
                 except Exception as exc:
                     logger.warning("Onboard failed for %s (non-fatal): %s", snap_name, exc)
@@ -815,8 +817,10 @@ class LxdControlPlane:
                         logger.info("Service %s started for %s", service_name, snap_name)
                     else:
                         logger.warning(
-                            "Could not start service %s for %s: %s",
-                            service_name, snap_name, svc.get("stderr", ""),
+                            "Could not start service %s for %s | stdout: %s | stderr: %s",
+                            service_name, snap_name,
+                            svc.get("stdout", "").strip(),
+                            svc.get("stderr", "").strip(),
                         )
                 except Exception as exc:
                     logger.warning(

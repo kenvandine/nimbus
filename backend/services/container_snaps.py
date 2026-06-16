@@ -87,7 +87,9 @@ async def service_action(service_name: str, action: str) -> dict[str, Any]:
             _agent_url("/snaps/service"),
             json={"name": service_name, "action": action},
         )
-        resp.raise_for_status()
+        # Don't raise — the body contains the useful stdout/stderr even on 500
+        if resp.status_code not in (200, 500):
+            resp.raise_for_status()
         return resp.json()
 
 
@@ -102,7 +104,8 @@ async def reload_user_daemon() -> dict[str, Any]:
             _agent_url("/snaps/service"),
             json={"action": "daemon-reload"},
         )
-        resp.raise_for_status()
+        if resp.status_code not in (200, 500):
+            resp.raise_for_status()
         return resp.json()
 
 
@@ -113,7 +116,9 @@ async def run_snap_cmd(cmd: str, args: list[str]) -> dict[str, Any]:
             _agent_url("/snaps/run"),
             json={"cmd": cmd, "args": args},
         )
-        resp.raise_for_status()
+        # Don't raise — the body contains stdout/stderr even on 500
+        if resp.status_code not in (200, 500):
+            resp.raise_for_status()
         return resp.json()
 
 
