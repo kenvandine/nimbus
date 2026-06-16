@@ -23,8 +23,14 @@ logger = logging.getLogger(__name__)
 # field.  These are used to build the Open URL and set up the LXD proxy device.
 # Prefer adding ports to the catalog; this dict is a belt-and-suspenders safety
 # net for first-party apps that Nimbus knows about by name.
+#
+# Only snaps that expose a local HTTP UI are listed here.  Agent/gateway snaps
+# that only integrate with external chat platforms (hermes-agent, nullclaw,
+# picoclaw) have no local web UI and intentionally have no entry.
 _SNAP_UI_PORTS: dict[str, int] = {
-    "openclaw": 18789,   # OPENCLAW_UI_PORT (setup-server / web UI)
+    "openclaw": 18789,   # setup-server / web UI (OPENCLAW_UI_PORT)
+    "zeroclaw": 3000,    # HTTP/WebSocket gateway with built-in web UI
+    "odysseus": 7000,    # full browser UI (ODYSSEUS_PORT default)
 }
 
 _PRESEED_STATE = ".preseed_apps_state"
