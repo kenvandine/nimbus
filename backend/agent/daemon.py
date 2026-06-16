@@ -19,7 +19,7 @@ import logging
 import sys
 from pathlib import Path
 
-DAEMON_VERSION = "10"
+DAEMON_VERSION = "11"
 INSTALLED_DIR = Path("/var/lib/nimbus/installed")
 DOCKER_DAEMON_JSON = Path("/etc/docker/daemon.json")
 RESOLVED_DROPIN_DIR = Path("/etc/systemd/resolved.conf.d")
@@ -332,6 +332,74 @@ async def _snap_remove(name: str) -> dict:
     }
 
 
+def _user_env() -> dict:
+    """Environment for systemctl --user commands run as root.
+
+    Root's XDG_RUNTIME_DIR is /run/user/0.  loginctl enable-linger is called
+    at daemon startup to ensure the user session (and thus the D-Bus socket)
+    exists without an active login.
+    """
+    import os
+    env = dict(os.environ)
+    env.setdefault("XDG_RUNTIME_DIR", "/run/user/0")
+    env.setdefault("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/0/bus")
+    return env
+
+
+async def _systemctl_user(action: str, service_name: str) -> dict:
+    """Run `systemctl --user <action> <service_name>` as root."""
+    allowed = {"start", "stop", "restart", "status", "is-active"}
+    if action not in allowed:
+        return {"ok": False, "stderr": f"unsupported action: {action}"}
+    proc = await asyncio.create_subprocess_exec(
+        "systemctl", "--user", action, service_name,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=_user_env(),
+    )
+    stdout, stderr = await proc.communicate()
+    return {
+        "ok": proc.returncode == 0,
+        "stdout": stdout.decode(),
+        "stderr": stderr.decode(),
+    }
+
+
+async def _run_snap_cmd(cmd: str, args: list[str]) -> dict:
+    """Run a snap command (e.g. nullclaw.lemonade --auto) as root.
+
+    The command name is looked up under /snap/bin/.  Only commands whose name
+    matches a simple identifier pattern (letters, digits, hyphens, dots) are
+    accepted to prevent shell injection.
+    """
+    import re
+    import os
+    if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]*", cmd):
+        return {"ok": False, "stdout": "", "stderr": f"invalid command name: {cmd}"}
+    snap_bin = f"/snap/bin/{cmd}"
+    if not os.path.exists(snap_bin):
+        return {"ok": False, "stdout": "", "stderr": f"not found: {snap_bin}"}
+    full_cmd = [snap_bin] + [str(a) for a in args]
+    env = _user_env()
+    env["PATH"] = "/snap/bin:" + env.get("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+    proc = await asyncio.create_subprocess_exec(
+        *full_cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=env,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+    except asyncio.TimeoutError:
+        proc.kill()
+        return {"ok": False, "stdout": "", "stderr": "command timed out after 120s"}
+    return {
+        "ok": proc.returncode == 0,
+        "stdout": stdout.decode(),
+        "stderr": stderr.decode(),
+    }
+
+
 async def _snap_sideload(url: str, filename: str, flags: list[str]) -> dict:
     """Download a snap from URL to a temp file and install it with the given flags."""
     import os
@@ -499,6 +567,32 @@ async def _route(method: str, path: str, body: bytes) -> tuple[int, dict]:
         result = await _snap_refresh(name, req.get("channel"))
         return (200 if result["ok"] else 500), result
 
+    if method == "POST" and path == "/snaps/service":
+        try:
+            req = json.loads(body)
+        except json.JSONDecodeError:
+            return 400, {"error": "invalid JSON"}
+        name = req.get("name", "").strip()
+        action = req.get("action", "").strip()
+        if not name or not action:
+            return 400, {"error": "name and action required"}
+        result = await _systemctl_user(action, name)
+        return (200 if result["ok"] else 500), result
+
+    if method == "POST" and path == "/snaps/run":
+        try:
+            req = json.loads(body)
+        except json.JSONDecodeError:
+            return 400, {"error": "invalid JSON"}
+        cmd = req.get("cmd", "").strip()
+        args = req.get("args", [])
+        if not cmd:
+            return 400, {"error": "cmd required"}
+        if not isinstance(args, list):
+            return 400, {"error": "args must be a list"}
+        result = await _run_snap_cmd(cmd, [str(a) for a in args])
+        return (200 if result["ok"] else 500), result
+
     if method == "GET" and path == "/snaps":
         snaps = await _snap_list()
         return 200, {"snaps": snaps}
@@ -612,8 +706,22 @@ async def _handle_http(reader: asyncio.StreamReader, writer: asyncio.StreamWrite
             pass
 
 
+async def _ensure_root_linger() -> None:
+    """Enable systemd linger for UID 0 so root's user session (and its D-Bus
+    socket at /run/user/0/bus) persists across boots without an active login.
+    This is required for systemctl --user commands issued by the agent."""
+    proc = await asyncio.create_subprocess_exec(
+        "loginctl", "enable-linger", "0",
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    await proc.communicate()
+
+
 async def main() -> None:
     logger.info("Nimbus LXC agent daemon v%s starting on port %d", DAEMON_VERSION, HTTP_PORT)
+
+    await _ensure_root_linger()
 
     server = await asyncio.start_server(_handle_http, "0.0.0.0", HTTP_PORT)
     asyncio.create_task(_app_health_loop())

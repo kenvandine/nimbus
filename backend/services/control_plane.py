@@ -751,6 +751,22 @@ class LxdControlPlane:
             ports = snap.get("ports", [])
             if ports:
                 await asyncio.to_thread(self.manager.setup_snap_port_proxies, snap_name, ports)
+            # Run lemonade --auto to configure the model provider and start the service.
+            onboard = nimbus_store.get_onboard_cmd(snap)
+            if onboard:
+                cmd, args = onboard
+                logger.info("Running onboard for %s: %s %s", snap_name, cmd, " ".join(args))
+                try:
+                    ob_result = await container_snaps.run_snap_cmd(cmd, args)
+                    if ob_result.get("ok"):
+                        logger.info("Onboard completed for %s", snap_name)
+                    else:
+                        logger.warning(
+                            "Onboard returned non-zero for %s: %s",
+                            snap_name, ob_result.get("stderr", ""),
+                        )
+                except Exception as exc:
+                    logger.warning("Onboard failed for %s (non-fatal): %s", snap_name, exc)
         except Exception as exc:
             logger.error("Sideload failed for %s: %s", snap_name, exc)
         finally:
@@ -763,6 +779,14 @@ class LxdControlPlane:
             snap = nimbus_store.get_snap(catalog, snap_name)
             if snap is None:
                 raise RuntimeError(f"App '{snap_name}' not found in nimbus store")
+            # Stop the service before replacing the snap binary.
+            service_name = nimbus_store.get_service_name(snap)
+            if service_name:
+                try:
+                    await container_snaps.service_action(service_name, "stop")
+                    logger.info("Stopped %s before update", service_name)
+                except Exception as exc:
+                    logger.warning("Could not stop %s before update: %s", service_name, exc)
             url = nimbus_store.get_download_url(snap)
             filename = nimbus_store.get_filename(snap)
             if not url or not filename:
@@ -772,7 +796,14 @@ class LxdControlPlane:
             result = await container_snaps.sideload_container_snap(url, filename, flags)
             if not result.get("ok"):
                 raise RuntimeError(f"Update failed: {result.get('stderr', '')}")
-            logger.info("Update completed for %s", snap_name)
+            logger.info("Update sideload completed for %s", snap_name)
+            # Restart the service after the new version is in place.
+            if service_name:
+                try:
+                    await container_snaps.service_action(service_name, "start")
+                    logger.info("Started %s after update", service_name)
+                except Exception as exc:
+                    logger.warning("Could not start %s after update: %s", service_name, exc)
         except Exception as exc:
             logger.error("Update failed for %s: %s", snap_name, exc)
         finally:

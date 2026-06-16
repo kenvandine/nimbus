@@ -85,6 +85,20 @@ def get_install_flags(snap: dict) -> list[str]:
     return list(snap.get("install_flags", ["--classic", "--dangerous"]))
 
 
+def get_service_name(snap: dict) -> str | None:
+    """Return the systemd user service name, or None if the snap has no daemon."""
+    return snap.get("service_name") or None
+
+
+def get_onboard_cmd(snap: dict) -> tuple[str, list[str]] | None:
+    """Return (cmd, args) for the post-install onboard command, or None."""
+    raw = (snap.get("onboard_cmd") or "").strip()
+    if not raw:
+        return None
+    parts = raw.split()
+    return parts[0], parts[1:]
+
+
 def is_nimbus_store_app(name: str) -> bool:
     """Sync check using the in-memory cached catalog. Returns False if not yet fetched."""
     return _catalog is not None and any(s["name"] == name for s in get_snaps(_catalog))

@@ -80,6 +80,28 @@ async def refresh_container_snap(name: str, channel: str | None = None) -> dict[
         return resp.json()
 
 
+async def service_action(service_name: str, action: str) -> dict[str, Any]:
+    """Start, stop, or restart a systemd user service in the LXD container."""
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            _agent_url("/snaps/service"),
+            json={"name": service_name, "action": action},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
+async def run_snap_cmd(cmd: str, args: list[str]) -> dict[str, Any]:
+    """Run a snap command (e.g. nullclaw.lemonade --auto) in the LXD container."""
+    async with httpx.AsyncClient(timeout=120) as client:
+        resp = await client.post(
+            _agent_url("/snaps/run"),
+            json={"cmd": cmd, "args": args},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
 async def sideload_container_snap(
     url: str,
     filename: str,
