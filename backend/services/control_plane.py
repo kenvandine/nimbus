@@ -464,6 +464,9 @@ class LxdControlPlane:
                     continue
                 raise
         _ensure_openclaw_workspace_link()
+        if settings.app_store_type == "nimbus":
+            from services import nimbus_store
+            await nimbus_store.get_catalog()
         await _maybe_install_preseed_apps(self)
         await _maybe_ensure_model_provider(self)
         asyncio.create_task(_update_check_loop(self))
@@ -535,8 +538,11 @@ class LxdControlPlane:
 
     async def list_apps(self) -> list[AppDetail]:
         host_ip = await network.get_host_ip()
-        store_apps = await self._call_manager(self._list_apps_sync, host_ip)
         sys = await system_apps.get_system_apps(host_ip)
+        if settings.app_store_type == "nimbus":
+            nimbus_apps = await self._list_nimbus_apps(host_ip)
+            return sys + nimbus_apps
+        store_apps = await self._call_manager(self._list_apps_sync, host_ip)
         snap_apps = await self._list_snap_apps(host_ip)
         return sys + store_apps + snap_apps
 
@@ -563,6 +569,39 @@ class LxdControlPlane:
             result.append(AppDetail(**{**meta.model_dump(), **status.model_dump()}))
         return result
 
+    async def _list_nimbus_apps(self, host_ip: str | None) -> list[AppDetail]:
+        from services import nimbus_store, container_snaps
+        try:
+            metas, installed_snaps = await asyncio.gather(
+                nimbus_store.get_app_metas(),
+                container_snaps.list_container_snaps(),
+            )
+        except Exception as exc:
+            logger.warning("Could not list nimbus store apps: %s", exc)
+            return []
+        installed_map = {s["name"]: s for s in installed_snaps}
+        result: list[AppDetail] = []
+        for meta in metas:
+            snap_info = installed_map.get(meta.id)
+            if snap_info:
+                installed_ver = snap_info.get("version", "")
+                update_available = bool(
+                    meta.version and installed_ver and installed_ver != meta.version
+                )
+                port = meta.ports[0] if meta.ports else None
+                open_url = network.build_open_url(host_ip, port) if port and host_ip else None
+                status = AppStatus(
+                    installed=True,
+                    running=True,
+                    port=port,
+                    open_url=open_url,
+                    update_available=update_available,
+                )
+            else:
+                status = AppStatus(installed=False)
+            result.append(AppDetail(**{**meta.model_dump(), **status.model_dump()}))
+        return result
+
     async def get_app(self, app_id: str) -> AppDetail:
         if app_id == "lemonade":
             host_ip = await network.get_host_ip()
@@ -570,6 +609,13 @@ class LxdControlPlane:
         if app_id == "gemma4":
             host_ip = await network.get_host_ip()
             return system_apps.get_gemma4_app(host_ip)
+        if settings.app_store_type == "nimbus":
+            from services import nimbus_store
+            apps = await self._list_nimbus_apps(await network.get_host_ip())
+            detail = next((a for a in apps if a.id == app_id), None)
+            if detail is None:
+                raise HTTPException(status_code=404, detail=f"App '{app_id}' not found in nimbus store")
+            return detail
         from services import snap_store, container_snaps
         if snap_store.is_snap_catalog_app(app_id):
             snap_apps = await self._list_snap_apps(await network.get_host_ip())
@@ -668,7 +714,73 @@ class LxdControlPlane:
         finally:
             self._updating.discard(app_id)
 
+    async def _request_nimbus_install(self, snap_name: str) -> dict:
+        from services import nimbus_store, container_snaps
+        catalog = await nimbus_store.get_catalog()
+        if nimbus_store.get_snap(catalog, snap_name) is None:
+            raise HTTPException(status_code=404, detail=f"App '{snap_name}' not found in nimbus store")
+        if snap_name in self._installing:
+            return {"status": "already_installing"}
+        installed = await container_snaps.list_container_snaps()
+        if any(s["name"] == snap_name for s in installed):
+            return {"status": "already_installed"}
+        self._installing.add(snap_name)
+        asyncio.create_task(self._do_nimbus_sideload(snap_name, catalog))
+        return {"status": "installing"}
+
+    async def _do_nimbus_sideload(self, snap_name: str, catalog: dict | None = None) -> None:
+        from services import nimbus_store, container_snaps
+        try:
+            if catalog is None:
+                catalog = await nimbus_store.get_catalog()
+            snap = nimbus_store.get_snap(catalog, snap_name)
+            if snap is None:
+                raise RuntimeError(f"App '{snap_name}' not found in nimbus store")
+            url = nimbus_store.get_download_url(snap)
+            filename = nimbus_store.get_filename(snap)
+            if not url or not filename:
+                raise RuntimeError(f"No download URL for '{snap_name}' on this architecture")
+            flags = nimbus_store.get_install_flags(snap)
+            logger.info("Sideloading %s from %s", snap_name, url)
+            result = await container_snaps.sideload_container_snap(url, filename, flags)
+            if not result.get("ok"):
+                raise RuntimeError(f"Sideload failed: {result.get('stderr', '')}")
+            logger.info("Sideload completed for %s", snap_name)
+            if snap_name == "openclaw":
+                model_provider.ensure_ready_task()
+            ports = snap.get("ports", [])
+            if ports:
+                await asyncio.to_thread(self.manager.setup_snap_port_proxies, snap_name, ports)
+        except Exception as exc:
+            logger.error("Sideload failed for %s: %s", snap_name, exc)
+        finally:
+            self._installing.discard(snap_name)
+
+    async def _do_nimbus_update(self, snap_name: str) -> None:
+        from services import nimbus_store, container_snaps
+        try:
+            catalog = await nimbus_store.get_catalog(force=True)
+            snap = nimbus_store.get_snap(catalog, snap_name)
+            if snap is None:
+                raise RuntimeError(f"App '{snap_name}' not found in nimbus store")
+            url = nimbus_store.get_download_url(snap)
+            filename = nimbus_store.get_filename(snap)
+            if not url or not filename:
+                raise RuntimeError(f"No download URL for '{snap_name}' on this architecture")
+            flags = nimbus_store.get_install_flags(snap)
+            logger.info("Updating %s via sideload from %s", snap_name, url)
+            result = await container_snaps.sideload_container_snap(url, filename, flags)
+            if not result.get("ok"):
+                raise RuntimeError(f"Update failed: {result.get('stderr', '')}")
+            logger.info("Update completed for %s", snap_name)
+        except Exception as exc:
+            logger.error("Update failed for %s: %s", snap_name, exc)
+        finally:
+            self._updating.discard(snap_name)
+
     async def request_install(self, app_id: str) -> dict:
+        if settings.app_store_type == "nimbus":
+            return await self._request_nimbus_install(app_id)
         from services import snap_store, container_snaps
         if snap_store.is_snap_catalog_app(app_id):
             return await self._request_snap_install(app_id)
@@ -733,6 +845,16 @@ class LxdControlPlane:
             self._updating.discard(snap_name)
 
     async def request_update(self, app_id: str) -> dict:
+        if settings.app_store_type == "nimbus":
+            from services import nimbus_store
+            catalog = await nimbus_store.get_catalog()
+            if nimbus_store.get_snap(catalog, app_id) is None:
+                raise HTTPException(status_code=404, detail=f"App '{app_id}' not found in nimbus store")
+            if app_id in self._updating:
+                return {"status": "already_updating"}
+            self._updating.add(app_id)
+            asyncio.create_task(self._do_nimbus_update(app_id))
+            return {"status": "updating"}
         from services import snap_store
         if snap_store.is_snap_catalog_app(app_id):
             if app_id in self._updating:
@@ -749,6 +871,8 @@ class LxdControlPlane:
         return {"status": "updating"}
 
     async def uninstall_app(self, app_id: str) -> dict:
+        if settings.app_store_type == "nimbus":
+            return await self._uninstall_nimbus_snap(app_id)
         from services import snap_store
         if snap_store.is_snap_catalog_app(app_id):
             return await self._uninstall_snap(app_id)
@@ -756,6 +880,23 @@ class LxdControlPlane:
         if app_id not in installed:
             raise HTTPException(status_code=404, detail=f"App '{app_id}' is not installed")
         await self._call_manager(self.manager.uninstall_app, app_id)
+        return {"status": "uninstalled"}
+
+    async def _uninstall_nimbus_snap(self, snap_name: str) -> dict:
+        from services import nimbus_store, container_snaps
+        catalog = await nimbus_store.get_catalog()
+        snap = nimbus_store.get_snap(catalog, snap_name)
+        if snap is None:
+            raise HTTPException(status_code=404, detail=f"App '{snap_name}' not found in nimbus store")
+        result = await container_snaps.remove_container_snap(snap_name)
+        if not result.get("ok"):
+            raise HTTPException(status_code=500, detail=result.get("stderr", "remove failed"))
+        ports = snap.get("ports", [])
+        if ports:
+            try:
+                await asyncio.to_thread(self.manager.teardown_snap_port_proxies, snap_name, ports)
+            except Exception as exc:
+                logger.warning("Could not tear down port proxies for '%s': %s", snap_name, exc)
         return {"status": "uninstalled"}
 
     async def _uninstall_snap(self, snap_name: str) -> dict:

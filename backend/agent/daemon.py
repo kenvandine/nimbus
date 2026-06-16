@@ -19,7 +19,7 @@ import logging
 import sys
 from pathlib import Path
 
-DAEMON_VERSION = "9"
+DAEMON_VERSION = "10"
 INSTALLED_DIR = Path("/var/lib/nimbus/installed")
 DOCKER_DAEMON_JSON = Path("/etc/docker/daemon.json")
 RESOLVED_DROPIN_DIR = Path("/etc/systemd/resolved.conf.d")
@@ -332,6 +332,41 @@ async def _snap_remove(name: str) -> dict:
     }
 
 
+async def _snap_sideload(url: str, filename: str, flags: list[str]) -> dict:
+    """Download a snap from URL to a temp file and install it with the given flags."""
+    import os
+    import tempfile
+    tmp_dir = tempfile.mkdtemp(prefix="nimbus-sideload-")
+    snap_path = os.path.join(tmp_dir, filename)
+    try:
+        dl = await asyncio.create_subprocess_exec(
+            "curl", "-fsSL", "-o", snap_path, url,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, dl_stderr = await dl.communicate()
+        if dl.returncode != 0:
+            return {"ok": False, "stdout": "", "stderr": f"Download failed: {dl_stderr.decode()}"}
+        cmd = ["snap", "install"] + flags + [snap_path]
+        inst = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await inst.communicate()
+        return {
+            "ok": inst.returncode == 0,
+            "stdout": stdout.decode(),
+            "stderr": stderr.decode(),
+        }
+    finally:
+        try:
+            os.unlink(snap_path)
+            os.rmdir(tmp_dir)
+        except Exception:
+            pass
+
+
 async def _snap_refresh(name: str, channel: str | None = None) -> dict:
     cmd = ["snap", "refresh", name]
     if channel:
@@ -435,6 +470,22 @@ async def _route(method: str, path: str, body: bytes) -> tuple[int, dict]:
         if not name:
             return 400, {"error": "name required"}
         result = await _snap_remove(name)
+        return (200 if result["ok"] else 500), result
+
+    if method == "POST" and path == "/snaps/sideload":
+        try:
+            req = json.loads(body)
+        except json.JSONDecodeError:
+            return 400, {"error": "invalid JSON"}
+        url = req.get("url", "").strip()
+        filename = req.get("filename", "").strip()
+        flags = req.get("flags", ["--classic", "--dangerous"])
+        if not url or not filename:
+            return 400, {"error": "url and filename required"}
+        allowed_flags = {"--classic", "--dangerous", "--devmode"}
+        if any(f not in allowed_flags for f in flags):
+            return 400, {"error": "unsupported install flag"}
+        result = await _snap_sideload(url, filename, list(flags))
         return (200 if result["ok"] else 500), result
 
     if method == "POST" and path == "/snaps/refresh":

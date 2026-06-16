@@ -136,7 +136,7 @@ async def lifespan(app: FastAPI):
         redirect_task = asyncio.create_task(
             _run_http_redirect(settings.http_redirect_port, int(os.environ.get("NIMBUS_PORT", "443")))
         )
-    if settings.refresh_store_on_startup:
+    if settings.refresh_store_on_startup and settings.app_store_type != "nimbus":
         logger.info("Refreshing app store on startup...")
         try:
             await refresh_store()

@@ -78,3 +78,26 @@ async def refresh_container_snap(name: str, channel: str | None = None) -> dict[
         )
         resp.raise_for_status()
         return resp.json()
+
+
+async def sideload_container_snap(
+    url: str,
+    filename: str,
+    flags: list[str] | None = None,
+) -> dict[str, Any]:
+    """Download a snap from URL and install it with --dangerous inside the LXD container.
+
+    Large snaps can exceed 500 MB so a generous timeout (1 hour) is used.
+    """
+    payload: dict[str, Any] = {
+        "url": url,
+        "filename": filename,
+        "flags": flags or ["--classic", "--dangerous"],
+    }
+    async with httpx.AsyncClient(timeout=3600) as client:
+        resp = await client.post(
+            _agent_url("/snaps/sideload"),
+            json=payload,
+        )
+        resp.raise_for_status()
+        return resp.json()

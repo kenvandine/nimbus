@@ -89,6 +89,10 @@ class Settings:
     # OpenClaw will be pointed at. Defaults derived from model_provider when
     # NIMBUS_OPENAI_URL is unset.
     openai_url: str = DEFAULT_OPENAI_URL[MODEL_PROVIDER_LEMONADE]
+    # App store backend. "nimbus" = nimbus-app-store (default); "umbrel" = Umbrel git store.
+    app_store_type: str = "nimbus"
+    # Override URL for the nimbus-app-store catalog.json (useful for testing).
+    nimbus_store_url: str = "https://raw.githubusercontent.com/kenvandine/nimbus-app-store/main/catalog.json"
 
 
 def _build_settings() -> Settings:
@@ -139,6 +143,14 @@ def _build_settings() -> Settings:
     openai_url_env = (os.getenv("NIMBUS_OPENAI_URL") or "").strip()
     openai_url = (openai_url_env or DEFAULT_OPENAI_URL[model_provider]).rstrip("/")
 
+    app_store_type = os.getenv("NIMBUS_APP_STORE_TYPE", "nimbus").strip().lower()
+    if app_store_type not in {"nimbus", "umbrel"}:
+        raise ValueError("NIMBUS_APP_STORE_TYPE must be 'nimbus' or 'umbrel'")
+    nimbus_store_url = (
+        os.getenv("NIMBUS_STORE_URL", "").strip()
+        or "https://raw.githubusercontent.com/kenvandine/nimbus-app-store/main/catalog.json"
+    )
+
     return Settings(
         control_mode=control_mode,
         store_dir=Path(os.getenv("NIMBUS_STORE_DIR", "/var/lib/nimbus/store")),
@@ -181,6 +193,8 @@ def _build_settings() -> Settings:
         overlay_dir=overlay_dir,
         model_provider=model_provider,
         openai_url=openai_url,
+        app_store_type=app_store_type,
+        nimbus_store_url=nimbus_store_url,
     )
 
 
