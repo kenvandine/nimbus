@@ -275,7 +275,9 @@ export default function App() {
 
     function resetTimer() {
       clearTimeout(idleTimerRef.current)
-      idleTimerRef.current = setTimeout(() => setLocked(true), timeout)
+      idleTimerRef.current = setTimeout(() => {
+        if (localStorage.getItem('nimbus_lock_pin')) setLocked(true)
+      }, timeout)
     }
 
     const events = ['mousemove', 'keydown', 'touchstart', 'click']

@@ -179,7 +179,7 @@ function NetworkStep({ online, onNext, reconnect }) {
   )
 }
 
-function AccountStep({ onComplete }) {
+function AccountStep({ onNext }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -198,7 +198,7 @@ function AccountStep({ onComplete }) {
     try {
       await setupAccount(username.trim(), password)
       await completeOobe()
-      onComplete()
+      onNext()
     } catch (e) {
       setError(e.message)
       setBusy(false)
@@ -207,7 +207,7 @@ function AccountStep({ onComplete }) {
 
   return (
     <>
-      <div style={s.stepLabel}>Step 2 of 2</div>
+      <div style={s.stepLabel}>Step 2 of 3</div>
       <h1 style={s.heading}>Create your account</h1>
       <p style={s.subheading}>
         This account protects access to the Nimbus web interface.
@@ -273,8 +273,83 @@ function AccountStep({ onComplete }) {
         onClick={handleSubmit}
         disabled={!canSubmit}
       >
-        {busy ? 'Creating account…' : 'Create account & finish setup'}
+        {busy ? 'Creating account…' : 'Next →'}
       </button>
+    </>
+  )
+}
+
+const OOBE_PIN_LENGTH = 6
+
+function PinStep({ onComplete }) {
+  const [mode, setMode] = useState('set') // set | confirm
+  const [pin, setPin] = useState('')
+  const [firstPin, setFirstPin] = useState('')
+  const [error, setError] = useState(null)
+
+  function handleDigit(d) {
+    if (pin.length >= OOBE_PIN_LENGTH) return
+    const next = pin + d
+    setPin(next)
+    if (next.length === OOBE_PIN_LENGTH) setTimeout(() => advance(next), 80)
+  }
+
+  function advance(entered) {
+    if (mode === 'set') {
+      setFirstPin(entered); setPin(''); setMode('confirm'); setError(null)
+    } else {
+      if (entered === firstPin) {
+        localStorage.setItem('nimbus_lock_pin', entered)
+        onComplete()
+      } else {
+        setError('PINs did not match — try again'); setPin(''); setMode('set'); setFirstPin('')
+      }
+    }
+  }
+
+  return (
+    <>
+      <div style={s.stepLabel}>Step 3 of 3 — Optional</div>
+      <h1 style={s.heading}>Set a screen lock PIN</h1>
+      <p style={s.subheading}>
+        Choose a 6-digit PIN to lock the screen after inactivity. You can skip this and set it later in Settings.
+      </p>
+
+      {error && <div style={{ ...s.errorBox, marginBottom: 12 }}>{error}</div>}
+
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+        <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)' }}>
+          {mode === 'set' ? 'Enter a 6-digit PIN' : 'Confirm your PIN'}
+        </div>
+        <div style={{ display: 'flex', gap: 12 }}>
+          {Array.from({ length: OOBE_PIN_LENGTH }, (_, i) => (
+            <div key={i} style={{
+              width: 14, height: 14, borderRadius: '50%',
+              background: i < pin.length ? 'rgba(79,195,247,0.9)' : 'transparent',
+              border: '2px solid ' + (i < pin.length ? 'rgba(79,195,247,0.9)' : 'rgba(255,255,255,0.3)'),
+              transition: 'background 0.12s',
+            }} />
+          ))}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+          {['1','2','3','4','5','6','7','8','9','','0','⌫'].map((d, i) => (
+            <button key={i}
+              style={{
+                width: 68, height: 68, borderRadius: '50%',
+                background: d === '' ? 'transparent' : 'rgba(255,255,255,0.08)',
+                border: d === '' ? 'none' : '1px solid rgba(255,255,255,0.12)',
+                color: 'rgba(255,255,255,0.85)', fontSize: 22, fontWeight: 400,
+                cursor: d === '' ? 'default' : 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+              onClick={() => d === '⌫' ? setPin(p => p.slice(0, -1)) : d ? handleDigit(d) : undefined}
+              disabled={d === ''}
+            >{d}</button>
+          ))}
+        </div>
+      </div>
+
+      <button style={s.btnGhost} onClick={onComplete}>Skip — set up later in Settings</button>
     </>
   )
 }
@@ -296,7 +371,9 @@ export default function Oobe({ online, onComplete, networkOnly }) {
               reconnect={networkOnly}
               onNext={networkOnly ? onComplete : () => setStep('account')}
             />
-          : <AccountStep onComplete={onComplete} />}
+          : step === 'account'
+            ? <AccountStep onNext={() => setStep('pin')} />
+            : <PinStep onComplete={onComplete} />}
       </div>
       <style>{`@keyframes fadeIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}`}</style>
     </div>

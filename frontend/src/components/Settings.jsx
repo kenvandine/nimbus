@@ -457,6 +457,130 @@ function ChangePasswordPanel() {
   )
 }
 
+// ── Screen Lock PIN ──────────────────────────────────────────────────────────
+const PIN_LENGTH = 6
+
+function PinNumpad({ pin, onDigit, onBackspace, label, error }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '12px 16px 16px' }}>
+      <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', fontWeight: 500 }}>{label}</div>
+      {error && <div style={{ fontSize: 12, color: 'rgba(255,138,128,0.9)' }}>{error}</div>}
+      <div style={{ display: 'flex', gap: 10, margin: '2px 0 6px' }}>
+        {Array.from({ length: PIN_LENGTH }, (_, i) => (
+          <div key={i} style={{
+            width: 12, height: 12, borderRadius: '50%',
+            background: i < pin.length ? 'rgba(79,195,247,0.9)' : 'transparent',
+            border: '2px solid ' + (i < pin.length ? 'rgba(79,195,247,0.9)' : 'rgba(255,255,255,0.3)'),
+            transition: 'background 0.12s',
+          }} />
+        ))}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+        {['1','2','3','4','5','6','7','8','9','','0','⌫'].map((d, i) => (
+          <button key={i}
+            style={{
+              width: 54, height: 54, borderRadius: '50%',
+              background: d === '' ? 'transparent' : 'rgba(255,255,255,0.08)',
+              border: d === '' ? 'none' : '1px solid rgba(255,255,255,0.12)',
+              color: 'rgba(255,255,255,0.85)', fontSize: 20, fontWeight: 400,
+              cursor: d === '' ? 'default' : 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+            onClick={() => d === '⌫' ? onBackspace() : d ? onDigit(d) : undefined}
+            disabled={d === ''}
+          >{d}</button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ScreenLockPanel() {
+  const [hasPin, setHasPin] = useState(() => Boolean(localStorage.getItem('nimbus_lock_pin')))
+  const [mode, setMode] = useState('idle') // idle | set | confirm
+  const [pin, setPin] = useState('')
+  const [firstPin, setFirstPin] = useState('')
+  const [error, setError] = useState(null)
+  const [saved, setSaved] = useState(null)
+
+  function handleDigit(d) {
+    if (pin.length >= PIN_LENGTH) return
+    const next = pin + d
+    setPin(next)
+    if (next.length === PIN_LENGTH) setTimeout(() => advance(next), 80)
+  }
+
+  function advance(entered) {
+    if (mode === 'set') {
+      setFirstPin(entered); setPin(''); setMode('confirm'); setError(null)
+    } else if (mode === 'confirm') {
+      if (entered === firstPin) {
+        localStorage.setItem('nimbus_lock_pin', entered)
+        setHasPin(true); setMode('idle'); setPin(''); setFirstPin(''); setError(null)
+        setSaved('PIN saved — screen lock is now active.'); setTimeout(() => setSaved(null), 3000)
+      } else {
+        setError('PINs did not match — try again'); setPin(''); setMode('set'); setFirstPin('')
+      }
+    }
+  }
+
+  function handleRemove() {
+    localStorage.removeItem('nimbus_lock_pin')
+    setHasPin(false); setMode('idle'); setPin(''); setFirstPin('')
+    setSaved('PIN removed — screen lock disabled.'); setTimeout(() => setSaved(null), 3000)
+  }
+
+  function handleCancel() {
+    setMode('idle'); setPin(''); setFirstPin(''); setError(null)
+  }
+
+  return (
+    <SectionWrap icon="🔏" title="Screen Lock PIN">
+      {mode === 'idle' ? (
+        <>
+          <div style={styles.item}>
+            <div>
+              <div style={styles.itemLabel}>Screen lock PIN</div>
+              <div style={styles.itemSub}>
+                {hasPin
+                  ? 'A 6-digit PIN is required after idle timeout.'
+                  : 'No PIN set — screen will not lock on idle.'}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+              <button style={styles.btnPrimary}
+                onClick={() => { setMode('set'); setPin(''); setError(null) }}>
+                {hasPin ? 'Change' : 'Set PIN'}
+              </button>
+              {hasPin && (
+                <button style={styles.btnDanger} onClick={handleRemove}>Remove</button>
+              )}
+            </div>
+          </div>
+          {saved && (
+            <div style={{ padding: '6px 16px 10px', fontSize: 12, color: 'rgba(129,199,132,0.9)' }}>
+              ✓ {saved}
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <PinNumpad
+            pin={pin}
+            onDigit={handleDigit}
+            onBackspace={() => setPin(p => p.slice(0, -1))}
+            label={mode === 'set' ? 'Enter a new 6-digit PIN' : 'Confirm your PIN'}
+            error={error}
+          />
+          <div style={{ padding: '0 16px 14px', display: 'flex', justifyContent: 'center' }}>
+            <button style={styles.btnCancel} onClick={handleCancel}>Cancel</button>
+          </div>
+        </>
+      )}
+    </SectionWrap>
+  )
+}
+
 // ── Resource Limits ─────────────────────────────────────────────────────────
 function ResourceLimitsPanel({ stats }) {
   const [limits, setLimits] = useState(null)
@@ -669,6 +793,7 @@ export default function Settings({ stats, onRefresh }) {
       <WifiPanel />
       <DnsPanel />
       <ChangePasswordPanel />
+      <ScreenLockPanel />
       <SshPanel />
       {isLxd && <FirewallPanel />}
       <ResourceLimitsPanel stats={stats} />
