@@ -233,7 +233,7 @@ class LxdManager:
                 continue
             return name
 
-    def _ensure_nm_ignores_lxd(self) -> None:
+    def _ensure_nm_ignores_lxd(self) -> bool:
         """Write a NetworkManager drop-in that prevents NM from managing LXD
         bridge and veth interfaces.
 
@@ -241,6 +241,8 @@ class LxdManager:
         failed and detaches it from lxdbr0 — breaking all container networking
         (both external DNS and host→container port forwarding).  This fix is
         idempotent and runs on every boot so it survives NM snap updates.
+
+        Returns True if the drop-in was written and NM was restarted.
         """
         dropin_content = (
             "[keyfile]\n"
@@ -277,60 +279,29 @@ class LxdManager:
                 except (FileNotFoundError, subprocess.TimeoutExpired):
                     pass
 
+        return wrote
+
     def _ensure_lxd_nat_rules(self) -> None:
-        """Ensure LXD's iptables-legacy MASQUERADE and FORWARD rules exist.
+        """Re-establish LXD's MASQUERADE and FORWARD rules via the LXD API.
 
-        When NetworkManager is restarted it flushes iptables-legacy, removing
-        LXD's MASQUERADE and FORWARD rules.  Without them the container's
-        private source IP is never NATed, so external responses never arrive.
-
-        We add missing rules directly with iptables-legacy rather than calling
-        network.save(), which would restart the bridge and disrupt running
-        containers (they lose their default route).
+        NetworkManager can flush iptables-legacy on restart, removing the rules
+        LXD added for its bridge networks.  We ask LXD to re-apply its own
+        network config by toggling ipv4.nat false→true via a PATCH to the LXD
+        API.  This causes LXD's own setup() path to re-add both the MASQUERADE
+        and FORWARD rules without taking the bridge down or disrupting the
+        container's IP.  The brief window (~ms) without NAT is acceptable here
+        because NM restart already caused disruption.
         """
-        import ipaddress as _ipaddress
-
         for network in self._managed_networks():
             if network.config.get("ipv4.nat") != "true":
                 continue
             bridge = network.name
-            # Resolve "auto" to the actual interface address.
-            raw_addr = network.config.get("ipv4.address", "")
-            if not raw_addr or raw_addr in ("none", "auto"):
-                try:
-                    out = subprocess.run(
-                        ["ip", "-4", "-o", "addr", "show", "dev", bridge],
-                        capture_output=True, text=True,
-                    ).stdout
-                    raw_addr = next(
-                        (p for p in out.split() if "/" in p and not p.startswith("peer")),
-                        "",
-                    )
-                except Exception:
-                    pass
-            if not raw_addr or "/" not in raw_addr:
-                logger.warning("Could not determine subnet for %s — skipping NAT rules", bridge)
-                continue
             try:
-                subnet = str(_ipaddress.ip_interface(raw_addr).network)
-            except ValueError:
-                continue
-
-            rules = [
-                (["-t", "nat", "-C", "POSTROUTING", "-s", subnet, "!", "-d", subnet, "-j", "MASQUERADE"],
-                 ["-t", "nat", "-A", "POSTROUTING", "-s", subnet, "!", "-d", subnet, "-j", "MASQUERADE"]),
-                (["-C", "FORWARD", "-o", bridge, "-j", "ACCEPT"],
-                 ["-A", "FORWARD", "-o", bridge, "-j", "ACCEPT"]),
-                (["-C", "FORWARD", "-i", bridge, "-j", "ACCEPT"],
-                 ["-A", "FORWARD", "-i", bridge, "-j", "ACCEPT"]),
-            ]
-            for check_args, add_args in rules:
-                try:
-                    if subprocess.run(["iptables-legacy"] + check_args, capture_output=True).returncode != 0:
-                        subprocess.run(["iptables-legacy"] + add_args, capture_output=True, check=True)
-                        logger.info("Added iptables-legacy rule for %s: %s", bridge, " ".join(add_args))
-                except Exception as exc:
-                    logger.warning("Could not add iptables-legacy rule: %s", exc)
+                network.raw_patch({"config": {"ipv4.nat": "false"}})
+                network.raw_patch({"config": {"ipv4.nat": "true"}})
+                logger.info("Re-established LXD NAT rules for %s via API toggle", bridge)
+            except Exception as exc:
+                logger.warning("Could not re-establish LXD NAT rules for %s: %s", bridge, exc)
 
     def ensure_initialized(self) -> None:
         client = self.client()
@@ -959,9 +930,10 @@ class LxdManager:
         with self._lock:
             try:
                 self._set_bootstrap_state("ensuring-daemon")
-                self._ensure_nm_ignores_lxd()
+                nm_restarted = self._ensure_nm_ignores_lxd()
                 self.ensure_initialized()
-                self._ensure_lxd_nat_rules()
+                if nm_restarted:
+                    self._ensure_lxd_nat_rules()
                 self._set_bootstrap_state("ensuring-profile")
                 self.ensure_profile()
                 self._set_bootstrap_state("importing-image")
