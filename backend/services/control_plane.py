@@ -844,22 +844,32 @@ class LxdControlPlane:
             onboard = nimbus_store.get_onboard_cmd(snap)
             if onboard:
                 await asyncio.sleep(3)
-                # Always ensure the model provider is ready before running the
-                # onboard command. Many onboards (e.g. openclaw.lemonade --auto,
-                # hermes-agent.lemonade --auto) probe the LLM backend and fail
-                # if it isn't loaded yet.
-                #
-                # ensure_ready_task() is idempotent: if the model is already
-                # loaded it completes in seconds. We kick it off here so that
-                # even if the nimbus service restarted (resetting the in-memory
-                # pull state to "idle") the provider is re-verified before we
-                # attempt the onboard.
-                model_provider.ensure_ready_task()
+                # Ensure the model provider is ready before running the onboard
+                # command. We await the task directly (rather than just polling
+                # the in-memory state) so that a freshly-created ensure task
+                # can't race ahead — polling would see the stale "ready" state
+                # from the previous session before the new task has a chance to
+                # update it.
                 logger.info(
-                    "Waiting for model provider before onboard for %s (status: %s)",
-                    snap_name, model_provider.get_state().status,
+                    "Ensuring model provider ready before onboard for %s",
+                    snap_name,
                 )
-                await model_provider.wait_until_ready(timeout=1800.0)
+                task = model_provider.ensure_ready_task()
+                if task is not None:
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.shield(task), timeout=1800.0
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "Model provider timed out waiting for %s onboard — proceeding anyway",
+                            snap_name,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "Model provider error before %s onboard (non-fatal): %s",
+                            snap_name, exc,
+                        )
                 await asyncio.sleep(2)
                 cmd, args = onboard
                 logger.info("Running onboard for %s: %s %s", snap_name, cmd, " ".join(args))
