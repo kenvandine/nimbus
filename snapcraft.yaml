@@ -24,7 +24,6 @@ apps:
       - network-control
       - system-observe
       - lxd
-      - shutdown
     environment:
       HOME: $SNAP_COMMON
       LXD_DIR: /var/snap/lxd/common/lxd
