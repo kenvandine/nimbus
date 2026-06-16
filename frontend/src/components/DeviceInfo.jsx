@@ -360,7 +360,7 @@ export default function DeviceInfo({ stats, apps }) {
             <div style={styles.infoTable}>
               <InfoRow label="Service" value={stats?.version ? `Nimbus v${stats.version}` : 'Nimbus'} />
               <InfoRow label="Runtime" value={stats?.control_mode === 'lxd' ? 'SnapD + LXD' : 'Docker + LXD'} />
-              <InfoRow label="App Catalog" value="Umbrel App Store" />
+              <InfoRow label="App Catalog" value={stats?.app_store_type === 'umbrel' ? 'Umbrel App Store' : 'Nimbus App Store'} />
               {stats?.container_name && <InfoRow label="Managed Container" value={stats.container_name} />}
               {stats?.container_status && <InfoRow label="Container State" value={stats.container_status} />}
               {stats?.container_ip && <InfoRow label="Container IP" value={stats.container_ip} />}

@@ -327,6 +327,7 @@ class LocalControlPlane:
             oobe_complete=True,
             online=True,
             appstore_visible=settings.appstore_visible,
+            app_store_type=settings.app_store_type,
         ))
 
     async def restart_system(self) -> dict:
@@ -1012,6 +1013,7 @@ class LxdControlPlane:
             oobe_complete=is_oobe_complete(),
             online=online,
             appstore_visible=settings.appstore_visible,
+            app_store_type=settings.app_store_type,
         ))
 
     async def restart_system(self) -> dict:

@@ -80,6 +80,8 @@ class SystemStats(BaseModel):
     tls_fingerprint: Optional[str] = None
     # App updates available count (across all installed apps)
     update_available_count: int = 0
+    # App store / catalog backend
+    app_store_type: str = "nimbus"
     # Container resource limits
     container_cpu_limit: Optional[int] = None
     container_mem_limit_mb: Optional[int] = None

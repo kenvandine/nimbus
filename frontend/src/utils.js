@@ -31,10 +31,16 @@ export function openApp(url, meta = {}) {
     window.location.href = localUrl
     return
   }
-  const opened = window.open(url, '_blank', 'noopener,noreferrer')
-  if (!opened) {
-    window.location.href = url
-  }
+  // Use a programmatic anchor click rather than window.open(url, '_blank', 'noopener,noreferrer').
+  // window.open with the 'noopener' feature string always returns null in modern browsers,
+  // which causes the window.location.href fallback to fire too — double-navigation.
+  const a = document.createElement('a')
+  a.href = url
+  a.target = '_blank'
+  a.rel = 'noopener noreferrer'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
 }
 
 function rewriteToLocalhost(url) {
