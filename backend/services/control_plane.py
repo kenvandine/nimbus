@@ -19,6 +19,14 @@ from services import docker, model_provider, network, store, system_apps
 
 logger = logging.getLogger(__name__)
 
+# Fallback UI ports for snaps whose catalog entries don't include a `ports`
+# field.  These are used to build the Open URL and set up the LXD proxy device.
+# Prefer adding ports to the catalog; this dict is a belt-and-suspenders safety
+# net for first-party apps that Nimbus knows about by name.
+_SNAP_UI_PORTS: dict[str, int] = {
+    "openclaw": 18789,   # OPENCLAW_UI_PORT (setup-server / web UI)
+}
+
 _PRESEED_STATE = ".preseed_apps_state"
 
 
@@ -561,7 +569,7 @@ class LxdControlPlane:
         for meta in snap_metas:
             snap_info = installed_map.get(meta.id)
             if snap_info:
-                port = meta.ports[0] if meta.ports else None
+                port = meta.ports[0] if meta.ports else _SNAP_UI_PORTS.get(meta.id)
                 open_url = network.build_open_url(host_ip, port) if port and host_ip else None
                 status = AppStatus(installed=True, running=True, port=port, open_url=open_url)
             else:
@@ -588,7 +596,7 @@ class LxdControlPlane:
                 update_available = bool(
                     meta.version and installed_ver and installed_ver != meta.version
                 )
-                port = meta.ports[0] if meta.ports else None
+                port = meta.ports[0] if meta.ports else _SNAP_UI_PORTS.get(meta.id)
                 open_url = network.build_open_url(host_ip, port) if port and host_ip else None
                 status = AppStatus(
                     installed=True,
@@ -748,12 +756,16 @@ class LxdControlPlane:
             logger.info("Sideload completed for %s", snap_name)
             if snap_name == "openclaw":
                 model_provider.ensure_ready_task()
-            ports = snap.get("ports", [])
+            ports = snap.get("ports", []) or (
+                [_SNAP_UI_PORTS[snap_name]] if snap_name in _SNAP_UI_PORTS else []
+            )
             if ports:
                 await asyncio.to_thread(self.manager.setup_snap_port_proxies, snap_name, ports)
-            # Run lemonade --auto to configure the model provider and start the service.
+            # Give snapd a moment to finish creating /snap/bin symlinks before
+            # running the onboard command, which invokes a snap binary directly.
             onboard = nimbus_store.get_onboard_cmd(snap)
             if onboard:
+                await asyncio.sleep(3)
                 cmd, args = onboard
                 logger.info("Running onboard for %s: %s %s", snap_name, cmd, " ".join(args))
                 try:
