@@ -44,9 +44,12 @@ AGENT_SERVICE_SOURCE = SETUP_DIR / "nimbus.service"
 LXC_AGENT_SERVICE_SOURCE = SETUP_DIR / "nimbus-lxc-agent.service"
 NIMBUS_USER_MARKER = Path("/var/lib/nimbus/.nimbus-user-setup")
 LXC_AGENT_VERSION_MARKER = Path("/var/lib/nimbus/.lxc-agent-version")
+BACKEND_VERSION_MARKER = Path("/var/lib/nimbus/.backend-version")
 LXC_AGENT_PORT = 9001
 # Bump this whenever agent/daemon.py changes to trigger a re-deploy on next startup.
 _LXC_AGENT_VERSION = "17"
+# Bump this whenever any backend file changes to trigger a re-deploy on next startup.
+_BACKEND_VERSION = "2"
 DEFAULT_LXD_STORAGE_POOL = "default"
 DEFAULT_LXD_PROFILE = "default"
 DEFAULT_LXD_BRIDGE_PREFIX = "lxdbr"
@@ -962,6 +965,24 @@ class LxdManager:
         self._write_file(instance, "/etc/systemd/system/nimbus.service", AGENT_SERVICE_SOURCE.read_text())
         self._write_file(instance, "/etc/default/nimbus", self._agent_env(), mode=0o600)
 
+    def _ensure_backend_payload(self, instance) -> None:
+        """Re-push the backend payload and restart the nimbus service if the version changed.
+
+        Mirrors the _ensure_lxc_agent version-marker pattern so that backend
+        updates (e.g. new routers, bug fixes) are deployed to already-bootstrapped
+        containers on next host startup without requiring a full re-bootstrap.
+        Bump _BACKEND_VERSION whenever backend files change.
+        """
+        current = self._read_file(instance, str(BACKEND_VERSION_MARKER))
+        if current and current.strip() == _BACKEND_VERSION:
+            return
+        logger.info("Deploying backend payload v%s to container", _BACKEND_VERSION)
+        self._push_agent_payload(instance)
+        self._run(instance, ["systemctl", "daemon-reload"])
+        self._run(instance, ["systemctl", "restart", "nimbus"], acceptable={0, 1})
+        self._write_file(instance, str(BACKEND_VERSION_MARKER), _BACKEND_VERSION + "\n")
+        logger.info("Backend payload deployed and nimbus service restarted")
+
     def _install_runtime_packages(self, instance) -> None:
         env = {"DEBIAN_FRONTEND": "noninteractive"}
         self._run(instance, ["apt-get", "update", "-q"], environment=env)
@@ -1028,6 +1049,7 @@ class LxdManager:
                     self._repatch_provider_apps(instance)
                     self._setup_nimbus_user(instance)
                     self._ensure_hostname_in_hosts(instance)
+                    self._ensure_backend_payload(instance)
                     self._update_agent_env(instance)
                     self._ensure_lxc_agent(instance)
                     self._set_bootstrap_state("ready")
@@ -1056,6 +1078,7 @@ class LxdManager:
                 self._setup_nimbus_user(instance)
                 self._ensure_hostname_in_hosts(instance)
                 self._ensure_lxc_agent(instance)
+                self._write_file(instance, str(BACKEND_VERSION_MARKER), _BACKEND_VERSION + "\n")
                 self._write_file(instance, str(BOOTSTRAP_MARKER), BOOTSTRAP_VERSION + "\n")
                 self._set_bootstrap_state("ready")
             except (ClientConnectionFailed, LXDAPIException, RuntimeError) as exc:
