@@ -902,6 +902,31 @@ class LxdManager:
         self._write_file(instance, str(NIMBUS_USER_MARKER), "1\n")
         logger.info("nimbus user setup complete")
 
+    def _ensure_hostname_in_hosts(self, instance) -> None:
+        """Ensure the container's hostname resolves via /etc/hosts.
+
+        sudo logs a warning and adds a slight delay when it cannot resolve the
+        current hostname.  This is a cosmetic issue but confusing to users, so
+        we guarantee that a 127.0.1.1 entry exists for the hostname.
+        """
+        _, hostname, _ = self._run(instance, ["hostname"], acceptable={0})
+        hostname = hostname.strip()
+        if not hostname:
+            return
+        # Check whether /etc/hosts already has an entry for this hostname.
+        code, _, _ = self._run(
+            instance,
+            ["grep", "-qw", hostname, "/etc/hosts"],
+            acceptable={0, 1},
+        )
+        if code == 0:
+            return
+        logger.info("Adding hostname %r to /etc/hosts in container", hostname)
+        self._run(instance, [
+            "sh", "-c",
+            f"echo '127.0.1.1 {hostname}' >> /etc/hosts",
+        ])
+
     def _ensure_lxc_agent(self, instance) -> None:
         """Push the LXC agent daemon and (re)start it if the version changed."""
         current = self._read_file(instance, str(LXC_AGENT_VERSION_MARKER))
@@ -1002,6 +1027,7 @@ class LxdManager:
                     self._wait_for_docker(instance)
                     self._repatch_provider_apps(instance)
                     self._setup_nimbus_user(instance)
+                    self._ensure_hostname_in_hosts(instance)
                     self._update_agent_env(instance)
                     self._ensure_lxc_agent(instance)
                     self._set_bootstrap_state("ready")
@@ -1028,6 +1054,7 @@ class LxdManager:
                 self._set_bootstrap_state("starting-agent")
                 self._enable_services(instance)
                 self._setup_nimbus_user(instance)
+                self._ensure_hostname_in_hosts(instance)
                 self._ensure_lxc_agent(instance)
                 self._write_file(instance, str(BOOTSTRAP_MARKER), BOOTSTRAP_VERSION + "\n")
                 self._set_bootstrap_state("ready")

@@ -5,8 +5,7 @@ import json
 import logging
 import os
 import socket
-
-import websocket as _ws  # websocket-client (bundled with pylxd)
+from typing import Any
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
@@ -31,7 +30,7 @@ class _TerminalSession:
 
     MAX_BUFFER = 128 * 1024  # 128 KB
 
-    def __init__(self, io_ws: _ws.WebSocket, ctrl_ws: _ws.WebSocket) -> None:
+    def __init__(self, io_ws: Any, ctrl_ws: Any) -> None:
         self._io_ws = io_ws
         self._ctrl_ws = ctrl_ws
         self._missed: bytearray = bytearray()
@@ -112,8 +111,9 @@ def _start_exec(container: str, cols: int, rows: int) -> tuple[str, dict]:
     return op_id, fds
 
 
-def _open_lxd_ws(op_id: str, secret: str) -> _ws.WebSocket:
+def _open_lxd_ws(op_id: str, secret: str) -> Any:
     """Open a WebSocket to LXD over the Unix domain socket."""
+    import websocket as _ws  # websocket-client (bundled with pylxd)
     path = f"/1.0/operations/{op_id}/websocket?secret={secret}"
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.connect(_lxd_socket_path())
