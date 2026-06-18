@@ -5,7 +5,7 @@ Runs as a systemd service inside the LXC container. On each tick it:
   - Ensures Docker daemon.json has reliable public DNS servers (fixes the
     lxdbr0/systemd-resolved chain that intermittently breaks image pulls).
 
-Exposes a minimal HTTP API on port 9001 for status queries and future
+Exposes a minimal HTTP API on port 9002 for status queries and future
 snap-management commands issued by the host nimbus.
 
 Run directly:  python /opt/nimbus/backend/agent/daemon.py
@@ -19,7 +19,7 @@ import logging
 import sys
 from pathlib import Path
 
-DAEMON_VERSION = "17"
+DAEMON_VERSION = "18"
 INSTALLED_DIR = Path("/var/lib/nimbus/installed")
 DOCKER_DAEMON_JSON = Path("/etc/docker/daemon.json")
 RESOLVED_DROPIN_DIR = Path("/etc/systemd/resolved.conf.d")
@@ -29,7 +29,7 @@ DNS_FALLBACK_SERVERS = ["1.0.0.1", "8.8.4.4"]
 DNS_CHECK_HOST = "registry-1.docker.io"
 APP_CHECK_INTERVAL = 30   # seconds between app health sweeps
 DNS_CHECK_INTERVAL = 60   # seconds between DNS health checks
-HTTP_PORT = 9001
+HTTP_PORT = 9002
 
 logging.basicConfig(
     level=logging.INFO,

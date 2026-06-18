@@ -16,7 +16,7 @@ from models import SystemStats
 from services.control_plane import get_control_plane
 from services.device import mark_oobe_complete
 
-_LXC_AGENT_PORT = 9001
+_LXC_AGENT_PORT = 9002
 _HOST_LOG_FILE = Path(os.environ.get("SNAP_COMMON", "")) / "nimbus.log" if os.environ.get("SNAP_COMMON") else None
 
 router = APIRouter(prefix="/api/system", tags=["system"], dependencies=[Depends(require_api_token)])
