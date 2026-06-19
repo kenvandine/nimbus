@@ -4,6 +4,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from constants import MODEL_PROVIDER_URLS
+
 
 _DEFAULT_APPSTORE_WHITELIST = [
     "openclaw", "hermes-agent", "picoclaw", "immich",
@@ -33,10 +35,7 @@ MODEL_PROVIDERS = {MODEL_PROVIDER_LEMONADE, MODEL_PROVIDER_GEMMA4}
 # is unset; the nimbus snap can't run `gemma4 status` (strict confinement), so
 # the operator points the snap setting at the right URL instead of relying on
 # in-process discovery.
-DEFAULT_OPENAI_URL = {
-    MODEL_PROVIDER_LEMONADE: "http://127.0.0.1:13305/api/v1",
-    MODEL_PROVIDER_GEMMA4: "http://127.0.0.1:8336/v1",
-}
+DEFAULT_OPENAI_URL = MODEL_PROVIDER_URLS
 
 
 @dataclass(frozen=True)
@@ -93,6 +92,10 @@ class Settings:
     app_store_type: str = "nimbus"
     # Override URL for the nimbus-app-store catalog.json (useful for testing).
     nimbus_store_url: str = "https://raw.githubusercontent.com/kenvandine/nimbus-app-store/main/catalog.json"
+    # CORS: comma-separated list of allowed origins (empty = allow all, for
+    # backwards compatibility during local dev).  In production this should
+    # be set to the known frontend origin(s).
+    cors_origins: str = ""
 
 
 def _build_settings() -> Settings:
@@ -177,7 +180,7 @@ def _build_settings() -> Settings:
         lxd_image_protocol=os.getenv("NIMBUS_LXD_IMAGE_PROTOCOL", "simplestreams"),
         lxd_image_alias=os.getenv("NIMBUS_LXD_IMAGE_ALIAS", "24.04"),
         lxd_local_image_alias=os.getenv("NIMBUS_LXD_LOCAL_IMAGE_ALIAS", ""),
-        lxd_agent_port=int(os.getenv("NIMBUS_LXD_AGENT_PORT", "9001")),
+        lxd_agent_port=int(os.getenv("NIMBUS_LXD_AGENT_PORT", str(9001))),
         lxd_agent_bind_host=os.getenv("NIMBUS_LXD_AGENT_BIND_HOST", "127.0.0.1"),
         lxd_agent_token=os.getenv("NIMBUS_LXD_AGENT_TOKEN") or os.getenv("NIMBUS_API_TOKEN"),
         lxd_publish_host=os.getenv("NIMBUS_LXD_PUBLISH_HOST", "0.0.0.0"),
@@ -195,6 +198,7 @@ def _build_settings() -> Settings:
         openai_url=openai_url,
         app_store_type=app_store_type,
         nimbus_store_url=nimbus_store_url,
+        cors_origins=(os.getenv("NIMBUS_CORS_ORIGINS") or "").strip(),
     )
 
 

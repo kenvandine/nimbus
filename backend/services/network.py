@@ -3,6 +3,7 @@ import asyncio
 import logging
 
 from config import settings
+from constants import CONTAINER_DNS_SERVERS
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +144,6 @@ def build_open_url(host_ip: str, port: int) -> str:
 
 
 _RESOLV_CONF = "/etc/resolv.conf"
-_DEFAULT_DNS = ["1.1.1.1", "1.0.0.1"]
 
 
 def get_dns_servers() -> list[str]:
@@ -159,14 +159,14 @@ def get_dns_servers() -> list[str]:
                         servers.append(ip)
     except OSError:
         pass
-    return servers or _DEFAULT_DNS[:]
+    return servers or CONTAINER_DNS_SERVERS[:]
 
 
 def set_dns_servers(servers: list[str]) -> None:
     """Write new nameservers to /etc/resolv.conf (best-effort; may need resolvconf)."""
     import subprocess
     if not servers:
-        servers = _DEFAULT_DNS[:]
+        servers = CONTAINER_DNS_SERVERS[:]
     try:
         lines = [f"nameserver {s}" for s in servers]
         content = "\n".join(lines) + "\n"

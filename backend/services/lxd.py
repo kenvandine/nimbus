@@ -20,39 +20,35 @@ from pylxd.models.profile import Profile
 from pylxd.models.storage_pool import StoragePool
 
 from config import settings
+from constants import (
+    BACKEND_VERSION,
+    BACKEND_VERSION_MARKER_PATH,
+    CONTAINER_INSTALLED_DIR,
+    CONTAINER_OPENCLAW_WORKSPACE,
+    CONTAINER_OVERLAY_DIR,
+    DOCKER_DNS_SERVERS,
+    LXC_AGENT_VERSION,
+    LXC_AGENT_VERSION_MARKER_PATH,
+    LXC_AGENT_PROXY_DEVICE_NAME,
+    LXC_AGENT_PORT,
+    PACKAGES_MARKER_PATH,
+    AGENT_PYTHON_MARKER_PATH,
+    PROVIDER_PROXY_DEVICE_NAME,
+    BOOTSTRAP_MARKER_PATH,
+    BOOTSTRAP_VERSION,
+    DEFAULT_LXD_STORAGE_POOL,
+    DEFAULT_LXD_PROFILE,
+    DEFAULT_LXD_BRIDGE_PREFIX,
+    NIMBUS_USER_MARKER_PATH,
+)
 from services import docker
 
 logger = logging.getLogger(__name__)
 
-CONTAINER_INSTALLED_DIR = Path("/var/lib/nimbus/installed")
-CONTAINER_OVERLAY_DIR = Path("/opt/nimbus/openclaw-overlay")
-# Where the openclaw container's workspace lives inside the LXC. The host
-# snap bind-mounts <files_root>/openclaw-workspace to this path so the
-# file browser and the agent see the same files.
-CONTAINER_OPENCLAW_WORKSPACE = "/var/lib/nimbus/installed/openclaw/data/data/.openclaw/workspace"
-BOOTSTRAP_MARKER = Path("/var/lib/nimbus/.agent-bootstrap-version")
-BOOTSTRAP_VERSION = "1"
-# Written into the pre-built image at build time to signal that APT packages
-# are already installed and _install_runtime_packages can be skipped.
-PACKAGES_MARKER = Path("/var/lib/nimbus/.packages-preinstalled")
-# Written into the pre-built image to signal that /opt/nimbus-venv already
-# contains all agent Python dependencies and _install_agent_python can be skipped.
-AGENT_PYTHON_MARKER = Path("/var/lib/nimbus/.agent-python-preinstalled")
 BACKEND_SOURCE_DIR = Path(__file__).resolve().parents[1]
 SETUP_DIR = Path(__file__).resolve().parents[2] / "setup"
 AGENT_SERVICE_SOURCE = SETUP_DIR / "nimbus.service"
 LXC_AGENT_SERVICE_SOURCE = SETUP_DIR / "nimbus-lxc-agent.service"
-NIMBUS_USER_MARKER = Path("/var/lib/nimbus/.nimbus-user-setup")
-LXC_AGENT_VERSION_MARKER = Path("/var/lib/nimbus/.lxc-agent-version")
-BACKEND_VERSION_MARKER = Path("/var/lib/nimbus/.backend-version")
-LXC_AGENT_PORT = 9002
-# Bump this whenever agent/daemon.py changes to trigger a re-deploy on next startup.
-_LXC_AGENT_VERSION = "18"
-# Bump this whenever any backend file changes to trigger a re-deploy on next startup.
-_BACKEND_VERSION = "3"
-DEFAULT_LXD_STORAGE_POOL = "default"
-DEFAULT_LXD_PROFILE = "default"
-DEFAULT_LXD_BRIDGE_PREFIX = "lxdbr"
 
 
 @dataclass(frozen=True)
@@ -98,9 +94,7 @@ class LxdManager:
     # Single LXD proxy device that surfaces the host-side model service
     # (gemma4 / lemonade bound to 127.0.0.1) inside the nimbus LXC, where the
     # openclaw container can reach it via docker's host-gateway alias.
-    _PROVIDER_PROXY_DEVICE_NAME = "nimbus-provider-fwd"
-    # LXD proxy device that exposes the LXC agent daemon's HTTP API on the host.
-    _LXC_AGENT_PROXY_DEVICE_NAME = "nimbus-lxc-agent"
+    # (Defined in constants.PROVIDER_PROXY_DEVICE_NAME)
 
     def _bootstrap_in_progress(self) -> bool:
         return self._bootstrap_state in {
@@ -114,14 +108,14 @@ class LxdManager:
         }
 
     def _has_bootstrap_marker(self, instance) -> bool:
-        marker = self._read_file(instance, str(BOOTSTRAP_MARKER))
+        marker = self._read_file(instance, BOOTSTRAP_MARKER_PATH)
         return bool(marker and marker.strip() == BOOTSTRAP_VERSION)
 
     def _has_packages_marker(self, instance) -> bool:
-        return self._read_file(instance, str(PACKAGES_MARKER)) is not None
+        return self._read_file(instance, PACKAGES_MARKER_PATH) is not None
 
     def _has_agent_python_marker(self, instance) -> bool:
-        return self._read_file(instance, str(AGENT_PYTHON_MARKER)) is not None
+        return self._read_file(instance, AGENT_PYTHON_MARKER_PATH) is not None
 
     def _import_seeded_image(self) -> None:
         """Import a pre-built LXC image tarball.
@@ -553,7 +547,7 @@ class LxdManager:
         removes it otherwise (e.g. operator pointed at an off-host server)."""
         from services import model_provider
         devices = self._instance_devices(instance)
-        name = self._PROVIDER_PROXY_DEVICE_NAME
+        name = PROVIDER_PROXY_DEVICE_NAME
         port = model_provider.loopback_listen_port()
         if not port:
             if name in devices:
@@ -840,7 +834,7 @@ class LxdManager:
 
     def _configure_lxc_agent_proxy(self, instance) -> None:
         devices = self._instance_devices(instance)
-        name = self._LXC_AGENT_PROXY_DEVICE_NAME
+        name = LXC_AGENT_PROXY_DEVICE_NAME
         desired = {
             "type": "proxy",
             "bind": "host",
@@ -853,7 +847,7 @@ class LxdManager:
         self._save_instance_devices(instance, devices)
 
     def _has_nimbus_user_marker(self, instance) -> bool:
-        return self._read_file(instance, str(NIMBUS_USER_MARKER)) is not None
+        return self._read_file(instance, NIMBUS_USER_MARKER_PATH) is not None
 
     def _update_agent_env(self, instance) -> None:
         """Rewrite /etc/default/nimbus with the current settings and restart.
@@ -902,7 +896,7 @@ class LxdManager:
         # snap user-services and D-Bus are available even without an active login
         self._run(instance, ["loginctl", "enable-linger", "nimbus"])
 
-        self._write_file(instance, str(NIMBUS_USER_MARKER), "1\n")
+        self._write_file(instance, NIMBUS_USER_MARKER_PATH, "1\n")
         logger.info("nimbus user setup complete")
 
     def _ensure_hostname_in_hosts(self, instance) -> None:
@@ -932,7 +926,7 @@ class LxdManager:
 
     def _ensure_lxc_agent(self, instance) -> None:
         """Push the LXC agent daemon and (re)start it if the version changed."""
-        current = self._read_file(instance, str(LXC_AGENT_VERSION_MARKER))
+        current = self._read_file(instance, LXC_AGENT_VERSION_MARKER_PATH)
         if current and current.strip() == _LXC_AGENT_VERSION:
             # Agent is up to date — still ensure the proxy device exists (it
             # won't be present on a freshly started seeded-image container).
@@ -955,7 +949,7 @@ class LxdManager:
         self._run(instance, ["systemctl", "daemon-reload"])
         self._run(instance, ["systemctl", "enable", "nimbus-lxc-agent"])
         self._run(instance, ["systemctl", "restart", "nimbus-lxc-agent"], acceptable={0, 1})
-        self._write_file(instance, str(LXC_AGENT_VERSION_MARKER), _LXC_AGENT_VERSION + "\n")
+        self._write_file(instance, LXC_AGENT_VERSION_MARKER_PATH, LXC_AGENT_VERSION + "\n")
         self._configure_lxc_agent_proxy(instance)
         logger.info("LXC agent daemon installed and started")
 
@@ -971,16 +965,16 @@ class LxdManager:
         Mirrors the _ensure_lxc_agent version-marker pattern so that backend
         updates (e.g. new routers, bug fixes) are deployed to already-bootstrapped
         containers on next host startup without requiring a full re-bootstrap.
-        Bump _BACKEND_VERSION whenever backend files change.
+       Bump BACKEND_VERSION whenever backend files change.
         """
-        current = self._read_file(instance, str(BACKEND_VERSION_MARKER))
-        if current and current.strip() == _BACKEND_VERSION:
+        current = self._read_file(instance, BACKEND_VERSION_MARKER_PATH)
+        if current and current.strip() == BACKEND_VERSION:
             return
-        logger.info("Deploying backend payload v%s to container", _BACKEND_VERSION)
+        logger.info("Deploying backend payload v%s to container", BACKEND_VERSION)
         self._push_agent_payload(instance)
         self._run(instance, ["systemctl", "daemon-reload"])
         self._run(instance, ["systemctl", "restart", "nimbus"], acceptable={0, 1})
-        self._write_file(instance, str(BACKEND_VERSION_MARKER), _BACKEND_VERSION + "\n")
+        self._write_file(instance, BACKEND_VERSION_MARKER_PATH, BACKEND_VERSION + "\n")
         logger.info("Backend payload deployed and nimbus service restarted")
 
     def _install_runtime_packages(self, instance) -> None:
@@ -1021,7 +1015,7 @@ class LxdManager:
         self._write_file(
             instance,
             "/etc/docker/daemon.json",
-            '{"dns": ["1.1.1.1", "8.8.8.8"]}\n',
+            '{"dns": %s}\n' % json.dumps(DOCKER_DNS_SERVERS),
         )
         self._run(instance, ["systemctl", "restart", "docker"])
         self._run(instance, ["systemctl", "enable", "docker"])
@@ -1078,8 +1072,8 @@ class LxdManager:
                 self._setup_nimbus_user(instance)
                 self._ensure_hostname_in_hosts(instance)
                 self._ensure_lxc_agent(instance)
-                self._write_file(instance, str(BACKEND_VERSION_MARKER), _BACKEND_VERSION + "\n")
-                self._write_file(instance, str(BOOTSTRAP_MARKER), BOOTSTRAP_VERSION + "\n")
+                self._write_file(instance, BACKEND_VERSION_MARKER_PATH, BACKEND_VERSION + "\n")
+                self._write_file(instance, BOOTSTRAP_MARKER_PATH, BOOTSTRAP_VERSION + "\n")
                 self._set_bootstrap_state("ready")
             except (ClientConnectionFailed, LXDAPIException, RuntimeError) as exc:
                 self._set_bootstrap_state("error", str(exc))

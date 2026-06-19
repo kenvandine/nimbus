@@ -1,6 +1,6 @@
 """Client for the Lemonade Server REST API (https://lemonade-server.ai).
 
-Lemonade runs as a host snap on http://localhost:13305 and serves models with
+Lemonade runs as a host snap on the loopback interface and serves models with
 an OpenAI-compatible API. Nimbus uses it as the local-LLM backend behind
 OpenClaw — when the user installs OpenClaw, we pre-pull and load the default
 Qwen3.5 model so the wizard's preselected provider has something to talk to.
@@ -18,9 +18,11 @@ from typing import Optional
 
 import httpx
 
+from constants import LEMONADE_PORT
+
 logger = logging.getLogger(__name__)
 
-LEMONADE_BASE_URL = os.getenv("NIMBUS_LEMONADE_BASE_URL", "http://localhost:13305")
+LEMONADE_BASE_URL = os.getenv("NIMBUS_LEMONADE_BASE_URL", f"http://localhost:{LEMONADE_PORT}")
 
 # Model specs mirrored from kenvandine/recipes (branch openclaw_recipes).
 # The 35B MoE is used on AMD RYZEN AI devices with ≥64 GB RAM; everything else

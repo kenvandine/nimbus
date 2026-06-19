@@ -3,9 +3,8 @@ from __future__ import annotations
 import base64
 
 from config import MODEL_PROVIDER_GEMMA4, settings
+from constants import LEMONADE_PORT
 from models import AppDetail
-
-LEMONADE_PORT = 13305
 
 # SVG icon: dark rounded square with a 🍋 emoji centred
 _LEMONADE_SVG = """\
@@ -32,7 +31,7 @@ def get_lemonade_app(host_ip: str | None) -> AppDetail:
         id="lemonade",
         name="Lemonade",
         tagline="Local Lemonade instance",
-        description="Opens the Lemonade service running on the host at port 13305.",
+        description=f"Opens the Lemonade service running on the host at port {LEMONADE_PORT}.",
         icon=_LEMONADE_ICON,
         port_hint=LEMONADE_PORT,
         installed=True,

@@ -22,10 +22,10 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from constants import OPENCLAW_PORT, OPENCLAW_UI_PORT
+
 logger = logging.getLogger(__name__)
 
-OPENCLAW_PORT = 18790
-OPENCLAW_UI_PORT = 18789  # setup-server HTTP UI (distinct from the gateway WS port)
 _RECONNECT_DELAY = 10.0   # seconds between reconnection attempts
 _REFRESH_AGENTS = 30.0    # re-fetch agents.list this often (seconds)
 _RPC_TIMEOUT = 8.0        # max seconds to wait for an RPC response
