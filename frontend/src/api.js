@@ -104,6 +104,7 @@ export const getModelStatus = () => request('/models/status')
 export const getAvailableModels = () => request('/models/available')
 export const pullModel = () => request('/models/pull', { method: 'POST' })
 export const ensureModel = () => request('/models/ensure', { method: 'POST' })
+export const selectModel = (modelName) => json('POST', '/models/select', { model_name: modelName })
 
 // API Keys
 export const listApiKeys = () => request('/keys')

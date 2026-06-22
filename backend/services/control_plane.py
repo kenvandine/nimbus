@@ -1158,6 +1158,59 @@ class LxdControlPlane:
         raise HTTPException(status_code=404, detail="CA certificate is not available in LXD controller mode")
 
 
+
+# ---------------------------------------------------------------------------
+# Lemonade auto-config helper
+# ---------------------------------------------------------------------------
+
+
+async def run_lemonade_autoconfig() -> None:
+    """Re-run the lemonade --auto onboard command for every installed claw app.
+
+    Called after the user switches the active AI model so that all apps
+    supporting auto-config pick up the new model without a reinstall.
+    """
+    from services import container_snaps, nimbus_store
+    logger.info("Re-running lemonade auto-config for all installed claw apps")
+    try:
+        catalog, installed_snaps = await asyncio.gather(
+            nimbus_store.get_catalog(),
+            container_snaps.list_container_snaps(),
+        )
+    except Exception as exc:
+        logger.error("run_lemonade_autoconfig: could not fetch catalog/snap list: %s", exc)
+        return
+
+    installed_names = {s.get("name") for s in installed_snaps}
+    for snap in nimbus_store.get_snaps(catalog):
+        if snap.get("name") not in installed_names:
+            continue
+        onboard = nimbus_store.get_onboard_cmd(snap)
+        if not onboard:
+            continue
+        cmd, args = onboard
+        snap_name = snap["name"]
+        logger.info("Lemonade auto-config: %s → %s %s", snap_name, cmd, " ".join(args))
+        try:
+            result = await container_snaps.run_snap_cmd(cmd, args)
+            if result.get("ok"):
+                logger.info("Lemonade auto-config completed for %s", snap_name)
+            else:
+                logger.warning(
+                    "Lemonade auto-config non-zero for %s | stdout: %s | stderr: %s",
+                    snap_name,
+                    result.get("stdout", "").strip(),
+                    result.get("stderr", "").strip(),
+                )
+        except Exception as exc:
+            logger.warning("Lemonade auto-config failed for %s (non-fatal): %s", snap_name, exc)
+
+
+# ---------------------------------------------------------------------------
+# Factory
+# ---------------------------------------------------------------------------
+
+
 if settings.control_mode == "remote":
     if not settings.remote_base_url:
         raise ValueError("NIMBUS_REMOTE_BASE_URL is required when NIMBUS_CONTROL_MODE=remote")

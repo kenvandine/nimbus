@@ -18,6 +18,10 @@ from typing import Optional
 
 import httpx
 
+from pathlib import Path
+
+from constants import LEMONADE_PORT
+
 logger = logging.getLogger(__name__)
 
 LEMONADE_BASE_URL = os.getenv("NIMBUS_LEMONADE_BASE_URL", "http://localhost:13305")
@@ -43,7 +47,16 @@ _MODEL_9B = {
     "recipe_options": {"ctx_size": 32768},
 }
 
+# All models available for user selection, in display order.
+KNOWN_MODELS: list[dict] = [_MODEL_9B, _MODEL_35B]
+KNOWN_MODELS_BY_NAME: dict[str, dict] = {m["model_name"]: m for m in KNOWN_MODELS}
+
 _GiB = 1 << 30
+
+# Path where the user's model preference is persisted across restarts.
+_MODEL_OVERRIDE_PATH = Path("/var/lib/nimbus/model_override.json")
+
+_model_override: dict | None = None
 
 
 def _select_model() -> dict:
@@ -72,6 +85,39 @@ def _select_model() -> dict:
 
 
 DEFAULT_MODEL: dict = _select_model()
+
+
+def get_active_model_spec() -> dict:
+    """Return the user-selected model spec if set, otherwise DEFAULT_MODEL.
+
+    The user override is loaded from disk on the first call and cached in
+    memory; subsequent calls return the in-memory value.
+    """
+    global _model_override
+    if _model_override is None:
+        try:
+            data = json.loads(_MODEL_OVERRIDE_PATH.read_text())
+            name = data.get("model_name")
+            if name and name in KNOWN_MODELS_BY_NAME:
+                _model_override = KNOWN_MODELS_BY_NAME[name]
+                logger.info("Loaded user model override: %s", name)
+        except FileNotFoundError:
+            pass
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("Could not read model override: %s", exc)
+    return _model_override if _model_override is not None else DEFAULT_MODEL
+
+
+def set_model_override(spec: dict) -> None:
+    """Persist the user's model selection to disk and update the in-memory cache."""
+    global _model_override
+    _model_override = spec
+    try:
+        _MODEL_OVERRIDE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _MODEL_OVERRIDE_PATH.write_text(json.dumps({"model_name": spec["model_name"]}))
+        logger.info("Persisted model override: %s", spec["model_name"])
+    except OSError as exc:
+        logger.warning("Could not persist model override: %s", exc)
 
 
 @dataclass
@@ -203,14 +249,13 @@ async def load_model(model_name: str) -> None:
     logger.info("Lemonade: loaded %s", model_name)
 
 
-async def ensure_default_model() -> None:
-    """Pull + load the OpenClaw default model if not already present.
+async def ensure_model(spec: dict) -> None:
+    """Pull + load a specific model spec if not already present.
 
     Designed to be safe to run as a background task at any time. Logs and
-    updates pull state on failure rather than raising — callers (the OpenClaw
-    install flow) shouldn't be blocked by Lemonade being slow or unavailable.
+    updates pull state on failure rather than raising.
     """
-    name = DEFAULT_MODEL["model_name"]
+    name = spec["model_name"]
     _set_pull_state(
         status="checking", model=name, percent=0.0,
         file_index=0, total_files=0, error=None,
@@ -231,7 +276,7 @@ async def ensure_default_model() -> None:
         logger.info("Lemonade: %s already installed, skipping pull", name)
     else:
         try:
-            await pull_model(DEFAULT_MODEL)
+            await pull_model(spec)
         except Exception as exc:
             logger.error("Lemonade pull failed for %s: %s", name, exc)
             _set_pull_state(status="failed", error=str(exc))
@@ -246,6 +291,14 @@ async def ensure_default_model() -> None:
         return
 
     _set_pull_state(status="ready", percent=100.0)
+
+
+async def ensure_default_model() -> None:
+    """Pull + load the active model (user override or hardware default).
+
+    Delegates to ensure_model() with the currently active model spec.
+    """
+    await ensure_model(get_active_model_spec())
 
 
 def ensure_default_model_task() -> asyncio.Task:

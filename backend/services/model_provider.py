@@ -58,7 +58,7 @@ def _lemonade_config() -> ProviderConfig:
     return ProviderConfig(
         provider_id="lemonade",
         base_url=settings.openai_url,
-        model_id=lemonade.DEFAULT_MODEL["model_name"],
+        model_id=lemonade.get_active_model_spec()["model_name"],
     )
 
 

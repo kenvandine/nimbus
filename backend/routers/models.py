@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -43,15 +45,16 @@ async def model_status() -> dict:
 
 @router.get("/available")
 async def list_available_models() -> list[dict]:
+    """Return all known model specs the user can select."""
     from services import lemonade
-    model = lemonade.DEFAULT_MODEL
     return [
         {
-            "model_name": model.get("model_name", ""),
-            "checkpoint": model.get("checkpoint", ""),
-            "labels": model.get("labels", []),
-            "recipe": model.get("recipe", ""),
+            "model_name": m.get("model_name", ""),
+            "checkpoint": m.get("checkpoint", ""),
+            "labels": m.get("labels", []),
+            "recipe": m.get("recipe", ""),
         }
+        for m in lemonade.KNOWN_MODELS
     ]
 
 
@@ -59,8 +62,7 @@ async def list_available_models() -> list[dict]:
 async def pull_model() -> dict:
     from services import lemonade
     try:
-        spec = lemonade.DEFAULT_MODEL
-        import asyncio
+        spec = lemonade.get_active_model_spec()
         asyncio.create_task(lemonade.pull_model(spec))
         return {"status": "pulling", "model_name": spec.get("model_name", "")}
     except Exception as exc:
@@ -71,8 +73,31 @@ async def pull_model() -> dict:
 async def ensure_model() -> dict:
     from services import lemonade
     try:
-        import asyncio
         asyncio.create_task(lemonade.ensure_default_model())
         return {"status": "ensuring"}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+class SelectModelRequest(BaseModel):
+    model_name: str
+
+
+@router.post("/select")
+async def select_model(body: SelectModelRequest) -> dict:
+    """Switch the active AI model, pull it if needed, then re-run lemonade --auto
+    for every installed claw app.
+    """
+    from services import lemonade, control_plane as cp
+    spec = lemonade.KNOWN_MODELS_BY_NAME.get(body.model_name)
+    if spec is None:
+        raise HTTPException(status_code=404, detail=f"Unknown model: {body.model_name!r}")
+    lemonade.set_model_override(spec)
+
+    async def _task() -> None:
+        await lemonade.ensure_model(spec)
+        if lemonade.get_pull_state().status == "ready":
+            await cp.run_lemonade_autoconfig()
+
+    asyncio.create_task(_task())
+    return {"status": "selecting", "model_name": body.model_name}

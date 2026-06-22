@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import SystemLogViewer from './SystemLogViewer'
-import { getModelStatus, pullModel, ensureModel } from '../api.js'
+import { getModelStatus, pullModel, ensureModel, getAvailableModels, selectModel } from '../api.js'
 
 const BASE = import.meta.env.VITE_API_BASE ?? '/api'
 
@@ -198,31 +198,82 @@ function SnapshotsTab({ containerReady }) {
 
 function AiModelTab() {
   const [modelStatus, setModelStatus] = useState(null)
+  const [availableModels, setAvailableModels] = useState([])
+  const [selectedModel, setSelectedModel] = useState(null)
   const [busy, setBusy] = useState(null)
   const [error, setError] = useState(null)
   const [msg, setMsg] = useState(null)
+  const pollRef = useRef(null)
 
   async function load() {
-    try { setModelStatus(await getModelStatus()) } catch (e) { setError(e.message) }
+    try {
+      const [status, models] = await Promise.all([getModelStatus(), getAvailableModels()])
+      setModelStatus(status)
+      setAvailableModels(models)
+      if (selectedModel === null && status?.model_id) {
+        setSelectedModel(status.model_id)
+      }
+    } catch (e) { setError(e.message) }
   }
+
   useEffect(() => { load() }, [])
+
+  // Poll while a pull/select is in progress.
+  useEffect(() => {
+    const pulling = modelStatus?.pull?.status &&
+      !['idle', 'ready', 'failed', 'skipped'].includes(modelStatus.pull.status)
+    if (pulling && !pollRef.current) {
+      pollRef.current = setInterval(async () => {
+        try {
+          const s = await getModelStatus()
+          setModelStatus(s)
+          if (['idle', 'ready', 'failed', 'skipped'].includes(s?.pull?.status)) {
+            clearInterval(pollRef.current)
+            pollRef.current = null
+            if (s?.pull?.status === 'ready') setMsg('Model ready.')
+            if (s?.pull?.status === 'failed') setError(s.pull.error || 'Pull failed.')
+            setBusy(null)
+          }
+        } catch {}
+      }, 3000)
+    }
+    return () => {}
+  }, [modelStatus?.pull?.status])
+
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current) }, [])
 
   async function handlePull() {
     setBusy('pull'); setError(null); setMsg(null)
     try { await pullModel(); setMsg('Model download started. This may take a while.'); await load() }
-    catch (e) { setError(e.message) }
-    finally { setBusy(null) }
+    catch (e) { setError(e.message); setBusy(null) }
   }
 
   async function handleEnsure() {
     setBusy('ensure'); setError(null); setMsg(null)
     try { await ensureModel(); setMsg('Model verification started.'); await load() }
-    catch (e) { setError(e.message) }
-    finally { setBusy(null) }
+    catch (e) { setError(e.message); setBusy(null) }
+  }
+
+  async function handleSelect() {
+    if (!selectedModel || selectedModel === modelStatus?.model_id) return
+    setBusy('select'); setError(null); setMsg(null)
+    try {
+      await selectModel(selectedModel)
+      setMsg('Switching model… this may take a while.')
+      await load()
+    } catch (e) { setError(e.message); setBusy(null) }
   }
 
   const pull = modelStatus?.pull
   const lemon = modelStatus?.lemonade
+  const currentModelId = modelStatus?.model_id
+  const isDifferent = selectedModel && selectedModel !== currentModelId
+  const isPulling = pull?.status && !['idle', 'ready', 'failed', 'skipped'].includes(pull.status)
+
+  function friendlyModelName(modelName) {
+    if (!modelName) return '—'
+    return modelName.replace(/^user\./, '')
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -238,8 +289,10 @@ function AiModelTab() {
               <span style={styles.infoValue}>{modelStatus.provider || '—'}</span>
             </div>
             <div style={styles.infoRow}>
-              <span style={styles.infoLabel}>Model</span>
-              <span style={{ ...styles.infoValue, fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>{modelStatus.model_id || '—'}</span>
+              <span style={styles.infoLabel}>Active Model</span>
+              <span style={{ ...styles.infoValue, fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>
+                {friendlyModelName(currentModelId)}
+              </span>
             </div>
             <div style={styles.infoRow}>
               <span style={styles.infoLabel}>Status</span>
@@ -255,7 +308,7 @@ function AiModelTab() {
                 </span>
               </div>
             )}
-            {pull?.status && pull.status !== 'idle' && (
+            {isPulling && (
               <div style={styles.infoRow}>
                 <span style={styles.infoLabel}>Download</span>
                 <span style={styles.infoValue}>
@@ -265,6 +318,43 @@ function AiModelTab() {
               </div>
             )}
           </div>
+
+          {availableModels.length > 1 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <label style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>Change Model</label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <select
+                  value={selectedModel || currentModelId || ''}
+                  onChange={e => setSelectedModel(e.target.value)}
+                  disabled={Boolean(busy)}
+                  style={styles.modelSelect}
+                >
+                  {availableModels.map(m => (
+                    <option key={m.model_name} value={m.model_name}>
+                      {friendlyModelName(m.model_name)}
+                      {m.labels?.length ? ` (${m.labels.join(', ')})` : ''}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  style={{
+                    ...styles.btnPrimary,
+                    ...((!isDifferent || busy) ? styles.btnDisabled : {}),
+                    whiteSpace: 'nowrap',
+                  }}
+                  onClick={handleSelect}
+                  disabled={!isDifferent || Boolean(busy)}
+                >
+                  {busy === 'select' ? 'Switching…' : 'Apply'}
+                </button>
+              </div>
+              {isDifferent && (
+                <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', margin: 0 }}>
+                  Applying will pull the new model and re-run auto-config for installed apps.
+                </p>
+              )}
+            </div>
+          )}
 
           <div style={{ display: 'flex', gap: 8 }}>
             <button
@@ -559,6 +649,17 @@ const styles = {
     whiteSpace: 'nowrap',
   },
   btnDisabled: { opacity: 0.5, cursor: 'not-allowed' },
+  modelSelect: {
+    flex: 1,
+    background: 'rgba(255,255,255,0.07)',
+    color: 'rgba(255,255,255,0.85)',
+    border: '1px solid rgba(255,255,255,0.15)',
+    borderRadius: '8px',
+    padding: '6px 10px',
+    fontSize: '12px',
+    cursor: 'pointer',
+    outline: 'none',
+  },
   confirmOverlay: {
     position: 'fixed',
     inset: 0,
