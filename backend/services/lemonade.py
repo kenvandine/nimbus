@@ -237,16 +237,26 @@ async def pull_model(spec: dict) -> None:
     _set_pull_state(percent=100.0)
 
 
-async def load_model(model_name: str) -> None:
-    """POST /v1/load — explicitly load the model into memory."""
+async def load_model(spec: dict) -> None:
+    """POST /v1/load — load the model with its recipe options (ctx_size etc).
+
+    Mirrors what setup-providers.js sends: model_name + save_options + all
+    recipe_options (e.g. ctx_size) so lemonade uses the correct context window
+    rather than its built-in default.
+    """
     url = f"{LEMONADE_BASE_URL}/api/v1/load"
+    body: dict = {
+        "model_name": spec["model_name"],
+        "save_options": True,
+        **spec.get("recipe_options", {}),
+    }
     async with httpx.AsyncClient(timeout=120.0) as client:
-        r = await client.post(url, json={"model_name": model_name})
+        r = await client.post(url, json=body)
     if r.status_code != 200:
         raise RuntimeError(
             f"Lemonade /v1/load HTTP {r.status_code}: {r.text[:300]}"
         )
-    logger.info("Lemonade: loaded %s", model_name)
+    logger.info("Lemonade: loaded %s", spec["model_name"])
 
 
 async def ensure_model(spec: dict) -> None:
@@ -284,7 +294,7 @@ async def ensure_model(spec: dict) -> None:
 
     _set_pull_state(status="loading")
     try:
-        await load_model(name)
+        await load_model(spec)
     except Exception as exc:
         logger.error("Lemonade load failed for %s: %s", name, exc)
         _set_pull_state(status="failed", error=str(exc))
