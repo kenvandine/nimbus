@@ -233,7 +233,6 @@ export default function App() {
   const openclawInstalled = apps.some(a => a.id === 'openclaw' && a.installed)
   const hermesInstalled = apps.some(a => a.id === 'hermes-agent' && a.installed)
   const picoclawInstalled = apps.some(a => a.id === 'picoclaw' && a.installed)
-  const immichInstalled = apps.some(a => a.id === 'immich' && a.installed)
 
   const n = runningApps.length
   const cols = n === 0 ? 1 : n <= 3 ? n : Math.ceil(Math.sqrt(n))
@@ -330,9 +329,8 @@ export default function App() {
       </div>
 
       {/* Widget stack — bottom left */}
-      {(openclawInstalled || hermesInstalled || picoclawInstalled || immichInstalled) && (
+      {(openclawInstalled || hermesInstalled || picoclawInstalled) && (
         <div style={styles.widgetStack}>
-          {immichInstalled && <AppStatusWidget appId="immich" title="Immich" />}
           {picoclawInstalled && <AppStatusWidget appId="picoclaw" title="PicoClaw" />}
           {hermesInstalled && <AppStatusWidget appId="hermes-agent" title="Hermes Agent" />}
           {openclawInstalled && <OpenClawWidget />}
