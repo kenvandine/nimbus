@@ -233,6 +233,9 @@ export default function App() {
   const openclawInstalled = apps.some(a => a.id === 'openclaw' && a.installed)
   const hermesInstalled = apps.some(a => a.id === 'hermes-agent' && a.installed)
   const picoclawInstalled = apps.some(a => a.id === 'picoclaw' && a.installed)
+  const nullclawInstalled = apps.some(a => a.id === 'nullclaw' && a.installed)
+  const zeroclawInstalled = apps.some(a => a.id === 'zeroclaw' && a.installed)
+  const odysseusInstalled = apps.some(a => a.id === 'odysseus' && a.installed)
 
   const n = runningApps.length
   const cols = n === 0 ? 1 : n <= 3 ? n : Math.ceil(Math.sqrt(n))
@@ -329,8 +332,11 @@ export default function App() {
       </div>
 
       {/* Widget stack — bottom left */}
-      {(openclawInstalled || hermesInstalled || picoclawInstalled) && (
+      {(openclawInstalled || hermesInstalled || picoclawInstalled || nullclawInstalled || zeroclawInstalled || odysseusInstalled) && (
         <div style={styles.widgetStack}>
+          {odysseusInstalled && <AppStatusWidget appId="odysseus" title="Odysseus" />}
+          {zeroclawInstalled && <AppStatusWidget appId="zeroclaw" title="ZeroClaw" />}
+          {nullclawInstalled && <AppStatusWidget appId="nullclaw" title="NullClaw" />}
           {picoclawInstalled && <AppStatusWidget appId="picoclaw" title="PicoClaw" />}
           {hermesInstalled && <AppStatusWidget appId="hermes-agent" title="Hermes Agent" />}
           {openclawInstalled && <OpenClawWidget />}
