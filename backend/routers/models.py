@@ -45,21 +45,22 @@ async def model_status() -> dict:
 
 @router.get("/available")
 async def list_available_models() -> list[dict]:
-    """Return all known model specs with their download status."""
+    """Return all models from the recipe catalog with their download status."""
     from services import lemonade
-    results = await asyncio.gather(
-        *[lemonade.is_model_installed(m["model_name"]) for m in lemonade.KNOWN_MODELS],
+    catalog = await lemonade.get_recipe_catalog()
+    installed = await asyncio.gather(
+        *[lemonade.is_model_installed(m["model_name"]) for m in catalog],
         return_exceptions=True,
     )
     return [
         {
             "model_name": m.get("model_name", ""),
-            "checkpoint": m.get("checkpoint", ""),
-            "labels": m.get("labels", []),
-            "recipe": m.get("recipe", ""),
+            "labels":     m.get("labels", []),
+            "recipe":     m.get("recipe", ""),
+            "size":       m.get("size"),
             "downloaded": result is True,
         }
-        for m, result in zip(lemonade.KNOWN_MODELS, results)
+        for m, result in zip(catalog, installed)
     ]
 
 
@@ -94,7 +95,8 @@ async def select_model(body: SelectModelRequest) -> dict:
     for every installed claw app.
     """
     from services import lemonade, control_plane as cp
-    spec = lemonade.KNOWN_MODELS_BY_NAME.get(body.model_name)
+    catalog = await lemonade.get_recipe_catalog()
+    spec = next((m for m in catalog if m["model_name"] == body.model_name), None)
     if spec is None:
         raise HTTPException(status_code=404, detail=f"Unknown model: {body.model_name!r}")
     lemonade.set_model_override(spec)

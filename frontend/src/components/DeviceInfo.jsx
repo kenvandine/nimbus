@@ -334,6 +334,7 @@ function AiModelTab() {
                     <option key={m.model_name} value={m.model_name}>
                       {m.downloaded ? '✓ ' : '↓ '}
                       {friendlyModelName(m.model_name)}
+                      {m.size ? ` — ${m.size} GB` : ''}
                       {m.labels?.length ? ` (${m.labels.join(', ')})` : ''}
                     </option>
                   ))}

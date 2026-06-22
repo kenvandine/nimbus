@@ -3,7 +3,7 @@
 Lemonade runs as a host snap on http://localhost:13305 and serves models with
 an OpenAI-compatible API. Nimbus uses it as the local-LLM backend behind
 OpenClaw — when the user installs OpenClaw, we pre-pull and load the default
-Qwen3.5 model so the wizard's preselected provider has something to talk to.
+model so the wizard's preselected provider has something to talk to.
 """
 
 from __future__ import annotations
@@ -14,11 +14,10 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
 import httpx
-
-from pathlib import Path
 
 from constants import LEMONADE_PORT
 
@@ -26,30 +25,144 @@ logger = logging.getLogger(__name__)
 
 LEMONADE_BASE_URL = os.getenv("NIMBUS_LEMONADE_BASE_URL", "http://localhost:13305")
 
-# Model specs mirrored from kenvandine/recipes (branch openclaw_recipes).
+# ---------------------------------------------------------------------------
+# Recipe catalog
+# ---------------------------------------------------------------------------
+
+# GitHub API endpoint for the openclaw recipe directory.
+_RECIPE_CATALOG_URL = (
+    "https://api.github.com/repos/kenvandine/recipes/contents/openclaw"
+    "?ref=openclaw_recipes"
+)
+_RECIPE_CACHE_TTL = 3600  # seconds
+
+# Hardcoded fallback specs — used when GitHub is unreachable.
 # The 35B MoE is used on AMD RYZEN AI devices with ≥64 GB RAM; everything else
 # gets the 9B.
-_MODEL_35B = {
+_MODEL_35B: dict = {
     "model_name":     "user.Qwen3.6-35B-A3B-MTP-GGUF",
-    "checkpoint":     "unsloth/Qwen3.6-35B-A3B-MTP-GGUF:Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf",
-    "mmproj":         "mmproj-F16.gguf",
-    "labels":         ["vision", "tool-calling", "mtp"],
-    "recipe":         "llamacpp",
-    "recipe_options": {"ctx_size": 32768},
-}
-
-_MODEL_9B = {
-    "model_name":     "user.Qwen3.5-9B-GGUF",
-    "checkpoint":     "unsloth/Qwen3.5-9B-GGUF:Qwen3.5-9B-UD-Q4_K_XL.gguf",
-    "mmproj":         "mmproj-F16.gguf",
+    "checkpoints":    {"main": "unsloth/Qwen3.6-35B-A3B-MTP-GGUF:Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+                       "mmproj": "mmproj-F16.gguf"},
     "labels":         ["vision", "tool-calling"],
     "recipe":         "llamacpp",
     "recipe_options": {"ctx_size": 32768},
+    "size":           22.7,
 }
 
-# All models available for user selection, in display order.
+_MODEL_9B: dict = {
+    "model_name":     "user.Qwen3.5-9B-GGUF",
+    "checkpoints":    {"main": "unsloth/Qwen3.5-9B-GGUF:Qwen3.5-9B-Q4_K_M.gguf",
+                       "mmproj": "mmproj-F16.gguf"},
+    "labels":         ["vision", "tool-calling"],
+    "recipe":         "llamacpp",
+    "recipe_options": {"ctx_size": 32768},
+    "size":           5.68,
+}
+
+# In-memory fallback list — kept for sync lookups and as the last-resort default.
 KNOWN_MODELS: list[dict] = [_MODEL_9B, _MODEL_35B]
 KNOWN_MODELS_BY_NAME: dict[str, dict] = {m["model_name"]: m for m in KNOWN_MODELS}
+
+_recipe_catalog: list[dict] | None = None
+_recipe_catalog_fetched_at: float = 0.0
+
+
+def _recipe_from_json(data: dict) -> dict:
+    """Normalise a recipe JSON blob into our internal model spec."""
+    spec: dict = {
+        "model_name":     data["model_name"],
+        "labels":         data.get("labels", []),
+        "recipe":         data.get("recipe", "llamacpp"),
+        "recipe_options": data.get("recipe_options", {}),
+        "size":           data.get("size"),
+    }
+    if "checkpoints" in data:
+        spec["checkpoints"] = data["checkpoints"]
+    elif "checkpoint" in data:
+        spec["checkpoint"] = data["checkpoint"]
+    return spec
+
+
+async def get_recipe_catalog(force: bool = False) -> list[dict]:
+    """Return the list of all model specs from the openclaw recipe catalog.
+
+    Results are cached for one hour.  Falls back to the hardcoded KNOWN_MODELS
+    list when GitHub is unreachable.
+    """
+    global _recipe_catalog, _recipe_catalog_fetched_at
+    now = time.monotonic()
+    if (
+        not force
+        and _recipe_catalog is not None
+        and now - _recipe_catalog_fetched_at < _RECIPE_CACHE_TTL
+    ):
+        return _recipe_catalog
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            idx_r = await client.get(
+                _RECIPE_CATALOG_URL,
+                headers={"Accept": "application/vnd.github+json"},
+            )
+            idx_r.raise_for_status()
+            recipe_files = [
+                item for item in idx_r.json()
+                if item.get("type") == "file"
+                and item["name"].endswith(".json")
+                and item["name"] != "README.md"
+            ]
+            responses = await asyncio.gather(
+                *[client.get(item["download_url"]) for item in recipe_files],
+                return_exceptions=True,
+            )
+        specs = []
+        for resp in responses:
+            if isinstance(resp, Exception):
+                continue
+            if resp.status_code != 200:
+                continue
+            try:
+                specs.append(_recipe_from_json(resp.json()))
+            except (KeyError, ValueError, Exception):
+                continue
+        if specs:
+            _recipe_catalog = specs
+            _recipe_catalog_fetched_at = now
+            logger.info("Fetched %d recipes from GitHub recipe catalog", len(specs))
+            return _recipe_catalog
+    except Exception as exc:
+        logger.warning("Could not fetch recipe catalog from GitHub: %s", exc)
+
+    # Return stale cache if available, otherwise fall back to hardcoded list.
+    return _recipe_catalog if _recipe_catalog is not None else KNOWN_MODELS
+
+
+def _build_pull_payload(spec: dict) -> dict:
+    """Build the /api/v1/pull request body from a recipe spec.
+
+    Mirrors recipeToPullPayload() in setup-providers.js — only includes
+    fields that lemonade's pull endpoint understands.
+    """
+    payload: dict = {
+        "model_name": spec["model_name"],
+        "recipe":     spec.get("recipe", "llamacpp"),
+        "stream":     True,
+    }
+    if "checkpoints" in spec:
+        payload["checkpoints"] = spec["checkpoints"]
+    elif "checkpoint" in spec:
+        payload["checkpoint"] = spec["checkpoint"]
+    labels = spec.get("labels", [])
+    if "vision" in labels:
+        payload["vision"] = True
+    if "reasoning" in labels:
+        payload["reasoning"] = True
+    if "embeddings" in labels:
+        payload["embedding"] = True
+    if "reranking" in labels:
+        payload["reranking"] = True
+    return payload
+
 
 _GiB = 1 << 30
 
@@ -90,17 +203,16 @@ DEFAULT_MODEL: dict = _select_model()
 def get_active_model_spec() -> dict:
     """Return the user-selected model spec if set, otherwise DEFAULT_MODEL.
 
-    The user override is loaded from disk on the first call and cached in
-    memory; subsequent calls return the in-memory value.
+    The full spec is persisted to disk (including checkpoints and recipe_options)
+    so it can be restored on restart without requiring a catalog fetch.
     """
     global _model_override
     if _model_override is None:
         try:
             data = json.loads(_MODEL_OVERRIDE_PATH.read_text())
-            name = data.get("model_name")
-            if name and name in KNOWN_MODELS_BY_NAME:
-                _model_override = KNOWN_MODELS_BY_NAME[name]
-                logger.info("Loaded user model override: %s", name)
+            if data.get("model_name"):
+                _model_override = data
+                logger.info("Loaded user model override: %s", data["model_name"])
         except FileNotFoundError:
             pass
         except (json.JSONDecodeError, OSError) as exc:
@@ -109,12 +221,12 @@ def get_active_model_spec() -> dict:
 
 
 def set_model_override(spec: dict) -> None:
-    """Persist the user's model selection to disk and update the in-memory cache."""
+    """Persist the full model spec to disk and update the in-memory cache."""
     global _model_override
     _model_override = spec
     try:
         _MODEL_OVERRIDE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _MODEL_OVERRIDE_PATH.write_text(json.dumps({"model_name": spec["model_name"]}))
+        _MODEL_OVERRIDE_PATH.write_text(json.dumps(spec, indent=2))
         logger.info("Persisted model override: %s", spec["model_name"])
     except OSError as exc:
         logger.warning("Could not persist model override: %s", exc)
@@ -194,7 +306,7 @@ async def is_model_installed(model_name: str) -> bool:
 async def pull_model(spec: dict) -> None:
     """POST /v1/pull with SSE streaming. Logs progress + updates pull state."""
     url = f"{LEMONADE_BASE_URL}/api/v1/pull"
-    body = {**spec, "stream": True}
+    body = _build_pull_payload(spec)
     name = spec.get("model_name", "")
     logger.info("Lemonade: pulling model %s", name)
     _set_pull_state(status="pulling", model=name, percent=0.0, error=None)
