@@ -1169,9 +1169,12 @@ async def run_lemonade_autoconfig() -> None:
 
     Called after the user switches the active AI model so that all apps
     supporting auto-config pick up the new model without a reinstall.
+    Passes --model <active_model_name> so each script uses the exact model
+    rather than relying on its own scoring heuristic.
     """
-    from services import container_snaps, nimbus_store
+    from services import container_snaps, nimbus_store, lemonade as lemon
     logger.info("Re-running lemonade auto-config for all installed claw apps")
+    active_model = lemon.get_active_model_spec()["model_name"]
     try:
         catalog, installed_snaps = await asyncio.gather(
             nimbus_store.get_catalog(),
@@ -1189,6 +1192,7 @@ async def run_lemonade_autoconfig() -> None:
         if not onboard:
             continue
         cmd, args = onboard
+        args = list(args) + ["--model", active_model]
         snap_name = snap["name"]
         logger.info("Lemonade auto-config: %s → %s %s", snap_name, cmd, " ".join(args))
         try:
