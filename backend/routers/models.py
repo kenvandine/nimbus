@@ -45,16 +45,21 @@ async def model_status() -> dict:
 
 @router.get("/available")
 async def list_available_models() -> list[dict]:
-    """Return all known model specs the user can select."""
+    """Return all known model specs with their download status."""
     from services import lemonade
+    results = await asyncio.gather(
+        *[lemonade.is_model_installed(m["model_name"]) for m in lemonade.KNOWN_MODELS],
+        return_exceptions=True,
+    )
     return [
         {
             "model_name": m.get("model_name", ""),
             "checkpoint": m.get("checkpoint", ""),
             "labels": m.get("labels", []),
             "recipe": m.get("recipe", ""),
+            "downloaded": result is True,
         }
-        for m in lemonade.KNOWN_MODELS
+        for m, result in zip(lemonade.KNOWN_MODELS, results)
     ]
 
 

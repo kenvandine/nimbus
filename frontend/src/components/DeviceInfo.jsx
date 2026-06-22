@@ -268,6 +268,7 @@ function AiModelTab() {
   const lemon = modelStatus?.lemonade
   const currentModelId = modelStatus?.model_id
   const isDifferent = selectedModel && selectedModel !== currentModelId
+  const selectedModelInfo = availableModels.find(m => m.model_name === selectedModel)
   const isPulling = pull?.status && !['idle', 'ready', 'failed', 'skipped'].includes(pull.status)
 
   function friendlyModelName(modelName) {
@@ -331,6 +332,7 @@ function AiModelTab() {
                 >
                   {availableModels.map(m => (
                     <option key={m.model_name} value={m.model_name}>
+                      {m.downloaded ? '✓ ' : '↓ '}
                       {friendlyModelName(m.model_name)}
                       {m.labels?.length ? ` (${m.labels.join(', ')})` : ''}
                     </option>
@@ -345,12 +347,18 @@ function AiModelTab() {
                   onClick={handleSelect}
                   disabled={!isDifferent || Boolean(busy)}
                 >
-                  {busy === 'select' ? 'Switching…' : 'Apply'}
+                  {busy === 'select'
+                    ? 'Switching…'
+                    : selectedModelInfo?.downloaded
+                      ? 'Apply'
+                      : 'Pull & Apply'}
                 </button>
               </div>
               {isDifferent && (
                 <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', margin: 0 }}>
-                  Applying will pull the new model and re-run auto-config for installed apps.
+                  {selectedModelInfo?.downloaded
+                    ? 'Will load the model and re-run auto-config for installed apps.'
+                    : 'Will download the model, then re-run auto-config for installed apps.'}
                 </p>
               )}
             </div>
