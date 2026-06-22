@@ -8,7 +8,7 @@ import DeviceInfo from './components/DeviceInfo.jsx'
 import FileBrowser from './components/FileBrowser.jsx'
 import AppLogViewer from './components/AppLogViewer.jsx'
 import OpenClawWidget from './components/OpenClawWidget.jsx'
-import HermesWidget from './components/HermesWidget.jsx'
+import AppStatusWidget from './components/AppStatusWidget.jsx'
 import Settings from './components/Settings.jsx'
 import AppModal from './components/AppModal.jsx'
 import Oobe from './components/Oobe.jsx'
@@ -363,6 +363,10 @@ export default function App() {
   const updatableCount = apps.filter(a => a.update_available).length
   const openclawInstalled = apps.some(a => a.id === 'openclaw' && a.installed)
   const hermesInstalled = apps.some(a => a.id === 'hermes-agent' && a.installed)
+  const picoclawInstalled = apps.some(a => a.id === 'picoclaw' && a.installed)
+  const nullclawInstalled = apps.some(a => a.id === 'nullclaw' && a.installed)
+  const zeroclawInstalled = apps.some(a => a.id === 'zeroclaw' && a.installed)
+  const odysseusInstalled = apps.some(a => a.id === 'odysseus' && a.installed)
 
   const n = runningApps.length
   const cols = n === 0 ? 1 : n <= 3 ? n : Math.ceil(Math.sqrt(n))
@@ -465,10 +469,14 @@ export default function App() {
         </div>
       </div>
 
-      {/* Widget stack — bottom left, hermes above openclaw */}
-      {(openclawInstalled || hermesInstalled) && (
+      {/* Widget stack — bottom left */}
+      {(openclawInstalled || hermesInstalled || picoclawInstalled || nullclawInstalled || zeroclawInstalled || odysseusInstalled) && (
         <div style={styles.widgetStack}>
-          {hermesInstalled && <HermesWidget />}
+          {odysseusInstalled && <AppStatusWidget appId="odysseus" title="Odysseus" />}
+          {zeroclawInstalled && <AppStatusWidget appId="zeroclaw" title="ZeroClaw" />}
+          {nullclawInstalled && <AppStatusWidget appId="nullclaw" title="NullClaw" />}
+          {picoclawInstalled && <AppStatusWidget appId="picoclaw" title="PicoClaw" />}
+          {hermesInstalled && <AppStatusWidget appId="hermes-agent" title="Hermes Agent" />}
           {openclawInstalled && <OpenClawWidget />}
         </div>
       )}
