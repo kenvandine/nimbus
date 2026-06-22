@@ -1,6 +1,6 @@
 # Nimbus
 
-A self-hosted appliance controller that manages Docker-based apps from the [Nimbus app catalog](https://github.com/kenvandine/nimbus-app-store) (a curated subset of [Umbrel apps](https://github.com/getumbrel/umbrel-apps)). Nimbus runs on the host as a strict snap, manages an LXD container for all app workloads, and exposes a full-featured web UI with authentication, a terminal, file browser, Wi-Fi configuration, firewall, SSH key management, container snapshots, and an AI chat assistant (OpenClaw).
+A self-hosted appliance platform for managing AI agents and apps. Nimbus features a curated selection of agents and apps optimized for the appliance experience, sourced from the [Snap Store](https://snapcraft.io). It runs on the host as a strict snap, manages an LXD container for all app workloads, and exposes a full-featured web UI with authentication, a terminal, file browser, Wi-Fi configuration, firewall, SSH key management, container snapshots, and an AI chat assistant (OpenClaw).
 
 ---
 
@@ -68,7 +68,7 @@ A self-hosted appliance controller that manages Docker-based apps from the [Nimb
 | Frontend | React 18 · Vite |
 | Container runtime | LXD + classic snap apps (inside LXD container) |
 | Local AI | lemonade-server snap · Qwen3.5-9B / Qwen3-35B-A3B · OpenAI-compatible :13305 |
-| App catalog | [kenvandine/nimbus-app-store](https://github.com/kenvandine/nimbus-app-store) · catalog.json |
+| App catalog | Curated agent and app selection from the [Snap Store](https://snapcraft.io) |
 | TLS | Self-signed (auto) or ACME DNS-01 via Let's Encrypt |
 
 ---
@@ -130,10 +130,10 @@ hook validates the value and restarts the daemon immediately.
 |---|---|---|
 | `model-provider` | `lemonade-server` (default) · `inference-snap-gemma4` | Local-LLM backend OpenClaw is configured against. |
 | `openai-url` | URL (unset → per-provider default) | Override the OpenAI-compatible API URL. Must include `/v1` or `/api/v1`. |
-| `appstore-visible` | `false` (default) · `true` | Show or hide the Umbrel app store tab in the UI. |
+| `appstore-visible` | `false` (default) · `true` | Show or hide the full app catalog in the UI. |
 | `preseed-apps` | Comma-separated app IDs (empty) | Extra app IDs to auto-install on first boot. `openclaw` is always preseeded when the store is hidden. |
 | `appstore-whitelist` | Comma-separated app IDs | Override the default allow-list of apps shown in the store. |
-| `app-store-type` | `nimbus` (default) · `umbrel` | App catalog backend: `nimbus` uses the Nimbus JSON catalog; `umbrel` clones the full Umbrel git repo. |
+| `app-store-type` | `nimbus` (default) · `umbrel` | App catalog backend: `nimbus` uses the curated Snap Store catalog; `umbrel` uses an alternative catalog source. |
 | `provisioning-url` | HTTPS URL (unset) | ACME provisioning backend for Let's Encrypt TLS certificates. |
 | `provisioning-token` | String (unset) | Authentication token for the provisioning backend. |
 
@@ -165,13 +165,13 @@ Per-provider defaults:
 
 ### App store visibility
 
-The app store is hidden by default on appliance images (only curated apps are shown). Enable the full store:
+The app catalog is hidden by default on appliance images (only curated agents are shown). Enable the full catalog to browse all available agents and apps from the [Snap Store](https://snapcraft.io):
 
 ```bash
 sudo snap set nimbus appstore-visible=true
 ```
 
-When the store is hidden, `openclaw` is always auto-installed on first boot. When it is visible, users install apps themselves.
+When the catalog is hidden, `openclaw` is always auto-installed on first boot. When it is visible, users install apps themselves.
 
 ### Preseed apps
 
@@ -193,19 +193,17 @@ sudo snap set nimbus appstore-whitelist=openclaw,immich,nextcloud
 
 ### App store backend
 
-Switch between the Nimbus curated catalog (default) and the full Umbrel git catalog:
+Switch between the curated catalog (default) and an alternative catalog source:
 
 ```bash
-# Default — fast JSON catalog hosted at github.com/kenvandine/nimbus-app-store
+# Default — curated agent and app selection from the Snap Store
 sudo snap set nimbus app-store-type=nimbus
 
-# Full Umbrel catalog — clones github.com/getumbrel/umbrel-apps on startup
+# Alternative catalog source
 sudo snap set nimbus app-store-type=umbrel
 ```
 
-The `nimbus` catalog is a curated subset optimised for appliance use. The `umbrel`
-catalog provides the full Umbrel app library but requires a git clone on startup
-and may include apps that depend on Umbrel-specific infrastructure.
+The `nimbus` catalog is the curated selection of agents optimised for the appliance experience, sourced from the [Snap Store](https://snapcraft.io).
 
 ### TLS / HTTPS
 
@@ -312,7 +310,7 @@ All variables can be set in `/etc/default/nimbus` (inside the container for `loc
 
 | Variable | Default | Description |
 |---|---|---|
-| `NIMBUS_APP_STORE_TYPE` | `nimbus` | `nimbus` (JSON catalog) or `umbrel` (git repo) |
+| `NIMBUS_APP_STORE_TYPE` | `nimbus` | `nimbus` (curated Snap Store catalog) or `umbrel` (alternative catalog) |
 | `NIMBUS_STORE_URL` | `https://raw.githubusercontent.com/kenvandine/nimbus-app-store/main/catalog.json` | URL of the Nimbus catalog JSON |
 | `NIMBUS_STORE_DIR` | `/var/lib/nimbus/store` | Local clone/cache directory |
 | `NIMBUS_INSTALLED_DIR` | `/var/lib/nimbus/installed` | Installed app bundle directory |
@@ -420,7 +418,7 @@ nimbus/
 │       ├── provisioning.py     # TLS provisioning (self-signed or ACME DNS-01)
 │       ├── snap_store.py       # AI-Labs snap catalog loader
 │       ├── ssh.py              # authorized_keys management
-│       ├── store.py            # Umbrel git catalog parser
+│       ├── store.py            # Alternative catalog parser
 │       ├── system_apps.py      # System-app metadata (openclaw, hermes-agent)
 │       ├── tls.py              # TLS certificate helpers
 │       └── wifi.py             # NetworkManager Wi-Fi management
@@ -473,15 +471,14 @@ nimbus/
 
 ## How apps are installed
 
-When you click **Install** on an app:
+Nimbus presents a curated selection of agents and apps from the [Snap Store](https://snapcraft.io), optimized for the appliance experience. When you click **Install** on an app:
 
-1. The backend copies the app's `docker-compose.yml` from the catalog to `/var/lib/nimbus/installed/<app-id>/`.
-2. The compose file is patched for standalone use:
-   - The Umbrel-internal `app_proxy` sidecar service is removed.
+1. The backend resolves the app's package from the curated catalog.
+2. The app's compose configuration is prepared for standalone use:
    - A host port mapping is injected (`<external-port>:<internal-port>`).
-   - Old Compose v1 container hostname references (e.g. `immich_postgres_1`) are rewritten to Compose v2 service names (`postgres`).
+   - Service name references are normalized for Compose v2 compatibility.
    - The obsolete `version:` key is dropped.
-3. An `.env` file is written with `APP_DATA_DIR`, `APP_SEED`, and `UMBREL_ROOT` set to sensible local paths.
+3. An `.env` file is written with `APP_DATA_DIR` and `APP_SEED` set to sensible local paths.
 4. All bind-mount host directories are pre-created so non-root container users can write to them.
 5. `docker compose up -d` is run as a background task; the UI receives live install progress via SSE.
 
@@ -689,6 +686,6 @@ sudo nimbus.reset
 
 ## Known limitations
 
-- **App compatibility**: Apps that depend on Umbrel-specific infrastructure beyond `app_proxy` may not work.
+- **App compatibility**: Only apps from Nimbus's curated catalog are fully supported; apps requiring infrastructure outside this catalog may not work correctly.
 - **Single user**: Only one account is supported. The UI is intended for local-network use.
 - **Remote mode**: `NIMBUS_CONTROL_MODE=remote` exists in the code but `lxd` mode is the primary supported path.
