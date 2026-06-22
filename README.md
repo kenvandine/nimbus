@@ -68,7 +68,7 @@ A self-hosted appliance platform for managing AI agents and apps. Nimbus feature
 | Frontend | React 18 · Vite |
 | Container runtime | LXD + classic snap apps (inside LXD container) |
 | Local AI | lemonade-server snap · Qwen3.5-9B / Qwen3-35B-A3B · OpenAI-compatible :13305 |
-| App catalog | Curated agent and app selection from the [Snap Store](https://snapcraft.io) |
+| App catalog | AI Labs snap catalog (default) · Docker/Umbrel catalog (deprecated) |
 | TLS | Self-signed (auto) or ACME DNS-01 via Let's Encrypt |
 
 ---
@@ -76,7 +76,7 @@ A self-hosted appliance platform for managing AI agents and apps. Nimbus feature
 ## Requirements
 
 - Linux host with [LXD](https://canonical.com/lxd) installed and initialised (`lxd init`)
-- Internet access from the host (to pull Docker images and app metadata)
+- Internet access from the host (to pull app metadata and snap packages)
 - ~4 GB free disk space for the app catalog and container images
 - `snapcraft` if you want to build the snap locally
 
@@ -130,10 +130,10 @@ hook validates the value and restarts the daemon immediately.
 |---|---|---|
 | `model-provider` | `lemonade-server` (default) · `inference-snap-gemma4` | Local-LLM backend OpenClaw is configured against. |
 | `openai-url` | URL (unset → per-provider default) | Override the OpenAI-compatible API URL. Must include `/v1` or `/api/v1`. |
-| `appstore-visible` | `false` (default) · `true` | Show or hide the full app catalog in the UI. |
+| `appstore-visible` | `false` (default) · `true` | Show or hide the App Store tab in the UI. |
 | `preseed-apps` | Comma-separated app IDs (empty) | Extra app IDs to auto-install on first boot. `openclaw` is always preseeded when the store is hidden. |
 | `appstore-whitelist` | Comma-separated app IDs | Override the default allow-list of apps shown in the store. |
-| `app-store-type` | `nimbus` (default) · `umbrel` | App catalog backend: `nimbus` uses the curated Snap Store catalog; `umbrel` uses an alternative catalog source. |
+| `app-store-type` | `nimbus` (default) · `umbrel` *(deprecated)* | App catalog backend. See [App store backend](#app-store-backend). |
 | `provisioning-url` | HTTPS URL (unset) | ACME provisioning backend for Let's Encrypt TLS certificates. |
 | `provisioning-token` | String (unset) | Authentication token for the provisioning backend. |
 
@@ -165,13 +165,13 @@ Per-provider defaults:
 
 ### App store visibility
 
-The app catalog is hidden by default on appliance images (only curated agents are shown). Enable the full catalog to browse all available agents and apps from the [Snap Store](https://snapcraft.io):
+The App Store tab is hidden by default on appliance images (only the curated agent whitelist is shown). Enable it to let users browse and install from the full catalog:
 
 ```bash
 sudo snap set nimbus appstore-visible=true
 ```
 
-When the catalog is hidden, `openclaw` is always auto-installed on first boot. When it is visible, users install apps themselves.
+When the store is hidden, `openclaw` is always auto-installed on first boot. When it is visible, users install apps themselves.
 
 ### Preseed apps
 
@@ -193,17 +193,15 @@ sudo snap set nimbus appstore-whitelist=openclaw,immich,nextcloud
 
 ### App store backend
 
-Switch between the curated catalog (default) and an alternative catalog source:
-
 ```bash
-# Default — curated agent and app selection from the Snap Store
+# Default — hosted JSON catalog (github.com/kenvandine/nimbus-app-store)
 sudo snap set nimbus app-store-type=nimbus
 
-# Alternative catalog source
+# Deprecated — clones the Umbrel git repo and installs apps via Docker Compose
 sudo snap set nimbus app-store-type=umbrel
 ```
 
-The `nimbus` catalog is the curated selection of agents optimised for the appliance experience, sourced from the [Snap Store](https://snapcraft.io).
+The default `nimbus` backend fetches a curated JSON catalog and installs apps as classic snaps inside the managed container. The `umbrel` backend is **deprecated**: it clones the Umbrel git app catalog on startup and installs apps via Docker Compose. It is retained for compatibility but is not used in the default configuration and will be removed in a future release.
 
 ### TLS / HTTPS
 
@@ -231,7 +229,7 @@ NIMBUS_ACME_STAGING=1  # set in the snap environment or /etc/default/nimbus
 
 ## Factory reset
 
-`nimbus.reset` wipes all installed app data and clears the preseed state so apps are reinstalled automatically on the next daemon start. The managed LXD container and its runtime (Docker, Python, agent) are preserved.
+`nimbus.reset` wipes all installed app data and clears the preseed state so apps are reinstalled automatically on the next daemon start. The managed LXD container and its runtime are preserved.
 
 ```bash
 sudo nimbus.reset
@@ -310,7 +308,7 @@ All variables can be set in `/etc/default/nimbus` (inside the container for `loc
 
 | Variable | Default | Description |
 |---|---|---|
-| `NIMBUS_APP_STORE_TYPE` | `nimbus` | `nimbus` (curated Snap Store catalog) or `umbrel` (alternative catalog) |
+| `NIMBUS_APP_STORE_TYPE` | `nimbus` | `nimbus` (hosted JSON catalog, snap install) or `umbrel` *(deprecated — Docker Compose, Umbrel git catalog)* |
 | `NIMBUS_STORE_URL` | `https://raw.githubusercontent.com/kenvandine/nimbus-app-store/main/catalog.json` | URL of the Nimbus catalog JSON |
 | `NIMBUS_STORE_DIR` | `/var/lib/nimbus/store` | Local clone/cache directory |
 | `NIMBUS_INSTALLED_DIR` | `/var/lib/nimbus/installed` | Installed app bundle directory |
@@ -418,7 +416,7 @@ nimbus/
 │       ├── provisioning.py     # TLS provisioning (self-signed or ACME DNS-01)
 │       ├── snap_store.py       # AI-Labs snap catalog loader
 │       ├── ssh.py              # authorized_keys management
-│       ├── store.py            # Alternative catalog parser
+│       ├── store.py            # Deprecated: Umbrel-format Docker Compose catalog parser
 │       ├── system_apps.py      # System-app metadata (openclaw, hermes-agent)
 │       ├── tls.py              # TLS certificate helpers
 │       └── wifi.py             # NetworkManager Wi-Fi management
@@ -471,35 +469,31 @@ nimbus/
 
 ## How apps are installed
 
-Nimbus presents a curated selection of agents and apps from the [Snap Store](https://snapcraft.io), optimized for the appliance experience. When you click **Install** on an app:
+In the default configuration (`app-store-type=nimbus`), Nimbus installs apps as classic snaps inside the managed LXD container:
 
-1. The backend resolves the app's package from the curated catalog.
-2. The app's compose configuration is prepared for standalone use:
-   - A host port mapping is injected (`<external-port>:<internal-port>`).
-   - Service name references are normalized for Compose v2 compatibility.
-   - The obsolete `version:` key is dropped.
-3. An `.env` file is written with `APP_DATA_DIR` and `APP_SEED` set to sensible local paths.
-4. All bind-mount host directories are pre-created so non-root container users can write to them.
-5. `docker compose up -d` is run as a background task; the UI receives live install progress via SSE.
+1. The backend fetches the curated catalog JSON from `nimbus-app-store`.
+2. When you click **Install**, the snap is installed inside the managed container via `snapd`.
+3. LXD proxy devices are created automatically for each snap's exposed ports so apps are reachable from the host network.
+4. The UI receives live install progress via SSE.
 
-App data lives under `/var/lib/nimbus/installed/<app-id>/data/`.  
-Shared storage lives at `/var/lib/nimbus/data/storage`.
+### Deprecated: Docker / Umbrel app install path
 
-In `lxd` mode, Nimbus prepares the bundle on the host, pushes it into the managed container, runs Compose there, and exposes the app port on the host with an LXD proxy device.
+When `app-store-type=umbrel` is set, Nimbus falls back to a Docker Compose install path sourced from the Umbrel git app catalog. **This backend is deprecated and not used in the default configuration.**
+
+When active, the install flow is:
+
+1. The Umbrel git catalog is cloned on startup.
+2. The app's `docker-compose.yml` is copied to `/var/lib/nimbus/installed/<app-id>/` and patched for standalone use: the `app_proxy` sidecar is removed, a host port mapping is injected, Compose v1 hostname references are rewritten, and the obsolete `version:` key is dropped.
+3. An `.env` file is written with `APP_DATA_DIR`, `APP_SEED`, and `UMBREL_ROOT` set to local paths.
+4. All bind-mount directories are pre-created and `docker compose up -d` is run in the background.
+
+App data lives under `/var/lib/nimbus/installed/<app-id>/data/`. Shared storage lives at `/var/lib/nimbus/data/storage`.
 
 ### Updating apps
 
 - The UI shows **Update available** when the catalog version differs from the installed version.
-- `POST /api/apps/{id}/update` runs `docker compose pull` then `up -d`.
-- A `POST /api/apps/check-updates` endpoint triggers an explicit update check.
-
----
-
-## AI Labs snap catalog
-
-In addition to Docker-based apps, Nimbus can install snaps inside the managed container from the AI Labs catalog. The catalog is fetched from a hosted JSON endpoint and installed via the container's `snapd`.
-
-Snap apps are surfaced in the **AI Labs** section of the UI alongside Docker apps. LXD proxy devices are created automatically for each snap's exposed ports.
+- `POST /api/apps/{id}/update` refreshes the app in place.
+- `POST /api/apps/check-updates` triggers an explicit update check.
 
 ---
 
@@ -647,11 +641,11 @@ lxc exec nimbus -- journalctl -u nimbus -f
 lxc info nimbus
 lxc info nimbus --show-log
 
-# App container logs
+# App container logs (deprecated Docker/Umbrel path only)
 lxc exec nimbus -- docker compose -p <app-id> \
   -f /var/lib/nimbus/installed/<app-id>/docker-compose.yml logs -f
 
-# All app containers
+# All Docker app containers (deprecated Docker/Umbrel path only)
 lxc exec nimbus -- docker ps -a
 ```
 
@@ -661,7 +655,7 @@ The UI also provides a built-in log viewer under **Settings → Logs** that stre
 
 1. Check `sudo snap logs nimbus -n 200`.
 2. Check `lxc info nimbus` — container must be `Running`.
-3. Check compose logs inside the container.
+3. Check snap or compose logs inside the container (depending on install backend).
 4. Confirm you are using the **host LAN IP**, not the LXD bridge/container IP.
 5. Check the LXD proxy device exists: `lxc config device show nimbus`.
 6. Check `NIMBUS_LXD_PUBLISH_HOST` is `0.0.0.0` (default).
@@ -686,6 +680,6 @@ sudo nimbus.reset
 
 ## Known limitations
 
-- **App compatibility**: Only apps from Nimbus's curated catalog are fully supported; apps requiring infrastructure outside this catalog may not work correctly.
+- **App compatibility**: The default snap-based catalog only includes apps explicitly curated for the appliance experience. The deprecated Docker/Umbrel backend supports a broader set of apps but may encounter compatibility issues with apps that depend on Umbrel-specific infrastructure.
 - **Single user**: Only one account is supported. The UI is intended for local-network use.
 - **Remote mode**: `NIMBUS_CONTROL_MODE=remote` exists in the code but `lxd` mode is the primary supported path.
