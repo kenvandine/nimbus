@@ -86,9 +86,55 @@ if _snap_common:
 STATIC_DIR = Path(__file__).parent / "static"
 
 
+_LOCALHOST_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
 async def _run_http_redirect(http_port: int, https_port: int) -> None:
-    """Accept plain-HTTP connections and return a 301 redirect to HTTPS."""
+    """Accept plain-HTTP connections.
+
+    * localhost / 127.0.0.1 / ::1 — transparently proxy to the local HTTPS
+      backend so browsers never see a certificate warning for local access.
+    * all other Host headers — return a 301 redirect to the HTTPS URL.
+    """
     import asyncio
+    import ssl
+
+    async def _pipe(src: asyncio.StreamReader, dst: asyncio.StreamWriter) -> None:
+        try:
+            while True:
+                chunk = await src.read(65536)
+                if not chunk:
+                    break
+                dst.write(chunk)
+                await dst.drain()
+        except Exception:
+            pass
+        finally:
+            try:
+                dst.close()
+            except Exception:
+                pass
+
+    async def _proxy_localhost(initial: bytes, client_r: asyncio.StreamReader,
+                               client_w: asyncio.StreamWriter) -> None:
+        """Forward the HTTP request to the local HTTPS backend and pipe back the response."""
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        try:
+            backend_r, backend_w = await asyncio.open_connection(
+                "127.0.0.1", https_port, ssl=ctx
+            )
+        except Exception as exc:
+            logger.debug("localhost proxy connect failed: %s", exc)
+            return
+        backend_w.write(initial)
+        await backend_w.drain()
+        await asyncio.gather(
+            _pipe(backend_r, client_w),
+            _pipe(client_r, backend_w),
+            return_exceptions=True,
+        )
 
     async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
@@ -104,6 +150,9 @@ async def _run_http_redirect(http_port: int, https_port: int) -> None:
                 if line.lower().startswith(b"host:"):
                     host = line[5:].decode(errors="replace").strip().split(":")[0]
                     break
+            if host in _LOCALHOST_HOSTS:
+                await _proxy_localhost(raw, reader, writer)
+                return
             port_suffix = f":{https_port}" if https_port != 443 else ""
             location = f"https://{host}{port_suffix}{path}"
             writer.write(
@@ -123,7 +172,7 @@ async def _run_http_redirect(http_port: int, https_port: int) -> None:
                 pass
 
     server = await asyncio.start_server(_handle, "0.0.0.0", http_port)
-    logger.info("HTTP→HTTPS redirect listening on port %d", http_port)
+    logger.info("HTTP→HTTPS redirect listening on port %d (localhost proxied)", http_port)
     async with server:
         await server.serve_forever()
 
