@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { getWifiStatus, scanWifiNetworks, connectWifi, completeOobe, setupAccount } from '../api.js'
 
-const STATUS_REFRESH_DELAY_MS = 3000
 const STATUS_IP_RETRY_DELAY_MS = 1500
 
 function SignalBars({ strength }) {
@@ -59,13 +58,13 @@ function NetworkStep({ online, onNext, reconnect }) {
     setConnecting(ssid)
     setError(null)
     try {
+      // connectWifi resolves only once NetworkManager reports the connection
+      // fully activated (associated + DHCP lease), so status is ready now.
       await connectWifi(ssid, pwd || null)
       setExpandedSsid(null)
       setPassword('')
-      setTimeout(async () => {
-        await refreshWifiStatus()
-        try { setNetworks(await scanWifiNetworks()) } catch {}
-      }, STATUS_REFRESH_DELAY_MS)
+      await refreshWifiStatus()
+      try { setNetworks(await scanWifiNetworks()) } catch {}
     } catch (e) { setError(e.message) }
     finally { setConnecting(null) }
   }
@@ -79,24 +78,31 @@ function NetworkStep({ online, onNext, reconnect }) {
 
   const wifiAvailable = wifiStatus?.available !== false
 
+  // The parent `online` prop comes from NetworkManager's global connectivity
+  // state, which only flips to "online" once NM's connectivity check passes —
+  // that can stay stuck at connected-local on networks that block the check,
+  // even when Wi-Fi is associated and has a DHCP lease. Treat a local Wi-Fi
+  // association with an IP address as good enough to proceed through onboarding.
+  const connected = online || !!(wifiStatus?.connected && wifiStatus?.ip_address)
+
   return (
     <>
       {!reconnect && <div style={s.stepLabel}>Step 1 of 2</div>}
       <h1 style={s.heading}>{reconnect ? 'Reconnect to a network' : 'Connect to a network'}</h1>
       <p style={s.subheading}>
-        {online
+        {connected
           ? 'Your device is connected and ready to continue.'
           : reconnect
             ? 'Your device lost network connectivity. Connect to Wi-Fi to restore access.'
             : 'Connect your device to the internet to enable setup.'}
       </p>
 
-      <div style={{ ...s.badge, ...(online ? s.badgeOnline : s.badgeOffline) }}>
-        {online
+      <div style={{ ...s.badge, ...(connected ? s.badgeOnline : s.badgeOffline) }}>
+        {connected
           ? `✓ Connected${wifiStatus?.ssid ? ` — ${wifiStatus.ssid}` : ' via Ethernet'}`
           : '✗ Not connected'}
       </div>
-      {online && wifiStatus?.ip_address && (
+      {connected && wifiStatus?.ip_address && (
         <div style={s.connectionMeta}>IP address: {wifiStatus.ip_address}</div>
       )}
 
@@ -167,12 +173,12 @@ function NetworkStep({ online, onNext, reconnect }) {
       )}
 
       <button
-        style={{ ...s.btnPrimary, ...(!online ? s.btnPrimaryDisabled : {}) }}
-        onClick={onNext} disabled={!online}
+        style={{ ...s.btnPrimary, ...(!connected ? s.btnPrimaryDisabled : {}) }}
+        onClick={onNext} disabled={!connected}
       >
         {reconnect ? 'Continue' : 'Next →'}
       </button>
-      {!online && (
+      {!connected && (
         <button style={s.btnGhost} onClick={onNext}>Skip — I'm using Ethernet</button>
       )}
     </>

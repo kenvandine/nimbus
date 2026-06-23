@@ -61,7 +61,7 @@ async def wifi_connect(req: ConnectRequest) -> dict:
         await asyncio.to_thread(wifi_service.connect_network, req.ssid, req.password)
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    return {"status": "connecting", "ssid": req.ssid}
+    return {"status": "connected", "ssid": req.ssid}
 
 
 @router.post("/wifi/disconnect")
