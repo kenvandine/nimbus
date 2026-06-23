@@ -530,8 +530,14 @@ class LxdManager:
         return dict(getattr(instance, "devices", {}) or {})
 
     def _save_instance_devices(self, instance, devices: dict) -> None:
-        instance.devices = devices
-        instance.save(wait=True)
+        # Use PATCH rather than PUT so that only the devices field is sent.
+        # A full PUT would include instance.config, which may be missing
+        # protected volatile keys (e.g. volatile.idmap.current) that LXD
+        # sets internally after container start.  Omitting them from a PUT
+        # causes LXD to treat them as deletions and reject the request.
+        response = instance.api.patch(json={"devices": devices})
+        instance._handle_async_response(response, wait=True)
+        instance.sync()
 
     def _app_proxy_device(self, port: int) -> dict[str, str]:
         return {
@@ -1272,17 +1278,19 @@ print(json.dumps(apps), end='')
         current = dict(instance.devices.get(devname) or {})
         if current == desired:
             return
-        instance.devices[devname] = desired
         try:
-            instance.save(wait=True)
+            devices = self._instance_devices(instance)
+            devices[devname] = desired
+            self._save_instance_devices(instance, devices)
             logger.info("Attached openclaw-workspace bind: host %s -> lxc %s", src, CONTAINER_OPENCLAW_WORKSPACE)
         except LXDAPIException as exc:
             # Fall back to no-shift if the kernel/storage backend rejects it.
             if "shift" in str(exc).lower():
                 logger.warning("LXD rejected shift=true; retrying without it")
                 desired.pop("shift")
-                instance.devices[devname] = desired
-                instance.save(wait=True)
+                devices = self._instance_devices(instance)
+                devices[devname] = desired
+                self._save_instance_devices(instance, devices)
             else:
                 raise
 
