@@ -292,27 +292,48 @@ class LxdManager:
 
         return wrote
 
+    def _veth_for_instance(self, instance) -> list[str]:
+        """Return host-side veth interface names for the container via pylxd."""
+        state = instance.state()
+        network = getattr(state, "network", {}) or {}
+        return [
+            iface.get("host_name", "")
+            for iface in network.values()
+            if iface.get("host_name", "").startswith("veth")
+        ]
+
+    def _reattach_veths(self, host_ifaces: list[str], bridge: str) -> bool:
+        """Mark each veth unmanaged in NM and attach it to bridge if detached.
+
+        Returns True if any veth was reattached.
+        """
+        repaired = False
+        for host_iface in host_ifaces:
+            link_result = subprocess.run(
+                ["ip", "link", "show", "dev", host_iface],
+                capture_output=True, text=True, timeout=5,
+            )
+            if "master" in link_result.stdout and link_result.returncode == 0:
+                continue  # already on a bridge
+            logger.warning("Container veth %s is detached from %s — repairing", host_iface, bridge)
+            subprocess.run(["nmcli", "device", "set", host_iface, "managed", "no"],
+                           capture_output=True, timeout=10)
+            subprocess.run(["ip", "link", "set", host_iface, "master", bridge],
+                           capture_output=True, timeout=10)
+            logger.info("Reattached %s to %s", host_iface, bridge)
+            repaired = True
+        return repaired
+
     def _repair_container_veth(self, instance) -> None:
         """Ensure the container's host-side veth is attached to the LXD bridge.
 
         NetworkManager sometimes grabs the veth after it's created, detaching it
         from lxdbr0 and breaking all container networking (DNS, NAT, host→container
-        port forwarding).  This is the same fix that fix-lxd-network.sh applies
-        manually: mark the veth unmanaged in NM and reattach it to the bridge.
+        port forwarding).  Mirrors fix-lxd-network.sh: reattach the veth, restart
+        the container so its DHCP client gets a fresh lease, then reattach again
+        because LXD creates a new veth on restart which NM may grab immediately.
         """
         try:
-            # Use pylxd's network state to get host-side veth names — avoids
-            # needing `lxc info` (which may not be in PATH inside the snap sandbox).
-            state = instance.state()
-            network = getattr(state, "network", {}) or {}
-            host_ifaces = [
-                iface.get("host_name", "")
-                for iface in network.values()
-                if iface.get("host_name", "").startswith("veth")
-            ]
-            if not host_ifaces:
-                return
-
             bridge = None
             for net in self._managed_networks():
                 bridge = net.name
@@ -320,27 +341,23 @@ class LxdManager:
             if not bridge:
                 bridge = "lxdbr0"
 
-            for host_iface in host_ifaces:
-                link_result = subprocess.run(
-                    ["ip", "link", "show", "dev", host_iface],
-                    capture_output=True, text=True, timeout=5,
-                )
-                if "master" in link_result.stdout and link_result.returncode == 0:
-                    continue  # already attached to a bridge
+            host_ifaces = self._veth_for_instance(instance)
+            if not host_ifaces:
+                return
 
-                logger.warning(
-                    "Container veth %s is detached from %s — repairing",
-                    host_iface, bridge,
-                )
-                subprocess.run(
-                    ["nmcli", "device", "set", host_iface, "managed", "no"],
-                    capture_output=True, timeout=10,
-                )
-                subprocess.run(
-                    ["ip", "link", "set", host_iface, "master", bridge],
-                    capture_output=True, timeout=10,
-                )
-                logger.info("Reattached %s to %s", host_iface, bridge)
+            if not self._reattach_veths(host_ifaces, bridge):
+                return  # already healthy
+
+            # Restart so the container's DHCP client gets a new lease on the
+            # now-bridged veth.  After restart LXD creates a fresh veth which NM
+            # may grab again, so reattach once more.
+            logger.info("Restarting container to renew DHCP after veth repair")
+            instance.restart(wait=True)
+            time.sleep(3)
+            instance.sync()
+            host_ifaces = self._veth_for_instance(instance)
+            if host_ifaces:
+                self._reattach_veths(host_ifaces, bridge)
         except Exception as exc:
             logger.warning("Could not repair container veth: %s", exc)
 
