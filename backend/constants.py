@@ -84,7 +84,7 @@ CONTAINER_OPENCLAW_WORKSPACE: str = (
 # ---------------------------------------------------------------------------
 
 BOOTSTRAP_VERSION: str = "1"
-LXC_AGENT_VERSION: str = "19"
+LXC_AGENT_VERSION: str = "20"
 BACKEND_VERSION: str = "3"
 
 BOOTSTRAP_MARKER_PATH: str = "/var/lib/nimbus/.agent-bootstrap-version"

@@ -951,6 +951,9 @@ class LxdManager:
 
         self._run(instance, ["mkdir", "-p", "/opt/nimbus/backend/agent"])
         instance.files.recursive_put(str(agent_src), "/opt/nimbus/backend/agent")
+        constants_src = BACKEND_SOURCE_DIR / "constants.py"
+        if constants_src.exists():
+            instance.files.put("/opt/nimbus/backend/constants.py", constants_src.read_bytes())
         self._write_file(
             instance,
             "/etc/systemd/system/nimbus-lxc-agent.service",
