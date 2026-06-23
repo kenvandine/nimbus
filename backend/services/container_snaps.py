@@ -146,7 +146,19 @@ async def sideload_container_snap(
             _agent_url("/snaps/sideload"),
             json=payload,
         )
-        resp.raise_for_status()
+        if resp.status_code != 200:
+            # Extract the agent's error detail before raising so the actual
+            # snap install stderr is visible in the host log.
+            try:
+                detail = resp.json()
+                stderr = detail.get("stderr", "").strip()
+                stdout = detail.get("stdout", "").strip()
+                msg = stderr or stdout or detail.get("error", "")
+            except Exception:
+                msg = resp.text[:500]
+            raise RuntimeError(
+                f"Container agent returned {resp.status_code} for sideload: {msg}"
+            )
         return resp.json()
 
 
