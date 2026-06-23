@@ -52,6 +52,7 @@ export const getAuthStatus = () => request('/auth/status')
 export const setupAccount = (username, password) => json('POST', '/auth/setup', { username, password })
 export const login = (username, password) => json('POST', '/auth/login', { username, password })
 export const logout = () => request('/auth/logout', { method: 'POST' })
+export const refreshSession = () => request('/auth/refresh', { method: 'POST' })
 
 // File browser
 export const listFiles = (path = '/') => request(`/files/list?path=${encodeURIComponent(path)}`)

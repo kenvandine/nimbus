@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { getActiveInstalls, listApps, getStats, powerOffSystem, restartSystem, uninstallApp, getAuthStatus, logout } from './api.js'
+import { getActiveInstalls, listApps, getStats, powerOffSystem, restartSystem, uninstallApp, getAuthStatus, logout, refreshSession } from './api.js'
 import { openApp, setKioskFallback, isLocalAccess } from './utils.js'
 import Dock from './components/Dock.jsx'
 import Window from './components/Window.jsx'
@@ -242,10 +242,17 @@ export default function App() {
       setActiveInstalls(active)
     } catch (e) {
       if (e.message.startsWith('401:')) {
-        const next = authStatusRef.current ? { ...authStatusRef.current, authenticated: false } : null
-        authStatusRef.current = next
-        setAuthStatus(next)
-        checkAuth()
+        try {
+          await refreshSession()
+          const [appsData, active] = await Promise.all([listApps(), getActiveInstalls()])
+          setApps(appsData)
+          setActiveInstalls(active)
+        } catch {
+          const next = authStatusRef.current ? { ...authStatusRef.current, authenticated: false } : null
+          authStatusRef.current = next
+          setAuthStatus(next)
+          checkAuth()
+        }
       }
     }
   }

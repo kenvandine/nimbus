@@ -200,7 +200,6 @@ def _load_or_create_cert_key():
 
 def _provision_acme(settings) -> tuple[Path, Path]:
     import datetime
-    import josepy as jose
     from acme import client as acme_client_mod, messages, challenges, errors
     from services.device_id import get_device_id
     from services.tls import cert_path, key_path

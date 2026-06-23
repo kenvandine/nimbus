@@ -8,9 +8,13 @@ function useLongPress(onLongPress) {
   const timerRef = useRef(null)
   const [pressing, setPressing] = useState(false)
 
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
+
   function start() {
+    if (timerRef.current) clearTimeout(timerRef.current)
     setPressing(true)
     timerRef.current = setTimeout(() => {
+      timerRef.current = null
       setPressing(false)
       onLongPress()
     }, LONG_PRESS_MS)
@@ -18,7 +22,7 @@ function useLongPress(onLongPress) {
 
   function cancel() {
     setPressing(false)
-    if (timerRef.current) clearTimeout(timerRef.current)
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
   }
 
   return {

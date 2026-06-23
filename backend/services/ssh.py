@@ -29,7 +29,9 @@ def _load_keys() -> list[str]:
 
 
 def _save_keys(keys: list[str]) -> None:
-    _keys_path().write_text("\n".join(keys) + "\n" if keys else "")
+    p = _keys_path()
+    p.write_text("\n".join(keys) + "\n" if keys else "")
+    p.chmod(0o600)
 
 
 def _fingerprint(pubkey: str) -> str:

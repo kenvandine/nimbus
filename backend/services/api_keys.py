@@ -108,7 +108,10 @@ def _inject_into_container(name: str, value: str) -> None:
         instance = mgr.get_instance()
         env_dir = "/etc/nimbus/env.d"
         mgr.exec_in_container(["mkdir", "-p", env_dir])
-        safe_name = name.upper().replace("-", "_").replace(" ", "_")
+        import re
+        safe_name = re.sub(r'[^A-Z0-9_]', '_', name.upper())
+        if safe_name and safe_name[0].isdigit():
+            safe_name = '_' + safe_name
         content = f"export {safe_name}={value!r}\n".encode()
         instance.files.put(f"{env_dir}/{safe_name}.env", content)
     except Exception as exc:
