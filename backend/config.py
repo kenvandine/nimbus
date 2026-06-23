@@ -5,10 +5,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
-_DEFAULT_APPSTORE_WHITELIST = [
-    "openclaw", "hermes-agent", "picoclaw", "immich",
-]
-
 
 def _env_bool(name: str, default: bool) -> bool:
     value = os.getenv(name)
@@ -66,8 +62,6 @@ class Settings:
     preseed_apps: list[str] = field(default_factory=list)
     # Whether the App Store UI is shown (default True; set NIMBUS_APPSTORE_VISIBLE=false to hide)
     appstore_visible: bool = True
-    # App IDs shown in the App Store. Overridden by NIMBUS_APPSTORE_WHITELIST (comma-separated).
-    appstore_whitelist: list[str] = field(default_factory=list)
     # TLS settings
     tls_enabled: bool = False
     # Port the plain-HTTP redirect listener binds when TLS is enabled.
@@ -105,12 +99,6 @@ def _build_settings() -> Settings:
         remote_base_url = remote_base_url.rstrip("/")
 
     appstore_visible = _env_bool("NIMBUS_APPSTORE_VISIBLE", True)
-
-    whitelist_env = os.getenv("NIMBUS_APPSTORE_WHITELIST", "").strip()
-    if whitelist_env:
-        appstore_whitelist = [a.strip() for a in whitelist_env.split(",") if a.strip()]
-    else:
-        appstore_whitelist = list(_DEFAULT_APPSTORE_WHITELIST)
 
     # When the App Store is visible, users install openclaw themselves; skip
     # auto-preseed so first-boot doesn't block on it. When the store is hidden,
@@ -183,7 +171,6 @@ def _build_settings() -> Settings:
         lxd_publish_host=os.getenv("NIMBUS_LXD_PUBLISH_HOST", "0.0.0.0"),
         preseed_apps=preseed_apps,
         appstore_visible=appstore_visible,
-        appstore_whitelist=appstore_whitelist,
         tls_enabled=_env_bool("NIMBUS_TLS", False),
         http_redirect_port=int(os.getenv("NIMBUS_HTTP_REDIRECT_PORT", "80")),
         provisioning_url=(os.getenv("NIMBUS_PROVISIONING_URL") or "").rstrip("/") or None,

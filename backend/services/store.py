@@ -98,22 +98,13 @@ def _parse_meta(app_id: str, data: dict) -> AppMeta:
 
 
 def list_apps(extra_ids: set[str] | None = None) -> list[AppMeta]:
-    """Return store app metadata filtered to the configured whitelist.
-
-    extra_ids: app IDs to include regardless of whitelist (e.g. already
-    installed apps so the user can still view/uninstall them).
-    """
-    whitelist = set(settings.appstore_whitelist)
-    allowed = whitelist | (extra_ids or set())
-
+    """Return store app metadata for all apps in the store directory."""
     apps: list[AppMeta] = []
     if not STORE_DIR.exists():
         return apps
 
     for app_dir in sorted(STORE_DIR.iterdir()):
         if not app_dir.is_dir() or app_dir.name.startswith("."):
-            continue
-        if app_dir.name not in allowed:
             continue
         meta_file = app_dir / "umbrel-app.yml"
         if not meta_file.exists():
