@@ -18,9 +18,11 @@ from models import AppMeta
 logger = logging.getLogger(__name__)
 
 _CACHE_TTL = 3600  # 1 hour
+_RETRY_INTERVAL = 30  # seconds between retries when initial load fails
 
 _catalog: dict | None = None
 _catalog_fetched_at: float = 0.0
+_catalog_retry_after: float = 0.0
 
 
 def _catalog_url() -> str:
@@ -105,16 +107,20 @@ def is_nimbus_store_app(name: str) -> bool:
 
 
 async def get_catalog(force: bool = False) -> dict:
-    global _catalog, _catalog_fetched_at
+    global _catalog, _catalog_fetched_at, _catalog_retry_after
     now = time.monotonic()
-    if not force and _catalog is not None and now - _catalog_fetched_at < _CACHE_TTL:
-        return _catalog
+    if not force:
+        if _catalog is not None and now - _catalog_fetched_at < _CACHE_TTL:
+            return _catalog
+        if _catalog is None and now < _catalog_retry_after:
+            return {"snaps": []}
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(_catalog_url())
             resp.raise_for_status()
             _catalog = resp.json()
             _catalog_fetched_at = now
+            _catalog_retry_after = 0.0
             logger.info(
                 "Fetched nimbus-app-store catalog: %d apps",
                 len(get_snaps(_catalog)),
@@ -124,7 +130,7 @@ async def get_catalog(force: bool = False) -> dict:
             logger.warning("Could not refresh nimbus-app-store catalog: %s", exc)
         else:
             logger.error("Could not load nimbus-app-store catalog: %s", exc)
-            _catalog = {"snaps": []}
+            _catalog_retry_after = now + _RETRY_INTERVAL
     return _catalog or {"snaps": []}
 
 

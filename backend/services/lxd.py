@@ -309,6 +309,12 @@ class LxdManager:
         """
         repaired = False
         for host_iface in host_ifaces:
+            # Always mark the veth unmanaged regardless of bridge state.
+            # NM will otherwise time out its DHCP attempt (~90 s) and then
+            # detach the veth from lxdbr0, breaking container networking even
+            # when the veth was initially placed on the bridge correctly by LXD.
+            subprocess.run(["nmcli", "device", "set", host_iface, "managed", "no"],
+                           capture_output=True, timeout=10)
             link_result = subprocess.run(
                 ["ip", "link", "show", "dev", host_iface],
                 capture_output=True, text=True, timeout=5,
@@ -316,8 +322,6 @@ class LxdManager:
             if "master" in link_result.stdout and link_result.returncode == 0:
                 continue  # already on a bridge
             logger.warning("Container veth %s is detached from %s — repairing", host_iface, bridge)
-            subprocess.run(["nmcli", "device", "set", host_iface, "managed", "no"],
-                           capture_output=True, timeout=10)
             subprocess.run(["ip", "link", "set", host_iface, "master", bridge],
                            capture_output=True, timeout=10)
             logger.info("Reattached %s to %s", host_iface, bridge)
