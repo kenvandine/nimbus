@@ -292,6 +292,60 @@ class LxdManager:
 
         return wrote
 
+    def _repair_container_veth(self, instance) -> None:
+        """Ensure the container's host-side veth is attached to the LXD bridge.
+
+        NetworkManager sometimes grabs the veth after it's created, detaching it
+        from lxdbr0 and breaking all container networking (DNS, NAT, host→container
+        port forwarding).  This is the same fix that fix-lxd-network.sh applies
+        manually: mark the veth unmanaged in NM and reattach it to the bridge.
+        """
+        try:
+            # Get the host-side veth name from `lxc info`.
+            info_result = subprocess.run(
+                ["lxc", "info", instance.name],
+                capture_output=True, text=True, timeout=15,
+            )
+            host_iface = None
+            for line in info_result.stdout.splitlines():
+                if "Host interface:" in line:
+                    host_iface = line.split(":", 1)[1].strip()
+                    break
+            if not host_iface:
+                return
+
+            # Check whether the veth already has a bridge master.
+            link_result = subprocess.run(
+                ["ip", "link", "show", "dev", host_iface],
+                capture_output=True, text=True, timeout=5,
+            )
+            if "master" in link_result.stdout and link_result.returncode == 0:
+                return  # already attached, nothing to do
+
+            logger.warning(
+                "Container veth %s is detached from the bridge — repairing",
+                host_iface,
+            )
+            # Find the LXD-managed bridge name.
+            bridge = None
+            for network in self._managed_networks():
+                bridge = network.name
+                break
+            if not bridge:
+                bridge = "lxdbr0"
+
+            subprocess.run(
+                ["nmcli", "device", "set", host_iface, "managed", "no"],
+                capture_output=True, timeout=10,
+            )
+            subprocess.run(
+                ["ip", "link", "set", host_iface, "master", bridge],
+                capture_output=True, timeout=10,
+            )
+            logger.info("Reattached %s to %s", host_iface, bridge)
+        except Exception as exc:
+            logger.warning("Could not repair container veth: %s", exc)
+
     def _ensure_lxd_nat_rules(self) -> None:
         """Re-establish LXD's MASQUERADE and FORWARD rules via the LXD API.
 
@@ -1054,6 +1108,7 @@ class LxdManager:
                 self._import_seeded_image()
                 self._set_bootstrap_state("ensuring-container")
                 instance = self.ensure_started()
+                self._repair_container_veth(instance)
                 if self._has_bootstrap_marker(instance):
                     self._set_bootstrap_state("starting-agent")
                     self._wait_for_docker(instance)
