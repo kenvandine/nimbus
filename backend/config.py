@@ -87,6 +87,8 @@ class Settings:
     app_store_type: str = "nimbus"
     # Override URL for the nimbus-app-store catalog.json (useful for testing).
     nimbus_store_url: str = "https://raw.githubusercontent.com/kenvandine/nimbus-app-store/main/catalog.json"
+    # Comma-separated CORS origins. Empty string = allow all (*).
+    cors_origins: str = ""
 
 
 def _build_settings() -> Settings:
@@ -182,6 +184,7 @@ def _build_settings() -> Settings:
         openai_url=openai_url,
         app_store_type=app_store_type,
         nimbus_store_url=nimbus_store_url,
+        cors_origins=os.getenv("NIMBUS_CORS_ORIGINS", ""),
     )
 
 
