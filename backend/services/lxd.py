@@ -273,6 +273,11 @@ class LxdManager:
 
         if wrote:
             # Restart NM so the new policy takes effect immediately.
+            # Prefer `snap restart network-manager` (Ubuntu Core / snap NM).
+            # Fall back to `systemctl restart NetworkManager` for classic
+            # Ubuntu Server, but catch PermissionError too since the nimbus
+            # snap's AppArmor profile may not allow exec of /usr/bin/systemctl
+            # (otherwise it produces repeated DENIED audit entries on boot).
             for cmd in (
                 ["snap", "restart", "network-manager"],
                 ["systemctl", "restart", "NetworkManager"],
@@ -282,7 +287,7 @@ class LxdManager:
                     if result.returncode == 0:
                         logger.info("Restarted NetworkManager after drop-in update")
                         break
-                except (FileNotFoundError, subprocess.TimeoutExpired):
+                except (FileNotFoundError, subprocess.TimeoutExpired, PermissionError):
                     pass
 
         return wrote

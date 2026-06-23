@@ -101,8 +101,11 @@ async def _snap_journal_stream(service_name: str, tail: int):
     import httpx
     import urllib.parse
     from config import settings as _s
+    from services.lxd import LXC_AGENT_PORT
     unit_enc = urllib.parse.quote(service_name, safe="")
-    url = f"http://{_s.lxd_agent_bind_host}:{_s.lxd_agent_port}/journal?unit={unit_enc}&lines={tail}"
+    # Served by the nimbus-lxc-agent daemon on LXC_AGENT_PORT (9002), not the
+    # container's internal nimbus uvicorn (lxd_agent_port / 9001).
+    url = f"http://{_s.lxd_agent_bind_host}:{LXC_AGENT_PORT}/journal?unit={unit_enc}&lines={tail}"
     async with httpx.AsyncClient(timeout=None) as client:
         async with client.stream("GET", url) as resp:
             async for raw_line in resp.aiter_lines():

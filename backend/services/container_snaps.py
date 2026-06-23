@@ -7,12 +7,17 @@ from typing import Any
 import httpx
 
 from config import settings
+from services.lxd import LXC_AGENT_PORT
 
 logger = logging.getLogger(__name__)
 
 
 def _agent_url(path: str) -> str:
-    return f"http://{settings.lxd_agent_bind_host}:{settings.lxd_agent_port}{path}"
+    # The LXC agent daemon (daemon.py) runs on LXC_AGENT_PORT (9002) inside the
+    # container and is proxied to the host via the nimbus-lxc-agent proxy device.
+    # lxd_agent_port (9001) is the port the container's nimbus uvicorn service
+    # listens on internally — there is no host proxy for that port.
+    return f"http://{settings.lxd_agent_bind_host}:{LXC_AGENT_PORT}{path}"
 
 
 async def list_container_snaps() -> list[dict[str, Any]]:
