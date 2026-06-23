@@ -33,6 +33,7 @@ def _fernet():
         if not salt_file.exists():
             salt = os.urandom(16)
             salt_file.write_bytes(salt)
+            salt_file.chmod(0o600)
         else:
             salt = salt_file.read_bytes()
         kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=100_000)
@@ -62,7 +63,9 @@ def _save_store(data: dict[str, str]) -> None:
     f = _fernet()
     if f:
         raw = f.encrypt(raw)
-    _store_path().write_bytes(raw)
+    p = _store_path()
+    p.write_bytes(raw)
+    p.chmod(0o600)
 
 
 def list_keys() -> list[dict]:

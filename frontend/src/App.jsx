@@ -544,7 +544,7 @@ export default function App() {
       )}
       {openWindow === 'terminal' && (
         <Window title="Container Terminal" onClose={() => setOpenWindow(null)} noPad>
-          <TerminalPanel authToken={authStatus?.token || ''} />
+          <TerminalPanel />
         </Window>
       )}
 

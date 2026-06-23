@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import platform
 import time
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,21 @@ import httpx
 from models import AppMeta
 
 logger = logging.getLogger(__name__)
+
+_MACHINE_TO_SNAP_ARCH = {
+    "x86_64": "amd64",
+    "aarch64": "arm64",
+    "armv7l": "armhf",
+    "armv6l": "armel",
+    "ppc64le": "ppc64el",
+    "s390x": "s390x",
+    "riscv64": "riscv64",
+}
+
+
+def _snap_arch() -> str:
+    return _MACHINE_TO_SNAP_ARCH.get(platform.machine(), "amd64")
+
 
 _SNAPCRAFT_API = "https://api.snapcraft.io/v2/snaps/info"
 _CACHE_TTL = 3600  # 1 hour
@@ -48,7 +64,7 @@ async def fetch_snap_metadata(name: str) -> dict[str, Any]:
             resp = await client.get(
                 f"{_SNAPCRAFT_API}/{name}",
                 headers={
-                    "Snap-Device-Architecture": "amd64",
+                    "Snap-Device-Architecture": _snap_arch(),
                     "Snap-Device-Series": "16",
                     "User-Agent": "nimbus-appliance/1.0",
                 },

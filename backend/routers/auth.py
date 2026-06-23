@@ -71,13 +71,10 @@ async def auth_status(request: Request) -> dict:
             authenticated = True
             username = get_username()
 
-    # Return the session token in the response body so the frontend can pass it
-    # to the WebSocket terminal endpoint (cookies don't attach to WS in strict mode).
     return {
         "configured": configured,
         "authenticated": authenticated,
         "username": username,
-        "token": token if authenticated and token else None,
     }
 
 
@@ -121,6 +118,25 @@ async def refresh_token(request: Request, response: Response) -> dict:
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
     _set_session(response, username)
     return {"status": "ok", "username": username}
+
+
+@router.get("/ws-token")
+async def get_ws_token(request: Request) -> dict:
+    """Issue a short-lived token for authenticating WebSocket connections."""
+    from services.auth import verify_session_token, create_ws_token, get_username
+    from config import settings
+
+    username = None
+    cookie = request.cookies.get(SESSION_COOKIE)
+    if cookie:
+        username = verify_session_token(cookie)
+    if not username and settings.api_token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header == f"Bearer {settings.api_token}":
+            username = get_username()
+    if not username:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return {"ws_token": create_ws_token(username)}
 
 
 @router.post("/change-password")

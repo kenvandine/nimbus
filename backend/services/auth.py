@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 _ALGORITHM = "HS256"
 _ACCESS_TOKEN_EXPIRE_HOURS = 24
 _REFRESH_TOKEN_EXPIRE_DAYS = 30
+_WS_TOKEN_EXPIRE_MINUTES = 5
 
 try:
     from passlib.context import CryptContext
@@ -184,6 +185,29 @@ def verify_refresh_token(token: str) -> Optional[str]:
     try:
         payload = jwt.decode(token, _get_or_create_refresh_secret(), algorithms=[_ALGORITHM])
         if payload.get("type") != "refresh":
+            return None
+        return payload.get("sub") or None
+    except _JWTError:
+        return None
+
+
+def create_ws_token(username: str) -> str:
+    """Issue a short-lived token dedicated for WebSocket connections."""
+    from datetime import datetime, timedelta, timezone
+    payload = {
+        "sub": username,
+        "type": "ws",
+        "iat": datetime.now(timezone.utc),
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=_WS_TOKEN_EXPIRE_MINUTES),
+    }
+    return jwt.encode(payload, _get_or_create_secret(), algorithm=_ALGORITHM)
+
+
+def verify_ws_token(token: str) -> Optional[str]:
+    """Return the username if the WS token is valid, otherwise None."""
+    try:
+        payload = jwt.decode(token, _get_or_create_secret(), algorithms=[_ALGORITHM])
+        if payload.get("type") != "ws":
             return None
         return payload.get("sub") or None
     except _JWTError:

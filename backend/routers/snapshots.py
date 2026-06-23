@@ -11,7 +11,6 @@ router = APIRouter(prefix="/api/snapshots", tags=["snapshots"], dependencies=[De
 
 class CreateSnapshotRequest(BaseModel):
     name: str
-    description: str = ""
     stateful: bool = False
 
 
@@ -33,7 +32,7 @@ async def list_snapshots() -> list[dict]:
 async def create_snapshot(req: CreateSnapshotRequest) -> dict:
     import asyncio
     mgr = _get_lxd()
-    await asyncio.to_thread(mgr.create_snapshot, req.name, req.description, req.stateful)
+    await asyncio.to_thread(mgr.create_snapshot, req.name, req.stateful)
     return {"status": "created", "name": req.name}
 
 

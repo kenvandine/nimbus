@@ -130,13 +130,13 @@ async def terminal_ws(
     global _session
 
     from auth import SESSION_COOKIE
-    from services.auth import verify_session_token, account_exists
+    from services.auth import verify_session_token, verify_ws_token, account_exists
 
     cookie_token = websocket.cookies.get(SESSION_COOKIE, "")
     effective_token = cookie_token or token
 
     if account_exists():
-        username = verify_session_token(effective_token)
+        username = verify_session_token(effective_token) or verify_ws_token(effective_token)
         if not username:
             if not (settings.api_token and effective_token == settings.api_token):
                 await websocket.accept()

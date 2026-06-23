@@ -1605,7 +1605,7 @@ print(json.dumps(apps), end='')
             })
         return result
 
-    def create_snapshot(self, name: str, description: str = "", stateful: bool = False) -> None:
+    def create_snapshot(self, name: str, stateful: bool = False) -> None:
         instance = self.get_instance()
         if instance is None:
             raise RuntimeError("Container does not exist")

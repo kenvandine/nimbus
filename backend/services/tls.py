@@ -109,7 +109,11 @@ def ensure_tls_cert(hostname: str = "nimbus.local") -> tuple[Path, Path]:
         .not_valid_before(now)
         .not_valid_after(now + datetime.timedelta(days=3650))
         .add_extension(x509.SubjectAlternativeName(san_entries), critical=False)
-        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+        .add_extension(
+            x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.SERVER_AUTH]),
+            critical=False,
+        )
         .sign(private_key, hashes.SHA256())
     )
 

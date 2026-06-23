@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 import logging
+from pathlib import Path
 
 from config import settings
 
@@ -173,7 +174,6 @@ def set_dns_servers(servers: list[str]) -> None:
         Path(_RESOLV_CONF).write_text(content)
     except OSError:
         # Fall back to resolvconf if direct write fails
-        ns_args = " ".join(f"-n {s}" for s in servers)
         subprocess.run(
             ["resolvconf", "-u"],
             input="\n".join(f"nameserver {s}" for s in servers),

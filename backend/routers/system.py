@@ -42,7 +42,7 @@ async def stream_stats(request: Request) -> StreamingResponse:
                 stats = await get_control_plane().get_stats()
                 yield {"data": stats.model_dump_json()}
             except Exception as exc:
-                yield {"data": f"{{\"error\":\"{exc}\"}}"}
+                yield {"data": json.dumps({"error": str(exc)})}
             await asyncio.sleep(2)
 
     return EventSourceResponse(event_gen())

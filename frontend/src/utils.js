@@ -20,8 +20,12 @@ export function openApp(url, meta = {}) {
     // always reaches it; the LAN IP only works from remote clients.
     const localUrl = rewriteToLocalhost(url)
     if (_kioskFallback) {
-      if (NO_IFRAME_APPS.has(meta.id)) {
-        // App blocks iframe embedding — show remote-access instructions instead.
+      // Browsers block HTTP iframes inside HTTPS pages (mixed content).
+      // Fall back to remoteOnly so the user sees a message rather than a blank frame.
+      const mixedContent =
+        window.location.protocol === 'https:' &&
+        new URL(url).protocol === 'http:'
+      if (NO_IFRAME_APPS.has(meta.id) || mixedContent) {
         _kioskFallback(localUrl, { ...meta, remoteOnly: true, remoteUrl: url })
       } else {
         _kioskFallback(localUrl, meta)

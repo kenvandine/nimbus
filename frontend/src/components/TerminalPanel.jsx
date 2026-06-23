@@ -19,16 +19,33 @@ function _sendResize() {
   _ws.send(JSON.stringify({ type: 'resize', cols: _term.cols, rows: _term.rows }))
 }
 
-function _connect(authToken) {
+async function _connect() {
   // Dispose previous onData handler before registering a new one.
   if (_onDataDisposable) {
     _onDataDisposable.dispose()
     _onDataDisposable = null
   }
 
+  // Close any existing WebSocket before opening a new one.
+  if (_ws && _ws.readyState !== WebSocket.CLOSED && _ws.readyState !== WebSocket.CLOSING) {
+    _ws.close()
+  }
+
+  // Fetch a short-lived WS token rather than reusing the HttpOnly session cookie.
+  let wsToken = ''
+  try {
+    const res = await fetch('/api/auth/ws-token', { credentials: 'same-origin' })
+    if (res.ok) {
+      const data = await res.json()
+      wsToken = data.ws_token || ''
+    }
+  } catch {
+    // Continue with empty token; server rejects if auth is required.
+  }
+
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const ws = new WebSocket(
-    `${proto}//${window.location.host}/ws/terminal?token=${encodeURIComponent(authToken || '')}`
+    `${proto}//${window.location.host}/ws/terminal?token=${encodeURIComponent(wsToken)}`
   )
   ws.binaryType = 'arraybuffer'
   _ws = ws
@@ -75,7 +92,7 @@ function _connect(authToken) {
   })
 }
 
-export default function TerminalPanel({ authToken }) {
+export default function TerminalPanel() {
   const wrapperRef = useRef(null)
 
   useEffect(() => {
@@ -129,10 +146,10 @@ export default function TerminalPanel({ authToken }) {
     if (!_opened) {
       _term.open(_container)
       _opened = true
-      _connect(authToken)
+      _connect()
     } else if (!_ws || _ws.readyState === WebSocket.CLOSED || _ws.readyState === WebSocket.CLOSING) {
       // Reconnect if the WS died while the terminal window was closed.
-      _connect(authToken)
+      _connect()
     }
 
     // Refit now that the container is visible again.
@@ -146,7 +163,7 @@ export default function TerminalPanel({ authToken }) {
       // Orphan the container — keep Terminal and WS alive for next open.
       if (_container?.parentNode) _container.parentNode.removeChild(_container)
     }
-  }, [authToken])
+  }, [])
 
   return <div ref={wrapperRef} style={styles.shell} />
 }
