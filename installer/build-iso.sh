@@ -259,6 +259,7 @@ EOF
     --cp "$CLEAR_UEFI_SCRIPT_ABS" new/iso/clear-ubuntu-uefi-entries.sh \
     --cp "$PC_IMG_XZ_ABS" new/iso/pc.img.xz \
     --edit-squashfs "$INJECT_LAYER" \
+    --shell "chroot new/$INJECT_LAYER apt-get install -y --no-install-recommends efibootmgr" \
     --shell "mkdir -p new/$INJECT_LAYER/etc/systemd/system/multi-user.target.wants" \
     --cp "$SERVICE_FILE" "new/$INJECT_LAYER/etc/systemd/system/nimbus-install.service" \
     --shell "ln -sf ../nimbus-install.service new/$INJECT_LAYER/etc/systemd/system/multi-user.target.wants/nimbus-install.service" \
