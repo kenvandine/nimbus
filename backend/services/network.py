@@ -173,10 +173,14 @@ def set_dns_servers(servers: list[str]) -> None:
         content = "\n".join(lines) + "\n"
         Path(_RESOLV_CONF).write_text(content)
     except OSError:
-        # Fall back to resolvconf if direct write fails
+        # Direct write failed (e.g. /etc/resolv.conf is a managed symlink).
+        # Use `resolvconf -a <iface>` which accepts nameserver lines on stdin
+        # and registers them in resolvconf's own database, then rebuilds
+        # resolv.conf.  `resolvconf -u` alone ignores stdin and is a no-op here.
+        iface = get_primary_interface() or "eth0"
         subprocess.run(
-            ["resolvconf", "-u"],
-            input="\n".join(f"nameserver {s}" for s in servers),
+            ["resolvconf", "-a", iface],
+            input="\n".join(f"nameserver {s}" for s in servers) + "\n",
             text=True,
             check=False,
         )

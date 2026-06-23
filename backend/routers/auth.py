@@ -28,15 +28,18 @@ class ChangePasswordRequest(BaseModel):
 
 
 def _set_session(response: Response, username: str) -> None:
+    from config import settings
     from services.auth import create_session_token, create_refresh_token
     access_token = create_session_token(username)
     refresh_token = create_refresh_token(username)
+    secure = settings.tls_enabled
     response.set_cookie(
         key=SESSION_COOKIE,
         value=access_token,
         max_age=_ACCESS_COOKIE_MAX_AGE,
         httponly=True,
         samesite="strict",
+        secure=secure,
         path="/",
     )
     response.set_cookie(
@@ -45,6 +48,7 @@ def _set_session(response: Response, username: str) -> None:
         max_age=_REFRESH_COOKIE_MAX_AGE,
         httponly=True,
         samesite="strict",
+        secure=secure,
         path="/api/auth/refresh",
     )
 

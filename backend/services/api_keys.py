@@ -14,6 +14,11 @@ def _snap_data() -> Path:
     return Path(os.environ.get("SNAP_DATA", "/var/snap/nimbus/current"))
 
 
+def _auth_secret_path() -> Path:
+    from config import settings
+    return settings.installed_dir.parent / "auth-secret"
+
+
 def _store_path() -> Path:
     return _snap_data() / _STORE_FILE
 
@@ -25,7 +30,7 @@ def _fernet():
         from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
         import base64
 
-        secret_file = _snap_data() / "auth-secret"
+        secret_file = _auth_secret_path()
         if not secret_file.exists():
             raise RuntimeError("Auth secret not found — account not set up yet")
         passphrase = secret_file.read_bytes()
