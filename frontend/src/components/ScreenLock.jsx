@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 const PIN_LENGTH = 6
 
@@ -54,6 +54,7 @@ export default function ScreenLock({ deviceName, onUnlock, onFail }) {
 
   return (
     <div style={styles.overlay} tabIndex={-1} onKeyDown={handleKeyDown} ref={inputRef}>
+      <style>{`@keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}`}</style>
       <div style={styles.content}>
         <div style={styles.clock}>{h12}:{minute} <span style={styles.ampm}>{ampm}</span></div>
         <div style={styles.date}>{time.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</div>

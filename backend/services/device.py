@@ -66,10 +66,23 @@ def _logind_action(method: str) -> None:
 
 
 def _power_available() -> bool:
-    """True when the shutdown snap interface is connected (systemctl is accessible)."""
+    """True when the shutdown snap interface is connected."""
     import subprocess
+    import os
+    if os.environ.get("SNAP"):
+        # Inside the snap, use snapctl to check whether the shutdown interface
+        # is actually connected — systemctl --version succeeds even without it.
+        try:
+            r = subprocess.run(
+                ["snapctl", "is-connected", "shutdown"],
+                timeout=5,
+                capture_output=True,
+            )
+            return r.returncode == 0
+        except Exception:
+            return False
+    # Outside the snap (dev/testing), probe systemctl directly.
     try:
-        # systemctl --version is a safe probe that doesn't require privilege
         for cmd in (["systemctl", "--version"], ["/bin/systemctl", "--version"]):
             try:
                 r = subprocess.run(cmd, timeout=5, capture_output=True)

@@ -110,6 +110,6 @@ def _inject_into_container(name: str, value: str) -> None:
         mgr.exec_in_container(["mkdir", "-p", env_dir])
         safe_name = name.upper().replace("-", "_").replace(" ", "_")
         content = f"export {safe_name}={value!r}\n".encode()
-        instance.files.put(f"{env_dir}/{name}.env", content)
+        instance.files.put(f"{env_dir}/{safe_name}.env", content)
     except Exception as exc:
         logger.warning("Failed to inject API key '%s' into container: %s", name, exc)

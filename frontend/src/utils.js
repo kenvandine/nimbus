@@ -22,9 +22,14 @@ export function openApp(url, meta = {}) {
     if (_kioskFallback) {
       // Browsers block HTTP iframes inside HTTPS pages (mixed content).
       // Fall back to remoteOnly so the user sees a message rather than a blank frame.
-      const mixedContent =
-        window.location.protocol === 'https:' &&
-        new URL(url).protocol === 'http:'
+      let mixedContent = false
+      try {
+        mixedContent =
+          window.location.protocol === 'https:' &&
+          new URL(url).protocol === 'http:'
+      } catch {
+        // relative or invalid URL — no mixed-content concern
+      }
       if (NO_IFRAME_APPS.has(meta.id) || mixedContent) {
         _kioskFallback(localUrl, { ...meta, remoteOnly: true, remoteUrl: url })
       } else {
