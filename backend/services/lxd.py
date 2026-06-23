@@ -301,48 +301,46 @@ class LxdManager:
         manually: mark the veth unmanaged in NM and reattach it to the bridge.
         """
         try:
-            # Get the host-side veth name from `lxc info`.
-            info_result = subprocess.run(
-                ["lxc", "info", instance.name],
-                capture_output=True, text=True, timeout=15,
-            )
-            host_iface = None
-            for line in info_result.stdout.splitlines():
-                if "Host interface:" in line:
-                    host_iface = line.split(":", 1)[1].strip()
-                    break
-            if not host_iface:
+            # Use pylxd's network state to get host-side veth names — avoids
+            # needing `lxc info` (which may not be in PATH inside the snap sandbox).
+            state = instance.state()
+            network = getattr(state, "network", {}) or {}
+            host_ifaces = [
+                iface.get("host_name", "")
+                for iface in network.values()
+                if iface.get("host_name", "").startswith("veth")
+            ]
+            if not host_ifaces:
                 return
 
-            # Check whether the veth already has a bridge master.
-            link_result = subprocess.run(
-                ["ip", "link", "show", "dev", host_iface],
-                capture_output=True, text=True, timeout=5,
-            )
-            if "master" in link_result.stdout and link_result.returncode == 0:
-                return  # already attached, nothing to do
-
-            logger.warning(
-                "Container veth %s is detached from the bridge — repairing",
-                host_iface,
-            )
-            # Find the LXD-managed bridge name.
             bridge = None
-            for network in self._managed_networks():
-                bridge = network.name
+            for net in self._managed_networks():
+                bridge = net.name
                 break
             if not bridge:
                 bridge = "lxdbr0"
 
-            subprocess.run(
-                ["nmcli", "device", "set", host_iface, "managed", "no"],
-                capture_output=True, timeout=10,
-            )
-            subprocess.run(
-                ["ip", "link", "set", host_iface, "master", bridge],
-                capture_output=True, timeout=10,
-            )
-            logger.info("Reattached %s to %s", host_iface, bridge)
+            for host_iface in host_ifaces:
+                link_result = subprocess.run(
+                    ["ip", "link", "show", "dev", host_iface],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if "master" in link_result.stdout and link_result.returncode == 0:
+                    continue  # already attached to a bridge
+
+                logger.warning(
+                    "Container veth %s is detached from %s — repairing",
+                    host_iface, bridge,
+                )
+                subprocess.run(
+                    ["nmcli", "device", "set", host_iface, "managed", "no"],
+                    capture_output=True, timeout=10,
+                )
+                subprocess.run(
+                    ["ip", "link", "set", host_iface, "master", bridge],
+                    capture_output=True, timeout=10,
+                )
+                logger.info("Reattached %s to %s", host_iface, bridge)
         except Exception as exc:
             logger.warning("Could not repair container veth: %s", exc)
 
