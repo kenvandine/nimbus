@@ -653,13 +653,17 @@ class LxdControlPlane:
     async def _list_nimbus_apps(self, host_ip: str | None) -> list[AppDetail]:
         from services import nimbus_store, container_snaps
         try:
-            metas, installed_snaps = await asyncio.gather(
-                nimbus_store.get_app_metas(),
-                container_snaps.list_container_snaps(),
-            )
+            metas = await nimbus_store.get_app_metas()
         except Exception as exc:
-            logger.warning("Could not list nimbus store apps: %s", exc)
+            logger.warning("Could not fetch nimbus store catalog: %s", exc)
             return []
+        try:
+            installed_snaps = await container_snaps.list_container_snaps()
+        except Exception as exc:
+            # Container agent unreachable (not yet bootstrapped, port issue, etc.).
+            # Still show the full catalog — all apps will appear as not installed.
+            logger.warning("Could not list container snaps, showing catalog without install status: %s", exc)
+            installed_snaps = []
         installed_map = {s["name"]: s for s in installed_snaps}
         # Pre-fetch openclaw token once for the whole list.
         openclaw_token = await _get_openclaw_token()
