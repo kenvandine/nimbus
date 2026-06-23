@@ -239,16 +239,54 @@ class LxdManager:
                 continue
             return name
 
+    def _nm_reload_config(self) -> None:
+        """Tell NetworkManager to reload its config files via D-Bus (flags=0x1).
+
+        The confined snap cannot exec nmcli or restart NM via systemctl/snap,
+        but the network-manager plug gives full D-Bus access to the NM API.
+        """
+        try:
+            import dbus  # bundled as python3-dbus stage-package
+            bus = dbus.SystemBus()
+            nm_obj = bus.get_object("org.freedesktop.NetworkManager",
+                                    "/org/freedesktop/NetworkManager")
+            nm_iface = dbus.Interface(nm_obj, "org.freedesktop.NetworkManager")
+            nm_iface.Reload(dbus.UInt32(1))  # 0x1 = reload config files only
+            logger.info("Reloaded NetworkManager configuration via D-Bus")
+        except Exception as exc:
+            logger.warning("Could not reload NM config via D-Bus: %s", exc)
+
+    def _nm_set_device_unmanaged(self, iface: str) -> None:
+        """Mark a network interface unmanaged in NM via D-Bus.
+
+        Prevents NM from running DHCP on LXD veth interfaces and detaching
+        them from lxdbr0 after a ~90 s timeout.
+        """
+        try:
+            import dbus
+            bus = dbus.SystemBus()
+            nm_obj = bus.get_object("org.freedesktop.NetworkManager",
+                                    "/org/freedesktop/NetworkManager")
+            nm_iface = dbus.Interface(nm_obj, "org.freedesktop.NetworkManager")
+            dev_path = nm_iface.GetDeviceByIpIface(iface)
+            dev_obj = bus.get_object("org.freedesktop.NetworkManager", dev_path)
+            dev_props = dbus.Interface(dev_obj, "org.freedesktop.DBus.Properties")
+            dev_props.Set("org.freedesktop.NetworkManager.Device", "Managed",
+                          dbus.Boolean(False))
+            logger.info("Marked %s unmanaged in NetworkManager via D-Bus", iface)
+        except Exception as exc:
+            logger.warning("Could not mark %s unmanaged via NM D-Bus: %s", iface, exc)
+
     def _ensure_nm_ignores_lxd(self) -> bool:
         """Write a NetworkManager drop-in that prevents NM from managing LXD
-        bridge and veth interfaces.
+        bridge and veth interfaces, then reload NM config via D-Bus.
 
         When NM tries DHCP on a veth it can't reach, it marks the interface
         failed and detaches it from lxdbr0 — breaking all container networking
         (both external DNS and host→container port forwarding).  This fix is
         idempotent and runs on every boot so it survives NM snap updates.
 
-        Returns True if the drop-in was written and NM was restarted.
+        Returns True if the drop-in was newly written.
         """
         dropin_content = (
             "[keyfile]\n"
@@ -272,23 +310,10 @@ class LxdManager:
                 pass  # Path not writable under this snap confinement; try next
 
         if wrote:
-            # Restart NM so the new policy takes effect immediately.
-            # Prefer `snap restart network-manager` (Ubuntu Core / snap NM).
-            # Fall back to `systemctl restart NetworkManager` for classic
-            # Ubuntu Server, but catch PermissionError too since the nimbus
-            # snap's AppArmor profile may not allow exec of /usr/bin/systemctl
-            # (otherwise it produces repeated DENIED audit entries on boot).
-            for cmd in (
-                ["snap", "restart", "network-manager"],
-                ["systemctl", "restart", "NetworkManager"],
-            ):
-                try:
-                    result = subprocess.run(cmd, capture_output=True, timeout=30)
-                    if result.returncode == 0:
-                        logger.info("Restarted NetworkManager after drop-in update")
-                        break
-                except (FileNotFoundError, subprocess.TimeoutExpired, PermissionError):
-                    pass
+            # Reload NM config via D-Bus so the drop-in takes effect immediately.
+            # The confined snap cannot exec nmcli, snap restart, or systemctl, but
+            # the network-manager plug provides full D-Bus access to the NM API.
+            self._nm_reload_config()
 
         return wrote
 
@@ -309,12 +334,12 @@ class LxdManager:
         """
         repaired = False
         for host_iface in host_ifaces:
-            # Always mark the veth unmanaged regardless of bridge state.
-            # NM will otherwise time out its DHCP attempt (~90 s) and then
-            # detach the veth from lxdbr0, breaking container networking even
-            # when the veth was initially placed on the bridge correctly by LXD.
-            subprocess.run(["nmcli", "device", "set", host_iface, "managed", "no"],
-                           capture_output=True, timeout=10)
+            # Always mark the veth unmanaged via NM D-Bus API regardless of
+            # bridge state.  NM will otherwise time out its DHCP attempt
+            # (~90 s) and detach the veth from lxdbr0, breaking container
+            # networking even when LXD initially placed it correctly on the
+            # bridge.  The confined snap cannot exec nmcli, so use D-Bus.
+            self._nm_set_device_unmanaged(host_iface)
             link_result = subprocess.run(
                 ["ip", "link", "show", "dev", host_iface],
                 capture_output=True, text=True, timeout=5,
