@@ -845,6 +845,12 @@ class LxdControlPlane:
                 await asyncio.to_thread(self.manager.setup_snap_port_proxies, snap_name, ports)
             # Give snapd a moment to finish creating /snap/bin symlinks before
             # running the onboard command, which invokes a snap binary directly.
+            # Snaps that connect to the local model provider (lemonade/gemma4)
+            # need the host→container loopback proxy before their onboard command
+            # runs, otherwise picoclaw.lemonade --auto etc. can't reach lemonade
+            # at 127.0.0.1 inside the container.
+            if snap.get("onboard_cmd"):
+                await asyncio.to_thread(self.manager.configure_provider_proxy)
             onboard = nimbus_store.get_onboard_cmd(snap)
             if onboard:
                 await asyncio.sleep(3)

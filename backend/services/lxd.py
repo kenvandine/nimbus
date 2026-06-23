@@ -646,6 +646,12 @@ class LxdManager:
         devices[name] = desired
         self._save_instance_devices(instance, devices)
 
+    def configure_provider_proxy(self) -> None:
+        """Public wrapper: ensure the host→container lemonade proxy device exists."""
+        instance = self.get_instance()
+        if instance is not None:
+            self._configure_provider_proxy(instance)
+
     def _configure_app_proxy(self, instance, app_id: str, port: int | None) -> None:
         devices = self._instance_devices(instance)
         name = self._proxy_device_name(app_id)
