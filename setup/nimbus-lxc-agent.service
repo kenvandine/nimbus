@@ -5,6 +5,7 @@ Requires=docker.service
 
 [Service]
 Type=simple
+Environment=PYTHONPATH=/opt/nimbus/backend
 ExecStart=/opt/nimbus-venv/bin/python /opt/nimbus/backend/agent/daemon.py
 Restart=on-failure
 RestartSec=10

@@ -20,39 +20,35 @@ from pylxd.models.profile import Profile
 from pylxd.models.storage_pool import StoragePool
 
 from config import settings
+from constants import (
+    BACKEND_VERSION,
+    BACKEND_VERSION_MARKER_PATH,
+    CONTAINER_INSTALLED_DIR,
+    CONTAINER_OPENCLAW_WORKSPACE,
+    CONTAINER_OVERLAY_DIR,
+    DOCKER_DNS_SERVERS,
+    LXC_AGENT_VERSION,
+    LXC_AGENT_VERSION_MARKER_PATH,
+    LXC_AGENT_PROXY_DEVICE_NAME,
+    LXC_AGENT_PORT,
+    PACKAGES_MARKER_PATH,
+    AGENT_PYTHON_MARKER_PATH,
+    PROVIDER_PROXY_DEVICE_NAME,
+    BOOTSTRAP_MARKER_PATH,
+    BOOTSTRAP_VERSION,
+    DEFAULT_LXD_STORAGE_POOL,
+    DEFAULT_LXD_PROFILE,
+    DEFAULT_LXD_BRIDGE_PREFIX,
+    NIMBUS_USER_MARKER_PATH,
+)
 from services import docker
 
 logger = logging.getLogger(__name__)
 
-CONTAINER_INSTALLED_DIR = Path("/var/lib/nimbus/installed")
-CONTAINER_OVERLAY_DIR = Path("/opt/nimbus/openclaw-overlay")
-# Where the openclaw container's workspace lives inside the LXC. The host
-# snap bind-mounts <files_root>/openclaw-workspace to this path so the
-# file browser and the agent see the same files.
-CONTAINER_OPENCLAW_WORKSPACE = "/var/lib/nimbus/installed/openclaw/data/data/.openclaw/workspace"
-BOOTSTRAP_MARKER = Path("/var/lib/nimbus/.agent-bootstrap-version")
-BOOTSTRAP_VERSION = "1"
-# Written into the pre-built image at build time to signal that APT packages
-# are already installed and _install_runtime_packages can be skipped.
-PACKAGES_MARKER = Path("/var/lib/nimbus/.packages-preinstalled")
-# Written into the pre-built image to signal that /opt/nimbus-venv already
-# contains all agent Python dependencies and _install_agent_python can be skipped.
-AGENT_PYTHON_MARKER = Path("/var/lib/nimbus/.agent-python-preinstalled")
 BACKEND_SOURCE_DIR = Path(__file__).resolve().parents[1]
 SETUP_DIR = Path(__file__).resolve().parents[2] / "setup"
 AGENT_SERVICE_SOURCE = SETUP_DIR / "nimbus.service"
 LXC_AGENT_SERVICE_SOURCE = SETUP_DIR / "nimbus-lxc-agent.service"
-NIMBUS_USER_MARKER = Path("/var/lib/nimbus/.nimbus-user-setup")
-LXC_AGENT_VERSION_MARKER = Path("/var/lib/nimbus/.lxc-agent-version")
-BACKEND_VERSION_MARKER = Path("/var/lib/nimbus/.backend-version")
-LXC_AGENT_PORT = 9002
-# Bump this whenever agent/daemon.py changes to trigger a re-deploy on next startup.
-_LXC_AGENT_VERSION = "18"
-# Bump this whenever any backend file changes to trigger a re-deploy on next startup.
-_BACKEND_VERSION = "3"
-DEFAULT_LXD_STORAGE_POOL = "default"
-DEFAULT_LXD_PROFILE = "default"
-DEFAULT_LXD_BRIDGE_PREFIX = "lxdbr"
 
 
 @dataclass(frozen=True)
@@ -98,9 +94,7 @@ class LxdManager:
     # Single LXD proxy device that surfaces the host-side model service
     # (gemma4 / lemonade bound to 127.0.0.1) inside the nimbus LXC, where the
     # openclaw container can reach it via docker's host-gateway alias.
-    _PROVIDER_PROXY_DEVICE_NAME = "nimbus-provider-fwd"
-    # LXD proxy device that exposes the LXC agent daemon's HTTP API on the host.
-    _LXC_AGENT_PROXY_DEVICE_NAME = "nimbus-lxc-agent"
+    # (Defined in constants.PROVIDER_PROXY_DEVICE_NAME)
 
     def _bootstrap_in_progress(self) -> bool:
         return self._bootstrap_state in {
@@ -114,14 +108,14 @@ class LxdManager:
         }
 
     def _has_bootstrap_marker(self, instance) -> bool:
-        marker = self._read_file(instance, str(BOOTSTRAP_MARKER))
+        marker = self._read_file(instance, BOOTSTRAP_MARKER_PATH)
         return bool(marker and marker.strip() == BOOTSTRAP_VERSION)
 
     def _has_packages_marker(self, instance) -> bool:
-        return self._read_file(instance, str(PACKAGES_MARKER)) is not None
+        return self._read_file(instance, PACKAGES_MARKER_PATH) is not None
 
     def _has_agent_python_marker(self, instance) -> bool:
-        return self._read_file(instance, str(AGENT_PYTHON_MARKER)) is not None
+        return self._read_file(instance, AGENT_PYTHON_MARKER_PATH) is not None
 
     def _import_seeded_image(self) -> None:
         """Import a pre-built LXC image tarball.
@@ -239,54 +233,16 @@ class LxdManager:
                 continue
             return name
 
-    def _nm_reload_config(self) -> None:
-        """Tell NetworkManager to reload its config files via D-Bus (flags=0x1).
-
-        The confined snap cannot exec nmcli or restart NM via systemctl/snap,
-        but the network-manager plug gives full D-Bus access to the NM API.
-        """
-        try:
-            import dbus  # bundled as python3-dbus stage-package
-            bus = dbus.SystemBus()
-            nm_obj = bus.get_object("org.freedesktop.NetworkManager",
-                                    "/org/freedesktop/NetworkManager")
-            nm_iface = dbus.Interface(nm_obj, "org.freedesktop.NetworkManager")
-            nm_iface.Reload(dbus.UInt32(1))  # 0x1 = reload config files only
-            logger.info("Reloaded NetworkManager configuration via D-Bus")
-        except Exception as exc:
-            logger.warning("Could not reload NM config via D-Bus: %s", exc)
-
-    def _nm_set_device_unmanaged(self, iface: str) -> None:
-        """Mark a network interface unmanaged in NM via D-Bus.
-
-        Prevents NM from running DHCP on LXD veth interfaces and detaching
-        them from lxdbr0 after a ~90 s timeout.
-        """
-        try:
-            import dbus
-            bus = dbus.SystemBus()
-            nm_obj = bus.get_object("org.freedesktop.NetworkManager",
-                                    "/org/freedesktop/NetworkManager")
-            nm_iface = dbus.Interface(nm_obj, "org.freedesktop.NetworkManager")
-            dev_path = nm_iface.GetDeviceByIpIface(iface)
-            dev_obj = bus.get_object("org.freedesktop.NetworkManager", dev_path)
-            dev_props = dbus.Interface(dev_obj, "org.freedesktop.DBus.Properties")
-            dev_props.Set("org.freedesktop.NetworkManager.Device", "Managed",
-                          dbus.Boolean(False))
-            logger.info("Marked %s unmanaged in NetworkManager via D-Bus", iface)
-        except Exception as exc:
-            logger.warning("Could not mark %s unmanaged via NM D-Bus: %s", iface, exc)
-
     def _ensure_nm_ignores_lxd(self) -> bool:
         """Write a NetworkManager drop-in that prevents NM from managing LXD
-        bridge and veth interfaces, then reload NM config via D-Bus.
+        bridge and veth interfaces.
 
         When NM tries DHCP on a veth it can't reach, it marks the interface
         failed and detaches it from lxdbr0 — breaking all container networking
         (both external DNS and host→container port forwarding).  This fix is
         idempotent and runs on every boot so it survives NM snap updates.
 
-        Returns True if the drop-in was newly written.
+        Returns True if the drop-in was written and NM was restarted.
         """
         dropin_content = (
             "[keyfile]\n"
@@ -310,85 +266,24 @@ class LxdManager:
                 pass  # Path not writable under this snap confinement; try next
 
         if wrote:
-            # Reload NM config via D-Bus so the drop-in takes effect immediately.
-            # The confined snap cannot exec nmcli, snap restart, or systemctl, but
-            # the network-manager plug provides full D-Bus access to the NM API.
-            self._nm_reload_config()
+            # Restart NM so the new policy takes effect immediately.
+            # Prefer `snap restart network-manager` (Ubuntu Core / snap NM).
+            # Fall back to `systemctl restart NetworkManager` for classic
+            # Ubuntu Server, but catch PermissionError too since the nimbus
+            # snap's AppArmor profile may not allow exec of /usr/bin/systemctl.
+            for cmd in (
+                ["snap", "restart", "network-manager"],
+                ["systemctl", "restart", "NetworkManager"],
+            ):
+                try:
+                    result = subprocess.run(cmd, capture_output=True, timeout=30)
+                    if result.returncode == 0:
+                        logger.info("Restarted NetworkManager after drop-in update")
+                        break
+                except (FileNotFoundError, subprocess.TimeoutExpired, PermissionError):
+                    pass
 
         return wrote
-
-    def _veth_for_instance(self, instance) -> list[str]:
-        """Return host-side veth interface names for the container via pylxd."""
-        state = instance.state()
-        network = getattr(state, "network", {}) or {}
-        return [
-            iface.get("host_name", "")
-            for iface in network.values()
-            if iface.get("host_name", "").startswith("veth")
-        ]
-
-    def _reattach_veths(self, host_ifaces: list[str], bridge: str) -> bool:
-        """Mark each veth unmanaged in NM and attach it to bridge if detached.
-
-        Returns True if any veth was reattached.
-        """
-        repaired = False
-        for host_iface in host_ifaces:
-            # Always mark the veth unmanaged via NM D-Bus API regardless of
-            # bridge state.  NM will otherwise time out its DHCP attempt
-            # (~90 s) and detach the veth from lxdbr0, breaking container
-            # networking even when LXD initially placed it correctly on the
-            # bridge.  The confined snap cannot exec nmcli, so use D-Bus.
-            self._nm_set_device_unmanaged(host_iface)
-            link_result = subprocess.run(
-                ["ip", "link", "show", "dev", host_iface],
-                capture_output=True, text=True, timeout=5,
-            )
-            if "master" in link_result.stdout and link_result.returncode == 0:
-                continue  # already on a bridge
-            logger.warning("Container veth %s is detached from %s — repairing", host_iface, bridge)
-            subprocess.run(["ip", "link", "set", host_iface, "master", bridge],
-                           capture_output=True, timeout=10)
-            logger.info("Reattached %s to %s", host_iface, bridge)
-            repaired = True
-        return repaired
-
-    def _repair_container_veth(self, instance) -> None:
-        """Ensure the container's host-side veth is attached to the LXD bridge.
-
-        NetworkManager sometimes grabs the veth after it's created, detaching it
-        from lxdbr0 and breaking all container networking (DNS, NAT, host→container
-        port forwarding).  Mirrors fix-lxd-network.sh: reattach the veth, restart
-        the container so its DHCP client gets a fresh lease, then reattach again
-        because LXD creates a new veth on restart which NM may grab immediately.
-        """
-        try:
-            bridge = None
-            for net in self._managed_networks():
-                bridge = net.name
-                break
-            if not bridge:
-                bridge = "lxdbr0"
-
-            host_ifaces = self._veth_for_instance(instance)
-            if not host_ifaces:
-                return
-
-            if not self._reattach_veths(host_ifaces, bridge):
-                return  # already healthy
-
-            # Restart so the container's DHCP client gets a new lease on the
-            # now-bridged veth.  After restart LXD creates a fresh veth which NM
-            # may grab again, so reattach once more.
-            logger.info("Restarting container to renew DHCP after veth repair")
-            instance.restart(wait=True)
-            time.sleep(3)
-            instance.sync()
-            host_ifaces = self._veth_for_instance(instance)
-            if host_ifaces:
-                self._reattach_veths(host_ifaces, bridge)
-        except Exception as exc:
-            logger.warning("Could not repair container veth: %s", exc)
 
     def _ensure_lxd_nat_rules(self) -> None:
         """Re-establish LXD's MASQUERADE and FORWARD rules via the LXD API.
@@ -662,7 +557,7 @@ class LxdManager:
         removes it otherwise (e.g. operator pointed at an off-host server)."""
         from services import model_provider
         devices = self._instance_devices(instance)
-        name = self._PROVIDER_PROXY_DEVICE_NAME
+        name = PROVIDER_PROXY_DEVICE_NAME
         port = model_provider.loopback_listen_port()
         if not port:
             if name in devices:
@@ -674,12 +569,6 @@ class LxdManager:
             return
         devices[name] = desired
         self._save_instance_devices(instance, devices)
-
-    def configure_provider_proxy(self) -> None:
-        """Public wrapper: ensure the host→container lemonade proxy device exists."""
-        instance = self.get_instance()
-        if instance is not None:
-            self._configure_provider_proxy(instance)
 
     def _configure_app_proxy(self, instance, app_id: str, port: int | None) -> None:
         devices = self._instance_devices(instance)
@@ -955,7 +844,7 @@ class LxdManager:
 
     def _configure_lxc_agent_proxy(self, instance) -> None:
         devices = self._instance_devices(instance)
-        name = self._LXC_AGENT_PROXY_DEVICE_NAME
+        name = LXC_AGENT_PROXY_DEVICE_NAME
         desired = {
             "type": "proxy",
             "bind": "host",
@@ -968,7 +857,7 @@ class LxdManager:
         self._save_instance_devices(instance, devices)
 
     def _has_nimbus_user_marker(self, instance) -> bool:
-        return self._read_file(instance, str(NIMBUS_USER_MARKER)) is not None
+        return self._read_file(instance, NIMBUS_USER_MARKER_PATH) is not None
 
     def _update_agent_env(self, instance) -> None:
         """Rewrite /etc/default/nimbus with the current settings and restart.
@@ -1017,7 +906,7 @@ class LxdManager:
         # snap user-services and D-Bus are available even without an active login
         self._run(instance, ["loginctl", "enable-linger", "nimbus"])
 
-        self._write_file(instance, str(NIMBUS_USER_MARKER), "1\n")
+        self._write_file(instance, NIMBUS_USER_MARKER_PATH, "1\n")
         logger.info("nimbus user setup complete")
 
     def _ensure_hostname_in_hosts(self, instance) -> None:
@@ -1047,14 +936,14 @@ class LxdManager:
 
     def _ensure_lxc_agent(self, instance) -> None:
         """Push the LXC agent daemon and (re)start it if the version changed."""
-        current = self._read_file(instance, str(LXC_AGENT_VERSION_MARKER))
-        if current and current.strip() == _LXC_AGENT_VERSION:
+        current = self._read_file(instance, LXC_AGENT_VERSION_MARKER_PATH)
+        if current and current.strip() == LXC_AGENT_VERSION:
             # Agent is up to date — still ensure the proxy device exists (it
             # won't be present on a freshly started seeded-image container).
             self._configure_lxc_agent_proxy(instance)
             return
 
-        logger.info("Installing LXC agent daemon v%s", _LXC_AGENT_VERSION)
+        logger.info("Installing LXC agent daemon v%s", LXC_AGENT_VERSION)
         agent_src = BACKEND_SOURCE_DIR / "agent"
         if not agent_src.exists():
             logger.warning("LXC agent source not found at %s — skipping", agent_src)
@@ -1070,7 +959,7 @@ class LxdManager:
         self._run(instance, ["systemctl", "daemon-reload"])
         self._run(instance, ["systemctl", "enable", "nimbus-lxc-agent"])
         self._run(instance, ["systemctl", "restart", "nimbus-lxc-agent"], acceptable={0, 1})
-        self._write_file(instance, str(LXC_AGENT_VERSION_MARKER), _LXC_AGENT_VERSION + "\n")
+        self._write_file(instance, LXC_AGENT_VERSION_MARKER_PATH, LXC_AGENT_VERSION + "\n")
         self._configure_lxc_agent_proxy(instance)
         logger.info("LXC agent daemon installed and started")
 
@@ -1086,16 +975,16 @@ class LxdManager:
         Mirrors the _ensure_lxc_agent version-marker pattern so that backend
         updates (e.g. new routers, bug fixes) are deployed to already-bootstrapped
         containers on next host startup without requiring a full re-bootstrap.
-        Bump _BACKEND_VERSION whenever backend files change.
+       Bump BACKEND_VERSION whenever backend files change.
         """
-        current = self._read_file(instance, str(BACKEND_VERSION_MARKER))
-        if current and current.strip() == _BACKEND_VERSION:
+        current = self._read_file(instance, BACKEND_VERSION_MARKER_PATH)
+        if current and current.strip() == BACKEND_VERSION:
             return
-        logger.info("Deploying backend payload v%s to container", _BACKEND_VERSION)
+        logger.info("Deploying backend payload v%s to container", BACKEND_VERSION)
         self._push_agent_payload(instance)
         self._run(instance, ["systemctl", "daemon-reload"])
         self._run(instance, ["systemctl", "restart", "nimbus"], acceptable={0, 1})
-        self._write_file(instance, str(BACKEND_VERSION_MARKER), _BACKEND_VERSION + "\n")
+        self._write_file(instance, BACKEND_VERSION_MARKER_PATH, BACKEND_VERSION + "\n")
         logger.info("Backend payload deployed and nimbus service restarted")
 
     def _install_runtime_packages(self, instance) -> None:
@@ -1136,7 +1025,7 @@ class LxdManager:
         self._write_file(
             instance,
             "/etc/docker/daemon.json",
-            '{"dns": ["1.1.1.1", "8.8.8.8"]}\n',
+            '{"dns": %s}\n' % json.dumps(DOCKER_DNS_SERVERS),
         )
         self._run(instance, ["systemctl", "restart", "docker"])
         self._run(instance, ["systemctl", "enable", "docker"])
@@ -1158,7 +1047,6 @@ class LxdManager:
                 self._import_seeded_image()
                 self._set_bootstrap_state("ensuring-container")
                 instance = self.ensure_started()
-                self._repair_container_veth(instance)
                 if self._has_bootstrap_marker(instance):
                     self._set_bootstrap_state("starting-agent")
                     self._wait_for_docker(instance)
@@ -1194,10 +1082,10 @@ class LxdManager:
                 self._setup_nimbus_user(instance)
                 self._ensure_hostname_in_hosts(instance)
                 self._ensure_lxc_agent(instance)
-                self._write_file(instance, str(BACKEND_VERSION_MARKER), _BACKEND_VERSION + "\n")
-                self._write_file(instance, str(BOOTSTRAP_MARKER), BOOTSTRAP_VERSION + "\n")
+                self._write_file(instance, BACKEND_VERSION_MARKER_PATH, BACKEND_VERSION + "\n")
+                self._write_file(instance, BOOTSTRAP_MARKER_PATH, BOOTSTRAP_VERSION + "\n")
                 self._set_bootstrap_state("ready")
-            except (ClientConnectionFailed, LXDAPIException, RuntimeError) as exc:
+            except (ClientConnectionFailed, LXDAPIException, RuntimeError, Exception) as exc:
                 self._set_bootstrap_state("error", str(exc))
                 raise
 
@@ -1773,7 +1661,7 @@ print(json.dumps(apps), end='')
             })
         return result
 
-    def create_snapshot(self, name: str, stateful: bool = False) -> None:
+    def create_snapshot(self, name: str, description: str = "", stateful: bool = False) -> None:
         instance = self.get_instance()
         if instance is None:
             raise RuntimeError("Container does not exist")

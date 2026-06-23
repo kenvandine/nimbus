@@ -12,11 +12,12 @@ from pydantic import BaseModel
 
 from auth import require_api_token
 from config import settings
+from constants import LXC_AGENT_PORT
 from models import SystemStats
 from services.control_plane import get_control_plane
 from services.device import mark_oobe_complete
 
-_LXC_AGENT_PORT = 9002
+_HOST_LOG_FILE = Path(os.environ.get("SNAP_COMMON", "")) / "nimbus.log" if os.environ.get("SNAP_COMMON") else None
 _HOST_LOG_FILE = Path(os.environ.get("SNAP_COMMON", "")) / "nimbus.log" if os.environ.get("SNAP_COMMON") else None
 
 router = APIRouter(prefix="/api/system", tags=["system"], dependencies=[Depends(require_api_token)])
@@ -42,7 +43,7 @@ async def stream_stats(request: Request) -> StreamingResponse:
                 stats = await get_control_plane().get_stats()
                 yield {"data": stats.model_dump_json()}
             except Exception as exc:
-                yield {"data": json.dumps({"error": str(exc)})}
+                yield {"data": f"{{\"error\":\"{exc}\"}}"}
             await asyncio.sleep(2)
 
     return EventSourceResponse(event_gen())
@@ -72,7 +73,7 @@ async def oobe_complete() -> dict:
 async def _journal_sse(source: str, lines: int):
     if source == "lxc":
         # Proxy SSE from the LXC agent daemon (reachable via the LXD proxy device).
-        url = f"http://localhost:{_LXC_AGENT_PORT}/journal?lines={lines}"
+        url = f"http://localhost:{LXC_AGENT_PORT}/journal?lines={lines}"
         try:
             async with httpx.AsyncClient(timeout=None) as client:
                 async with client.stream("GET", url) as resp:
