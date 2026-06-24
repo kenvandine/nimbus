@@ -94,6 +94,11 @@ jobs:
           # Fix docker iptables conflict blocking LXD container internet access
           sudo iptables -P FORWARD ACCEPT
 
+      - name: Build Gadget Snap
+        run: |
+          cd pc-amd64-gadget
+          sg lxd -c "snapcraft"
+
       - name: Build Appliance Image
         run: |
           cd nimbus/model
