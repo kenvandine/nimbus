@@ -25,6 +25,8 @@ jobs:
   build-image-iso:
     name: Build Image and ISO
     runs-on: ubuntu-24.04
+    env:
+      GPG_PASSPHRASE: ${{ secrets.SNAP_SIGNING_KEY_PASSPHRASE }}
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') }}
     steps:
       - name: Checkout Nimbus
@@ -60,7 +62,11 @@ jobs:
           echo "OK Pleased to meet you"
           while read -r line; do
             if [[ "$line" =~ GETPIN ]]; then
-              echo "D "
+              if [ -n "$GPG_PASSPHRASE" ]; then
+                echo "D $GPG_PASSPHRASE"
+              else
+                echo "D"
+              fi
               echo "OK"
             else
               echo "OK"

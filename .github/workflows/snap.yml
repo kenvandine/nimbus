@@ -7,10 +7,26 @@ on:
       - production
     tags:
       - 'v*'
+    paths:
+      - 'snap/**'
+      - 'snapcraft.yaml'
+      - 'backend/**'
+      - 'frontend/**'
+      - 'scripts/**'
+      - 'pyproject.toml'
+      - '.github/workflows/snap.yml'
   pull_request:
     branches:
       - main
       - production
+    paths:
+      - 'snap/**'
+      - 'snapcraft.yaml'
+      - 'backend/**'
+      - 'frontend/**'
+      - 'scripts/**'
+      - 'pyproject.toml'
+      - '.github/workflows/snap.yml'
 
 jobs:
   build:
