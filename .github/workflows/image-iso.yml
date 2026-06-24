@@ -42,7 +42,7 @@ jobs:
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y mtools sfdisk xz-utils python3-venv python3-pip xorriso squashfs-tools wget
+          sudo apt-get install -y mtools fdisk xz-utils python3-venv python3-pip xorriso squashfs-tools wget
 
       - name: Install snapcraft and ubuntu-image
         run: |
