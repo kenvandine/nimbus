@@ -99,6 +99,12 @@
             "id": "EISPgh06mRh1vordZY9OZ34QHdd7OrdR"
         },
         {
+            "name": "avahi",
+            "type": "app",
+            "default-channel": "24/stable",
+            "id": "dVK2PZeOLKA7vf1WPCap9F8luxTk9Oll"
+        },
+        {
             "name": "gemma4",
             "type": "app",
             "default-channel": "latest/beta",
