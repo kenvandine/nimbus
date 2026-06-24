@@ -325,12 +325,12 @@ case "$TARGET_MODEL" in
         ;;
     nimbus-lemonade)
         EXTRA_SNAP=
-        GADGET_SNAP=../../pc-amd64-gadget/pc_lemonade-24-0.2_amd64.snap
+        GADGET_SNAP=../../pc-amd64-gadget/pc_amd-24-0.2_amd64.snap
         PRESEED_DEFAULT=1
         ;;
     nimbus-gemma4)
         EXTRA_SNAP=
-        GADGET_SNAP=../../pc-amd64-gadget/pc_gemma4-24-0.2_amd64.snap
+        GADGET_SNAP=../../pc-amd64-gadget/pc_amd-24-0.2_amd64.snap
         PRESEED_DEFAULT=0
         ;;
     *)
