@@ -92,7 +92,6 @@ Build and install the snap:
 snapcraft
 sudo snap install --dangerous ./nimbus_*.snap
 sudo snap connect nimbus:lxd lxd:lxd
-sudo snap connect nimbus:snapd-control
 ```
 
 Then open `https://<host-ip>` in a browser. On first boot:
@@ -112,6 +111,9 @@ Use the helper scripts if you want Nimbus to run fully inside the LXD container:
 ```bash
 # 1. Create and configure the LXD container
 ./setup/lxd-setup.sh
+
+# (Optional) Configure mDNS so nimbus.local resolves on the host
+./setup/setup-mdns.sh
 
 # 2. Push code + build frontend + restart service
 ./setup/deploy.sh
@@ -376,12 +378,20 @@ nimbus/
 ├── setup/
 │   ├── lxd-setup.sh            # One-time container bootstrap (local mode)
 │   ├── deploy.sh               # Push code + restart service (local mode)
+│   ├── setup-mdns.sh           # Configure host-name resolution for nimbus.local (local mode)
+│   ├── Caddyfile               # Caddy reverse-proxy configuration
+│   ├── nimbus-lxc-agent.service # systemd unit for the container-side agent
+│   ├── nimbus-mdns.service     # Avahi mDNS advertisement systemd unit
+│   ├── snap-catalog.json       # Local store application catalog definition
 │   └── nimbus.service          # systemd unit (installed into container)
 ├── backend/
 │   ├── auth.py                 # Session / bearer-token auth helpers
 │   ├── config.py               # Runtime settings (all env vars)
+│   ├── constants.py            # Centralized port and path constants
 │   ├── main.py                 # FastAPI app, startup lifecycle
 │   ├── models.py               # Pydantic models (AppDetail, SystemStats, …)
+│   ├── agent/
+│   │   └── daemon.py           # In-container nimbus-lxc-agent process
 │   ├── routers/
 │   │   ├── apps.py             # App install / update / uninstall / logs
 │   │   ├── auth.py             # Login, logout, account creation
@@ -400,6 +410,7 @@ nimbus/
 │       ├── api_keys.py         # Named key persistence
 │       ├── auth.py             # JWT session tokens, bcrypt password hashing
 │       ├── container_snaps.py  # snapd inside the LXD container
+│       ├── control_base.py     # Base orchestration service class
 │       ├── control_plane.py    # local / lxd orchestration layer
 │       ├── device.py           # OOBE state, host info
 │       ├── device_id.py        # Persistent per-device identifier
@@ -462,7 +473,14 @@ nimbus/
 ├── lxc-seed/                   # Pre-built LXC image tarball (bundled into snap)
 ├── snapcraft.yaml              # Strict snap definition
 ├── pyproject.toml              # Python packaging metadata
-└── SPEC.md                     # Original product specification
+└── SPEC.md                     # Historical product specification (architectural history)
+
+### Host Utilities & Diagnostic Scripts (Root Directory)
+* [clear-ubuntu-uefi-entries.sh](file:///home/ken/src/github/kenvandine/nimbus-appliance/nimbus/clear-ubuntu-uefi-entries.sh) - Cleans up Ubuntu UEFI entries on bare-metal targets.
+* [fix-lxd-network.sh](file:///home/ken/src/github/kenvandine/nimbus-appliance/nimbus/fix-lxd-network.sh) - Solves NetworkManager clashes with LXD bridges.
+* [verify-lxd-network-fix.sh](file:///home/ken/src/github/kenvandine/nimbus-appliance/nimbus/verify-lxd-network-fix.sh) - Unpacks the pre-built installer image to verify NetworkManager configuration.
+* [perf-diag.sh](file:///home/ken/src/github/kenvandine/nimbus-appliance/nimbus/perf-diag.sh) - Gathers host and container performance metrics for debugging.
+```
 ```
 
 ---
