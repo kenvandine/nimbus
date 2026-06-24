@@ -385,8 +385,7 @@ for assertion in ./kenvandine.assert ./krishna.assert; do
 done
 
 if [ -z "$USER_ASSERTIONS" ]; then
-    echo "missing system-user assertion: create kenvandine.json/kenvandine.assert or krishna.assert" >&2
-    exit 1
+    echo "WARNING: no system-user assertions found, proceeding without custom users" >&2
 fi
 
 # ubuntu-image only accepts extra assertions such as system-user here.
