@@ -412,11 +412,9 @@ else
 fi
 
 PRESEED_FLAGS=""
-ENV_VARS=""
 if [ "$PRESEED" -eq 1 ]; then
     echo "Building with --preseed (signing key: my-key)"
     PRESEED_FLAGS="--preseed --preseed-sign-key my-key"
-    ENV_VARS="SNAP_GNUPG_HOME=$ROOT_GNUPG_HOME"
 else
     echo "Building without preseed — snaps will install on first boot"
 fi
@@ -427,8 +425,11 @@ if [ -n "$EXTRA_SNAP" ]; then
 fi
 
 set -- sudo env -u SUDO_UID -u SUDO_GID -u SUDO_USER
-if [ -n "$ENV_VARS" ]; then
-    set -- "$@" "$ENV_VARS"
+if [ "$PRESEED" -eq 1 ]; then
+    set -- "$@" "SNAP_GNUPG_HOME=$ROOT_GNUPG_HOME"
+    if [ -n "${GPG_PASSPHRASE:-}" ]; then
+        set -- "$@" "GPG_PASSPHRASE=$GPG_PASSPHRASE"
+    fi
 fi
 set -- "$@" ubuntu-image snap "$MODEL_ASSERTION" --snap "$GADGET_SNAP"
 if [ -n "$EXTRA_SNAP_FLAG" ]; then
