@@ -32,11 +32,11 @@ jobs:
         with:
           path: nimbus
 
-      - name: Checkout pc-amd64-gadget
+      - name: Checkout pc-nimbus-gadget
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.repository_owner }}/pc-amd64-gadget
-          ref: amd
+          repository: ${{ github.repository_owner }}/pc-nimbus-gadget
+          ref: main
           path: pc-amd64-gadget
 
       - name: Install System Dependencies
