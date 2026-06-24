@@ -53,10 +53,29 @@ jobs:
         run: |
           mkdir -p ~/.snap/gnupg
           chmod 700 ~/.snap/gnupg
+          
+          # Create mock pinentry script to bypass /dev/tty prompt
+          cat << 'EOF' > ~/.snap/gnupg/pinentry-mock
+          #!/bin/bash
+          echo "OK Pleased to meet you"
+          while read -r line; do
+            if [[ "$line" =~ GETPIN ]]; then
+              echo "D "
+              echo "OK"
+            else
+              echo "OK"
+            fi
+          done
+          EOF
+          chmod +x ~/.snap/gnupg/pinentry-mock
+          
+          echo "pinentry-program /home/runner/.snap/gnupg/pinentry-mock" > ~/.snap/gnupg/gpg-agent.conf
+          echo "allow-loopback-pinentry" >> ~/.snap/gnupg/gpg-agent.conf
+          
           echo "batch" > ~/.snap/gnupg/gpg.conf
           echo "yes" >> ~/.snap/gnupg/gpg.conf
           echo "pinentry-mode loopback" >> ~/.snap/gnupg/gpg.conf
-          echo "allow-loopback-pinentry" > ~/.snap/gnupg/gpg-agent.conf
+          
           echo "${{ secrets.SNAP_SIGNING_KEY }}" | base64 -d > ~/.snap/gnupg/private.key 2>/dev/null || echo "${{ secrets.SNAP_SIGNING_KEY }}" > ~/.snap/gnupg/private.key
           gpg --homedir ~/.snap/gnupg --batch --import ~/.snap/gnupg/private.key
           chmod -R go-rwx ~/.snap/gnupg
