@@ -62,11 +62,7 @@ jobs:
           echo "OK Pleased to meet you"
           while read -r line; do
             if [[ "$line" =~ GETPIN ]]; then
-              if [ -n "$GPG_PASSPHRASE" ]; then
-                echo "D $GPG_PASSPHRASE"
-              else
-                echo "D"
-              fi
+              echo "D $GPG_PASSPHRASE"
               echo "OK"
             else
               echo "OK"
