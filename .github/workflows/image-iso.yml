@@ -53,6 +53,8 @@ jobs:
         run: |
           mkdir -p ~/.snap/gnupg
           chmod 700 ~/.snap/gnupg
+          echo "pinentry-mode loopback" > ~/.snap/gnupg/gpg.conf
+          echo "allow-loopback-pinentry" > ~/.snap/gnupg/gpg-agent.conf
           echo "${{ secrets.SNAP_SIGNING_KEY }}" | base64 -d > ~/.snap/gnupg/private.key 2>/dev/null || echo "${{ secrets.SNAP_SIGNING_KEY }}" > ~/.snap/gnupg/private.key
           gpg --homedir ~/.snap/gnupg --batch --import ~/.snap/gnupg/private.key
           chmod -R go-rwx ~/.snap/gnupg
