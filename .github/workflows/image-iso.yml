@@ -1,14 +1,6 @@
 name: Build Appliance Image and ISO
 
 on:
-  push:
-    branches:
-      - main
-      - production
-  pull_request:
-    branches:
-      - main
-      - production
   workflow_dispatch:
     inputs:
       model:
@@ -24,11 +16,16 @@ on:
         required: true
         default: 'true'
         type: boolean
+  workflow_run:
+    workflows: ["Build and Publish Snap"]
+    types:
+      - completed
 
 jobs:
   build-image-iso:
     name: Build Image and ISO
     runs-on: ubuntu-24.04
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') }}
     steps:
       - name: Checkout Nimbus
         uses: actions/checkout@v4
