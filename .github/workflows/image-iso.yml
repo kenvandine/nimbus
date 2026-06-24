@@ -52,8 +52,10 @@ jobs:
       - name: Import GPG Signing Key
         run: |
           mkdir -p ~/.snap/gnupg
+          chmod 700 ~/.snap/gnupg
           echo "${{ secrets.SNAP_SIGNING_KEY }}" | base64 -d > ~/.snap/gnupg/private.key 2>/dev/null || echo "${{ secrets.SNAP_SIGNING_KEY }}" > ~/.snap/gnupg/private.key
           gpg --homedir ~/.snap/gnupg --batch --import ~/.snap/gnupg/private.key
+          chmod -R go-rwx ~/.snap/gnupg
           # Verify the key is loaded
           gpg --homedir ~/.snap/gnupg --list-keys
           # We need to make sure the key name 'my-key' is recognized
