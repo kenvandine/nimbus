@@ -22,6 +22,16 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Setup LXD
+        run: |
+          sudo snap install lxd
+          sudo lxd init --auto
+          sudo usermod -aG lxd $USER
+
+      - name: Build LXC Seed Image
+        run: |
+          sg lxd -c "./scripts/build-lxc-seed.sh"
+
       - name: Build Snap
         uses: snapcore/action-build@v1
         id: build
