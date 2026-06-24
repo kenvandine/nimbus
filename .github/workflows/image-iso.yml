@@ -66,6 +66,8 @@ jobs:
           # Add current user and root to lxd group
           sudo usermod -aG lxd $USER
           sudo usermod -aG lxd root
+          # Fix docker iptables conflict blocking LXD container internet access
+          sudo iptables -P FORWARD ACCEPT
 
       - name: Build Appliance Image
         run: |

@@ -27,6 +27,8 @@ jobs:
           sudo snap install lxd
           sudo lxd init --auto
           sudo usermod -aG lxd $USER
+          # Fix docker iptables conflict blocking LXD container internet access
+          sudo iptables -P FORWARD ACCEPT
 
       - name: Build LXC Seed Image
         run: |
