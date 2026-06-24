@@ -1,0 +1,115 @@
+name: Build Appliance Image and ISO
+
+on:
+  push:
+    branches:
+      - main
+      - production
+  pull_request:
+    branches:
+      - main
+      - production
+  workflow_dispatch:
+    inputs:
+      model:
+        description: 'Appliance Model to build'
+        required: true
+        default: 'nimbus-lemonade'
+        type: choice
+        options:
+          - nimbus-lemonade
+          - nimbus-gemma4
+      preseed:
+        description: 'Enable preseeding of snaps'
+        required: true
+        default: 'true'
+        type: boolean
+
+jobs:
+  build-image-iso:
+    name: Build Image and ISO
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Nimbus
+        uses: actions/checkout@v4
+        with:
+          path: nimbus
+
+      - name: Checkout pc-nimbus-gadget
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/pc-nimbus-gadget
+          ref: amd
+          path: pc-amd64-gadget
+
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mtools sfdisk xz-utils python3-venv python3-pip xorriso squashfs-tools wget
+
+      - name: Install snapcraft and ubuntu-image
+        run: |
+          sudo snap install snapcraft --classic
+          sudo snap install ubuntu-image --classic
+
+      - name: Import GPG Signing Key
+        run: |
+          mkdir -p ~/.snap/gnupg
+          echo "${{ secrets.SNAP_SIGNING_KEY }}" | base64 -d > ~/.snap/gnupg/private.key 2>/dev/null || echo "${{ secrets.SNAP_SIGNING_KEY }}" > ~/.snap/gnupg/private.key
+          gpg --homedir ~/.snap/gnupg --import ~/.snap/gnupg/private.key
+          # Verify the key is loaded
+          gpg --homedir ~/.snap/gnupg --list-keys
+          # We need to make sure the key name 'my-key' is recognized
+          # (Keys generated with snapcraft create-key automatically have UID "my-key")
+
+      - name: Setup LXD
+        run: |
+          sudo snap install lxd
+          sudo lxd init --auto
+          # Add current user and root to lxd group
+          sudo usermod -aG lxd $USER
+          sudo usermod -aG lxd root
+
+      - name: Build Appliance Image
+        run: |
+          cd nimbus/model
+          MODEL="${{ github.event.inputs.model || 'nimbus-lemonade' }}"
+          PRESEED_FLAG="--preseed"
+          if [ "${{ github.event.inputs.preseed }}" = "false" ]; then
+            PRESEED_FLAG="--no-preseed"
+          fi
+          
+          echo "Building model image for $MODEL with $PRESEED_FLAG"
+          # Run build script
+          sg lxd -c "./build.sh $MODEL $PRESEED_FLAG"
+          
+      - name: Download Base Ubuntu Server ISO
+        run: |
+          # Download Ubuntu Server 26.04 LTS (Noble Numbat is 24.04, 26.04 is the next LTS target)
+          # We check if a cached version or direct download is faster, download directly for freshness.
+          wget -q https://releases.ubuntu.com/26.04/ubuntu-26.04-live-server-amd64.iso -O ubuntu-server.iso
+
+      - name: Build Appliance Installer ISO
+        run: |
+          MODEL="${{ github.event.inputs.model || 'nimbus-lemonade' }}"
+          IMAGE_PATH="nimbus/model/$MODEL/pc.img.xz"
+          
+          if [ ! -f "$IMAGE_PATH" ]; then
+            echo "Error: image file $IMAGE_PATH not found"
+            exit 1
+          fi
+          
+          # Run build-iso.sh using sudo (required by livefs-edit)
+          sudo ./nimbus/installer/build-iso.sh ubuntu-server.iso nimbus-appliance-$MODEL.iso "$IMAGE_PATH"
+
+      - name: Upload Image Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nimbus-appliance-image-${{ github.event.inputs.model || 'nimbus-lemonade' }}
+          path: nimbus/model/${{ github.event.inputs.model || 'nimbus-lemonade' }}/pc.img.xz
+
+      - name: Upload Installer ISO Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nimbus-appliance-iso-${{ github.event.inputs.model || 'nimbus-lemonade' }}
+          path: nimbus-appliance-${{ github.event.inputs.model || 'nimbus-lemonade' }}.iso
