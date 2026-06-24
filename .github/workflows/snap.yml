@@ -35,7 +35,7 @@ jobs:
   publish:
     name: Publish Snap
     needs: build
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/production' || startsWith(github.ref, 'refs/tags/v'))
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     steps:
       - name: Download Snap Artifact
@@ -49,4 +49,4 @@ jobs:
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
         with:
           snap: ${{ needs.build.outputs.snap }}
-          release: ${{ github.ref == 'refs/heads/production' && 'edge' || 'stable' }}
+          release: edge
