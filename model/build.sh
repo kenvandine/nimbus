@@ -361,7 +361,7 @@ fi
 if [ "$PRESEED" -eq 1 ]; then
     SNAP_GNUPG_HOME=${SNAP_GNUPG_HOME:-"$HOME/.snap/gnupg"}
     ROOT_GNUPG_HOME=$(mktemp -d)
-    trap 'rm -rf "$ROOT_GNUPG_HOME"' EXIT
+    trap 'sudo rm -rf "$ROOT_GNUPG_HOME"' EXIT
     cp -a "$SNAP_GNUPG_HOME"/. "$ROOT_GNUPG_HOME"/
     find "$ROOT_GNUPG_HOME" \( -type s -o -name '*.lock' \) -delete
     sudo chown -R root:root "$ROOT_GNUPG_HOME"
