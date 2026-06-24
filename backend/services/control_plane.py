@@ -1,3 +1,13 @@
+"""Control plane abstraction for Nimbus.
+
+Provides three implementations:
+  - LocalControlPlane: manages Docker apps directly (local mode)
+  - LxdControlPlane: manages apps inside an LXC container (lxd mode)
+  - RemoteControlPlane: proxies to a remote Nimbus instance (remote mode)
+
+Shared logic (install tracking, system commands) is in control_base.py.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -13,13 +23,73 @@ from fastapi import HTTPException
 from pylxd.exceptions import ClientConnectionFailed, LXDAPIException
 
 from config import settings
+from constants import SNAP_UI_PORTS
 from models import AppDetail, AppStatus, SystemStats
+from services.control_base import ControlPlaneBase
 from services.device import get_device_manager, is_oobe_complete
 from services import docker, model_provider, network, store, system_apps
 
 logger = logging.getLogger(__name__)
 
 _PRESEED_STATE = ".preseed_apps_state"
+
+# Cached openclaw token to avoid reading the config file on every request.
+_openclaw_token: str | None = None
+_openclaw_token_checked: bool = False
+
+
+async def _get_openclaw_token() -> str | None:
+    """Read the openclaw auth token from the container config file (cached)."""
+    global _openclaw_token, _openclaw_token_checked
+    if _openclaw_token_checked:
+        return _openclaw_token
+    try:
+        from services import container_snaps
+        content = await container_snaps.read_container_file(
+            "/home/nimbus/.openclaw/openclaw.json"
+        )
+        if content:
+            data = json.loads(content)
+            _openclaw_token = (
+                data.get("gateway", {}).get("auth", {}).get("token") or None
+            )
+    except Exception as exc:
+        logger.debug("Could not read openclaw token: %s", exc)
+    _openclaw_token_checked = True
+    return _openclaw_token
+
+
+async def _patch_openclaw_config() -> None:
+    """Set gateway.controlUi.allowInsecureAuth=true in openclaw.json."""
+    from services import container_snaps
+    _CONFIG = "/home/nimbus/.openclaw/openclaw.json"
+    content = await container_snaps.read_container_file(_CONFIG)
+    if not content:
+        logger.warning("openclaw.json not found — skipping insecure-auth patch")
+        return
+    try:
+        cfg = json.loads(content)
+    except json.JSONDecodeError as exc:
+        logger.warning("Could not parse openclaw.json: %s", exc)
+        return
+    gateway = cfg.setdefault("gateway", {})
+    control_ui = gateway.setdefault("controlUi", {})
+    if control_ui.get("allowInsecureAuth") is True:
+        return
+    control_ui["allowInsecureAuth"] = True
+    ok = await container_snaps.write_container_file(_CONFIG, json.dumps(cfg, indent=2))
+    if ok:
+        logger.info("Patched openclaw.json: allowInsecureAuth=true")
+        _invalidate_openclaw_token_cache()
+    else:
+        logger.warning("Failed to write patched openclaw.json")
+
+
+def _invalidate_openclaw_token_cache() -> None:
+    """Call after openclaw is installed/uninstalled so the token is re-read."""
+    global _openclaw_token, _openclaw_token_checked
+    _openclaw_token = None
+    _openclaw_token_checked = False
 
 
 def _load_preseed_state(data_dir: Path) -> set[str]:
@@ -38,25 +108,12 @@ def _save_preseed_state(data_dir: Path, queued: set[str]) -> None:
 
 
 def _ensure_openclaw_workspace_link() -> None:
-    """Expose the OpenClaw workspace dir to the file browser at
-    <files_root>/openclaw-workspace.
-
-    Local mode: create a symlink to <INSTALLED_DIR>/openclaw/data/data/
-    .openclaw/workspace where the openclaw container writes.
-
-    LXD mode: create a real directory. The LXD manager separately attaches
-    that host directory as a bind-mount inside the LXC at the workspace
-    path, so the file browser (host) and the openclaw container (inside
-    docker, inside LXC) see the same files. The LXD-side device add lives
-    in services/lxd.py because pylxd is required.
-    """
+    """Expose the OpenClaw workspace dir to the file browser."""
     import os
     link = settings.files_root / "openclaw-workspace"
     try:
         link.parent.mkdir(parents=True, exist_ok=True)
         if settings.control_mode == "lxd":
-            # Bind-mount source: must be a real directory the LXD daemon
-            # can mount into the LXC. Replace any stale symlink.
             if link.is_symlink():
                 link.unlink()
             link.mkdir(exist_ok=True)
@@ -74,12 +131,8 @@ def _ensure_openclaw_workspace_link() -> None:
         logger.warning("Could not set up openclaw-workspace link: %s", exc)
 
 
-async def _maybe_ensure_model_provider(cp: ControlPlane) -> None:
-    """If openclaw is installed, fire the configured model-provider's prep
-    task in the background. The underlying ensure routines are idempotent —
-    lemonade skips the pull if the model is already registered, gemma4 just
-    polls until reachable — so this is a cheap safety net at every nimbus
-    boot (covers cases where the install hook never ran)."""
+async def _maybe_ensure_model_provider(cp: "ControlPlane") -> None:
+    """If openclaw is installed, fire the configured model-provider's prep task."""
     try:
         apps = await cp.list_apps()
     except Exception as exc:
@@ -91,7 +144,7 @@ async def _maybe_ensure_model_provider(cp: ControlPlane) -> None:
             return
 
 
-async def _maybe_install_preseed_apps(cp: ControlPlane) -> None:
+async def _maybe_install_preseed_apps(cp: "ControlPlane") -> None:
     """Queue installs for any preseed apps not yet seen on this device."""
     if not settings.preseed_apps:
         return
@@ -124,16 +177,8 @@ class ControlPlane(Protocol):
     async def get_ca_cert(self) -> tuple[bytes, str, str]: ...
 
 
-async def _call_device_manager(func, *args):
-    try:
-        return await asyncio.to_thread(func, *args)
-    except HTTPException:
-        raise
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-
 def _apply_device_stats(stats: SystemStats) -> SystemStats:
+    """Apply device-specific fields to a SystemStats instance."""
     stats.version = os.environ.get("SNAP_VERSION", "")
     device_status = get_device_manager().status()
     stats.device_management_available = device_status.actions_available
@@ -147,24 +192,61 @@ def _apply_device_stats(stats: SystemStats) -> SystemStats:
         stats.host_ip = network.get_primary_interface_ip()
     except Exception:
         pass
+    if stats.control_mode == "lxd" and stats.container_bootstrapped and stats.bootstrap_state == "ready":
+        stats.terminal_available = True
+    try:
+        from services.tls import get_cert_fingerprint
+        import os as _os
+        stats.tls_enabled = _os.environ.get("NIMBUS_TLS", "").strip().lower() in {"1", "true"}
+        if stats.tls_enabled:
+            stats.tls_fingerprint = get_cert_fingerprint()
+    except Exception:
+        pass
+    stats.update_available_count = _app_update_count
     return stats
 
 
-class LocalControlPlane:
+_app_update_count: int = 0
+_UPDATE_CHECK_INTERVAL = 6 * 3600  # 6 hours
+
+
+async def _run_update_check(cp: "ControlPlane") -> None:
+    global _app_update_count
+    try:
+        apps = await cp.list_apps()
+        _app_update_count = sum(1 for a in apps if getattr(a, "update_available", False))
+        logger.info("App update check complete: %d update(s) available", _app_update_count)
+    except Exception as exc:
+        logger.warning("App update check failed: %s", exc)
+
+
+async def _update_check_loop(cp: "ControlPlane") -> None:
+    while True:
+        await asyncio.sleep(_UPDATE_CHECK_INTERVAL)
+        await _run_update_check(cp)
+
+
+# ---------------------------------------------------------------------------
+# LocalControlPlane — manages Docker apps directly (local mode)
+# ---------------------------------------------------------------------------
+
+
+class LocalControlPlane(ControlPlaneBase):
+    """Control plane for local mode: manages Docker apps directly."""
+
     def __init__(self) -> None:
-        self._installing: set[str] = set()
-        self._updating: set[str] = set()
+        super().__init__()
 
     async def initialize(self) -> None:
         _ensure_openclaw_workspace_link()
         await _maybe_install_preseed_apps(self)
         await _maybe_ensure_model_provider(self)
+        asyncio.create_task(_update_check_loop(self))
 
     async def _status_for(self, app_id: str, meta=None) -> AppStatus:
         installed = app_id in docker.installed_app_ids()
         if not installed:
             return AppStatus(installed=False)
-
         running = await docker.is_running(app_id)
         port = None
         open_url = None
@@ -176,18 +258,13 @@ class LocalControlPlane:
             if port:
                 host_ip = await network.get_host_ip()
                 open_url = network.build_open_url(host_ip, port)
-
         update_available = False
         if meta and meta.version:
             installed_ver = docker.get_installed_version(app_id)
             update_available = bool(installed_ver and installed_ver != meta.version)
-
         return AppStatus(
-            installed=True,
-            running=running,
-            port=port,
-            open_url=open_url,
-            update_available=update_available,
+            installed=True, running=running, port=port,
+            open_url=open_url, update_available=update_available,
         )
 
     def _build_detail(self, meta, status: AppStatus) -> AppDetail:
@@ -222,10 +299,6 @@ class LocalControlPlane:
         try:
             await docker.install_app(app_id)
             if app_id == "openclaw":
-                # Pre-prep the configured model provider in the background so
-                # the install state isn't blocked on a multi-GB download
-                # (lemonade) or snap warm-up (gemma4). Safe to fire-and-forget
-                # — the underlying ensure routines log and skip on failure.
                 model_provider.ensure_ready_task()
         except Exception as exc:
             logger.error("Install failed for %s: %s", app_id, exc)
@@ -265,39 +338,16 @@ class LocalControlPlane:
         await docker.uninstall_app(app_id)
         return {"status": "uninstalled"}
 
-    async def active_installs(self) -> list[str]:
-        return list(self._installing)
-
     async def get_stats(self) -> SystemStats:
         return _apply_device_stats(SystemStats(
             cpu_pct=psutil.cpu_percent(interval=0.1),
             mem_pct=psutil.virtual_memory().percent,
             disk_pct=psutil.disk_usage("/").percent,
             app_count=len(docker.installed_app_ids()),
-            oobe_complete=True,
-            online=True,
+            oobe_complete=True, online=True,
             appstore_visible=settings.appstore_visible,
+            app_store_type=settings.app_store_type,
         ))
-
-    async def restart_system(self) -> dict:
-        await _call_device_manager(get_device_manager().restart_system)
-        return {"status": "restarting"}
-
-    async def power_off_system(self) -> dict:
-        await _call_device_manager(get_device_manager().power_off_system)
-        return {"status": "powering_off"}
-
-    async def _do_system_update(self, targets: list[str]) -> None:
-        try:
-            await asyncio.to_thread(get_device_manager().refresh_system, targets)
-        except Exception as exc:
-            logger.error("System update failed: %s", exc)
-
-    async def update_system(self) -> dict:
-        data = await _call_device_manager(get_device_manager().request_system_refresh)
-        if data["status"] == "running":
-            asyncio.create_task(self._do_system_update(list(data.get("targets", []))))
-        return dict(data)
 
     async def get_ca_cert(self) -> tuple[bytes, str, str]:
         cert_path = settings.caddy_ca_cert
@@ -313,7 +363,14 @@ class LocalControlPlane:
         )
 
 
+# ---------------------------------------------------------------------------
+# RemoteControlPlane — proxies to a remote Nimbus instance
+# ---------------------------------------------------------------------------
+
+
 class RemoteControlPlane:
+    """Control plane for remote mode: proxies API calls to a remote Nimbus."""
+
     def __init__(self, base_url: str, token: str | None = None) -> None:
         self.base_url = base_url.rstrip("/")
         self.token = token
@@ -329,9 +386,7 @@ class RemoteControlPlane:
     async def _json(self, method: str, path: str) -> dict | list:
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.request(
-                method,
-                f"{self.base_url}{path}",
-                headers=self._headers(),
+                method, f"{self.base_url}{path}", headers=self._headers(),
             )
         if response.is_error:
             raise HTTPException(status_code=response.status_code, detail=response.text)
@@ -340,14 +395,12 @@ class RemoteControlPlane:
     async def _content(self, path: str) -> tuple[bytes, str, str]:
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.get(
-                f"{self.base_url}{path}",
-                headers=self._headers(),
+                f"{self.base_url}{path}", headers=self._headers(),
             )
         if response.is_error:
             raise HTTPException(status_code=response.status_code, detail=response.text)
         content_type = response.headers.get("content-type", "application/octet-stream")
-        filename = "nimbus-ca.crt"
-        return response.content, content_type, filename
+        return response.content, content_type, "nimbus-ca.crt"
 
     async def list_apps(self) -> list[AppDetail]:
         data = await self._json("GET", "/api/apps")
@@ -393,13 +446,18 @@ class RemoteControlPlane:
         return await self._content("/api/system/ca-cert")
 
 
-class LxdControlPlane:
+# ---------------------------------------------------------------------------
+# LxdControlPlane — manages apps inside an LXC container
+# ---------------------------------------------------------------------------
+
+
+class LxdControlPlane(ControlPlaneBase):
+    """Control plane for LXD mode: manages apps inside an LXC container."""
+
     def __init__(self) -> None:
         from services.lxd import get_lxd_manager
-
+        super().__init__()
         self.manager = get_lxd_manager()
-        self._installing: set[str] = set()
-        self._updating: set[str] = set()
         self._bootstrap_task: asyncio.Task | None = None
         self._waiting_for_network: bool = False
 
@@ -411,7 +469,7 @@ class LxdControlPlane:
         from services.network import is_online
         if not await asyncio.to_thread(is_online):
             self._waiting_for_network = True
-            logger.info("Waiting for network connectivity before LXD bootstrap…")
+            logger.info("Waiting for network connectivity before LXD bootstrap...")
             while not await asyncio.to_thread(is_online):
                 await asyncio.sleep(10)
             self._waiting_for_network = False
@@ -420,7 +478,7 @@ class LxdControlPlane:
             try:
                 await asyncio.to_thread(self.manager.ensure_bootstrapped)
                 break
-            except (LXDAPIException, RuntimeError) as exc:
+            except Exception as exc:
                 if attempt < 4:
                     logger.warning(
                         "Bootstrap attempt %d/5 failed, retrying in 30s: %s",
@@ -430,8 +488,12 @@ class LxdControlPlane:
                     continue
                 raise
         _ensure_openclaw_workspace_link()
+        if settings.app_store_type == "nimbus":
+            from services import nimbus_store
+            await nimbus_store.get_catalog()
         await _maybe_install_preseed_apps(self)
         await _maybe_ensure_model_provider(self)
+        asyncio.create_task(_update_check_loop(self))
 
     def _raise_manager_error(self, exc: Exception) -> HTTPException:
         return HTTPException(status_code=500, detail=str(exc))
@@ -453,10 +515,8 @@ class LxdControlPlane:
 
     def _container_ready(self, info) -> bool:
         return (
-            info.exists
-            and info.status == "running"
-            and info.bootstrapped
-            and info.bootstrap_state == "ready"
+            info.exists and info.status == "running"
+            and info.bootstrapped and info.bootstrap_state == "ready"
             and not info.bootstrap_error
         )
 
@@ -464,26 +524,19 @@ class LxdControlPlane:
         app_state = snapshot.installed.get(app_id) if snapshot else None
         if not app_state:
             return AppStatus(installed=False), ""
-
         running = bool(app_state.get("running"))
         port = app_state.get("port")
         if not isinstance(port, int):
             port = None
-        if running:
-            if not port:
-                port = meta.port_hint if meta else None
+        if running and not port:
+            port = meta.port_hint if meta else None
         open_host = host_ip or info.ip_address
         open_url = network.build_open_url(open_host, port) if running and port and open_host else None
-
         installed_ver = str(app_state.get("version") or "")
         update_available = bool(meta and meta.version and installed_ver and installed_ver != meta.version)
-
         status = AppStatus(
-            installed=True,
-            running=running,
-            port=port,
-            open_url=open_url,
-            update_available=update_available,
+            installed=True, running=running, port=port,
+            open_url=open_url, update_available=update_available,
         )
         return status, str(app_state.get("password") or "")
 
@@ -500,9 +553,69 @@ class LxdControlPlane:
 
     async def list_apps(self) -> list[AppDetail]:
         host_ip = await network.get_host_ip()
-        store_apps = await self._call_manager(self._list_apps_sync, host_ip)
         sys = await system_apps.get_system_apps(host_ip)
-        return sys + store_apps
+        if settings.app_store_type == "nimbus":
+            nimbus_apps = await self._list_nimbus_apps(host_ip)
+            return sys + nimbus_apps
+        store_apps = await self._call_manager(self._list_apps_sync, host_ip)
+        snap_apps = await self._list_snap_apps(host_ip)
+        return sys + store_apps + snap_apps
+
+    async def _list_snap_apps(self, host_ip: str | None) -> list[AppDetail]:
+        from services import snap_store, container_snaps
+        try:
+            snap_metas, installed_snaps = await asyncio.gather(
+                snap_store.get_catalog_app_metas(),
+                container_snaps.list_container_snaps(),
+            )
+        except Exception as exc:
+            logger.warning("Could not list snap catalog apps: %s", exc)
+            return []
+        installed_map = {s["name"]: s for s in installed_snaps}
+        result: list[AppDetail] = []
+        for meta in snap_metas:
+            snap_info = installed_map.get(meta.id)
+            if snap_info:
+                port = meta.ports[0] if meta.ports else SNAP_UI_PORTS.get(meta.id)
+                open_url = network.build_open_url(host_ip, port) if port and host_ip else None
+                status = AppStatus(installed=True, running=True, port=port, open_url=open_url)
+            else:
+                status = AppStatus(installed=False)
+            result.append(AppDetail(**{**meta.model_dump(), **status.model_dump()}))
+        return result
+
+    async def _list_nimbus_apps(self, host_ip: str | None) -> list[AppDetail]:
+        from services import nimbus_store, container_snaps
+        try:
+            metas, installed_snaps = await asyncio.gather(
+                nimbus_store.get_app_metas(),
+                container_snaps.list_container_snaps(),
+            )
+        except Exception as exc:
+            logger.warning("Could not list nimbus store apps: %s", exc)
+            return []
+        installed_map = {s["name"]: s for s in installed_snaps}
+        openclaw_token = await _get_openclaw_token()
+        result: list[AppDetail] = []
+        for meta in metas:
+            snap_info = installed_map.get(meta.id)
+            if snap_info:
+                installed_ver = snap_info.get("version", "")
+                update_available = bool(
+                    meta.version and installed_ver and installed_ver != meta.version
+                )
+                port = meta.ports[0] if meta.ports else SNAP_UI_PORTS.get(meta.id)
+                open_url = network.build_open_url(host_ip, port) if port and host_ip else None
+                if open_url and meta.id == "openclaw" and openclaw_token:
+                    open_url = f"{open_url}?token={openclaw_token}"
+                status = AppStatus(
+                    installed=True, running=True, port=port,
+                    open_url=open_url, update_available=update_available,
+                )
+            else:
+                status = AppStatus(installed=False)
+            result.append(AppDetail(**{**meta.model_dump(), **status.model_dump()}))
+        return result
 
     async def get_app(self, app_id: str) -> AppDetail:
         if app_id == "lemonade":
@@ -511,6 +624,19 @@ class LxdControlPlane:
         if app_id == "gemma4":
             host_ip = await network.get_host_ip()
             return system_apps.get_gemma4_app(host_ip)
+        if settings.app_store_type == "nimbus":
+            apps = await self._list_nimbus_apps(await network.get_host_ip())
+            detail = next((a for a in apps if a.id == app_id), None)
+            if detail is None:
+                raise HTTPException(status_code=404, detail=f"App '{app_id}' not found in nimbus store")
+            return detail
+        from services import snap_store, container_snaps
+        if snap_store.is_snap_catalog_app(app_id):
+            snap_apps = await self._list_snap_apps(await network.get_host_ip())
+            detail = next((a for a in snap_apps if a.id == app_id), None)
+            if detail is None:
+                raise HTTPException(status_code=404, detail=f"App '{app_id}' not found in snap catalog")
+            return detail
         meta = store.get_app_meta(app_id)
         if meta is None:
             raise HTTPException(status_code=404, detail=f"App '{app_id}' not found in store")
@@ -519,12 +645,7 @@ class LxdControlPlane:
             snapshot = await self._call_manager(self.manager.app_runtime_snapshot) if self._container_ready(info) else None
             host_ip = await network.get_host_ip()
             status, default_password = await self._call_manager(
-                self._status_for_sync,
-                app_id,
-                meta,
-                info,
-                snapshot,
-                host_ip,
+                self._status_for_sync, app_id, meta, info, snapshot, host_ip,
             )
         except HTTPException as exc:
             if exc.status_code == 500:
@@ -537,7 +658,6 @@ class LxdControlPlane:
     _NETWORK_ERROR_HINTS = frozenset([
         "lookup", "i/o timeout", "dial tcp", "resolve reference",
         "no such host", "connection refused", "network unreachable",
-        # docker pull / compose pull failures
         "toomanyrequests", "connection reset", "context deadline exceeded",
         "tls handshake timeout", "eof", "unexpected eof", "failed to pull",
         "pulling fs layer", "downloading",
@@ -557,10 +677,6 @@ class LxdControlPlane:
                     await asyncio.to_thread(self.manager.install_app, app_id)
                     logger.info("Install completed for %s", app_id)
                     if app_id == "openclaw":
-                        # Pre-prep the configured model provider so the user
-                        # doesn't wait on a model pull or snap warm-up before
-                        # the wizard can talk to it. Logs and skips on
-                        # failure — see services/model_provider.py.
                         model_provider.ensure_ready_task()
                     return
                 except Exception as exc:
@@ -602,7 +718,145 @@ class LxdControlPlane:
         finally:
             self._updating.discard(app_id)
 
+    async def _request_nimbus_install(self, snap_name: str) -> dict:
+        from services import nimbus_store, container_snaps
+        catalog = await nimbus_store.get_catalog()
+        if nimbus_store.get_snap(catalog, snap_name) is None:
+            raise HTTPException(status_code=404, detail=f"App '{snap_name}' not found in nimbus store")
+        if snap_name in self._installing:
+            return {"status": "already_installing"}
+        installed = await container_snaps.list_container_snaps()
+        if any(s["name"] == snap_name for s in installed):
+            return {"status": "already_installed"}
+        self._installing.add(snap_name)
+        asyncio.create_task(self._do_nimbus_sideload(snap_name, catalog))
+        return {"status": "installing"}
+
+    async def _do_nimbus_sideload(self, snap_name: str, catalog: dict | None = None) -> None:
+        from services import nimbus_store, container_snaps
+        try:
+            if catalog is None:
+                catalog = await nimbus_store.get_catalog()
+            snap = nimbus_store.get_snap(catalog, snap_name)
+            if snap is None:
+                raise RuntimeError(f"App '{snap_name}' not found in nimbus store")
+            url = nimbus_store.get_download_url(snap)
+            filename = nimbus_store.get_filename(snap)
+            if not url or not filename:
+                raise RuntimeError(f"No download URL for '{snap_name}' on this architecture")
+            flags = nimbus_store.get_install_flags(snap)
+            logger.info("Sideloading %s from %s", snap_name, url)
+            result = await container_snaps.sideload_container_snap(url, filename, flags)
+            if not result.get("ok"):
+                raise RuntimeError(f"Sideload failed: {result.get('stderr', '')}")
+            logger.info("Sideload completed for %s", snap_name)
+            if snap_name == "openclaw":
+                model_provider.ensure_ready_task()
+            ports = snap.get("ports", []) or (
+                [SNAP_UI_PORTS[snap_name]] if snap_name in SNAP_UI_PORTS else []
+            )
+            if ports:
+                await asyncio.to_thread(self.manager.setup_snap_port_proxies, snap_name, ports)
+            onboard = nimbus_store.get_onboard_cmd(snap)
+            if onboard:
+                await asyncio.sleep(3)
+                logger.info("Ensuring model provider ready before onboard for %s", snap_name)
+                task = model_provider.ensure_ready_task()
+                if task is not None:
+                    try:
+                        await asyncio.wait_for(asyncio.shield(task), timeout=1800.0)
+                    except asyncio.TimeoutError:
+                        logger.warning(
+                            "Model provider timed out waiting for %s onboard", snap_name,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "Model provider error before %s onboard (non-fatal): %s",
+                            snap_name, exc,
+                        )
+                await asyncio.sleep(2)
+                cmd, args = onboard
+                logger.info("Running onboard for %s: %s %s", snap_name, cmd, " ".join(args))
+                try:
+                    ob_result = await container_snaps.run_snap_cmd(cmd, args)
+                    if ob_result.get("ok"):
+                        logger.info("Onboard completed for %s", snap_name)
+                    else:
+                        logger.warning(
+                            "Onboard returned non-zero for %s | stdout: %s | stderr: %s",
+                            snap_name, ob_result.get("stdout", "").strip(),
+                            ob_result.get("stderr", "").strip(),
+                        )
+                except Exception as exc:
+                    logger.warning("Onboard failed for %s (non-fatal): %s", snap_name, exc)
+            if snap_name == "openclaw":
+                await _patch_openclaw_config()
+            service_name = nimbus_store.get_service_name(snap)
+            if service_name:
+                try:
+                    await container_snaps.reload_user_daemon()
+                    svc = await container_snaps.service_action(service_name, "start")
+                    if svc.get("ok"):
+                        logger.info("Service %s started for %s", service_name, snap_name)
+                    else:
+                        logger.warning(
+                            "Could not start service %s for %s | stdout: %s | stderr: %s",
+                            service_name, snap_name, svc.get("stdout", "").strip(),
+                            svc.get("stderr", "").strip(),
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        "Could not start service %s for %s (non-fatal): %s",
+                        service_name, snap_name, exc,
+                    )
+        except Exception as exc:
+            logger.error("Sideload failed for %s: %s", snap_name, exc)
+        finally:
+            self._installing.discard(snap_name)
+            if snap_name == "openclaw":
+                _invalidate_openclaw_token_cache()
+
+    async def _do_nimbus_update(self, snap_name: str) -> None:
+        from services import nimbus_store, container_snaps
+        try:
+            catalog = await nimbus_store.get_catalog(force=True)
+            snap = nimbus_store.get_snap(catalog, snap_name)
+            if snap is None:
+                raise RuntimeError(f"App '{snap_name}' not found in nimbus store")
+            service_name = nimbus_store.get_service_name(snap)
+            if service_name:
+                try:
+                    await container_snaps.service_action(service_name, "stop")
+                    logger.info("Stopped %s before update", service_name)
+                except Exception as exc:
+                    logger.warning("Could not stop %s before update: %s", service_name, exc)
+            url = nimbus_store.get_download_url(snap)
+            filename = nimbus_store.get_filename(snap)
+            if not url or not filename:
+                raise RuntimeError(f"No download URL for '{snap_name}' on this architecture")
+            flags = nimbus_store.get_install_flags(snap)
+            logger.info("Updating %s via sideload from %s", snap_name, url)
+            result = await container_snaps.sideload_container_snap(url, filename, flags)
+            if not result.get("ok"):
+                raise RuntimeError(f"Update failed: {result.get('stderr', '')}")
+            logger.info("Update sideload completed for %s", snap_name)
+            if service_name:
+                try:
+                    await container_snaps.service_action(service_name, "start")
+                    logger.info("Started %s after update", service_name)
+                except Exception as exc:
+                    logger.warning("Could not start %s after update: %s", service_name, exc)
+        except Exception as exc:
+            logger.error("Update failed for %s: %s", snap_name, exc)
+        finally:
+            self._updating.discard(snap_name)
+
     async def request_install(self, app_id: str) -> dict:
+        if settings.app_store_type == "nimbus":
+            return await self._request_nimbus_install(app_id)
+        from services import snap_store, container_snaps
+        if snap_store.is_snap_catalog_app(app_id):
+            return await self._request_snap_install(app_id)
         if store.get_app_meta(app_id) is None:
             raise HTTPException(status_code=404, detail=f"App '{app_id}' not found in store")
         if app_id in self._installing:
@@ -613,7 +867,74 @@ class LxdControlPlane:
         asyncio.create_task(self._do_install(app_id))
         return {"status": "installing"}
 
+    async def _request_snap_install(self, snap_name: str) -> dict:
+        from services import snap_store, container_snaps
+        if snap_name in self._installing:
+            return {"status": "already_installing"}
+        installed = await container_snaps.list_container_snaps()
+        if any(s["name"] == snap_name for s in installed):
+            return {"status": "already_installed"}
+        ports = snap_store.get_snap_ports(snap_name)
+        if ports:
+            conflicts = await asyncio.to_thread(self.manager.get_conflicting_ports, snap_name, ports)
+            if conflicts:
+                conflict_ports = ", ".join(str(p) for p in conflicts)
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Port(s) {conflict_ports} are already in use by another installed app",
+                )
+        self._installing.add(snap_name)
+        asyncio.create_task(self._do_snap_install(snap_name))
+        return {"status": "installing"}
+
+    async def _do_snap_install(self, snap_name: str) -> None:
+        from services import snap_store, container_snaps
+        try:
+            meta = await snap_store.fetch_snap_metadata(snap_name)
+            classic = meta.get("confinement") == "classic"
+            result = await container_snaps.install_container_snap(snap_name, classic=classic)
+            if not result.get("ok"):
+                raise RuntimeError(f"Snap install failed: {result.get('stderr', '')}")
+            ports = snap_store.get_snap_ports(snap_name)
+            if ports:
+                await asyncio.to_thread(self.manager.setup_snap_port_proxies, snap_name, ports)
+            logger.info("Snap install completed for %s", snap_name)
+        except Exception as exc:
+            logger.error("Snap install failed for %s: %s", snap_name, exc)
+        finally:
+            self._installing.discard(snap_name)
+
+    async def _do_snap_update(self, snap_name: str) -> None:
+        from services import container_snaps
+        try:
+            result = await container_snaps.refresh_container_snap(snap_name)
+            if not result.get("ok"):
+                logger.warning("Snap refresh returned error for %s: %s", snap_name, result.get("stderr", ""))
+            else:
+                logger.info("Snap refresh completed for %s", snap_name)
+        except Exception as exc:
+            logger.error("Snap update failed for %s: %s", snap_name, exc)
+        finally:
+            self._updating.discard(snap_name)
+
     async def request_update(self, app_id: str) -> dict:
+        if settings.app_store_type == "nimbus":
+            from services import nimbus_store
+            catalog = await nimbus_store.get_catalog()
+            if nimbus_store.get_snap(catalog, app_id) is None:
+                raise HTTPException(status_code=404, detail=f"App '{app_id}' not found in nimbus store")
+            if app_id in self._updating:
+                return {"status": "already_updating"}
+            self._updating.add(app_id)
+            asyncio.create_task(self._do_nimbus_update(app_id))
+            return {"status": "updating"}
+        from services import snap_store
+        if snap_store.is_snap_catalog_app(app_id):
+            if app_id in self._updating:
+                return {"status": "already_updating"}
+            self._updating.add(app_id)
+            asyncio.create_task(self._do_snap_update(app_id))
+            return {"status": "updating"}
         installed = await self._call_manager(self.manager.installed_app_ids)
         if app_id not in installed:
             raise HTTPException(status_code=404, detail=f"App '{app_id}' is not installed")
@@ -623,14 +944,46 @@ class LxdControlPlane:
         return {"status": "updating"}
 
     async def uninstall_app(self, app_id: str) -> dict:
+        if settings.app_store_type == "nimbus":
+            return await self._uninstall_nimbus_snap(app_id)
+        from services import snap_store
+        if snap_store.is_snap_catalog_app(app_id):
+            return await self._uninstall_snap(app_id)
         installed = await self._call_manager(self.manager.installed_app_ids)
         if app_id not in installed:
             raise HTTPException(status_code=404, detail=f"App '{app_id}' is not installed")
         await self._call_manager(self.manager.uninstall_app, app_id)
         return {"status": "uninstalled"}
 
-    async def active_installs(self) -> list[str]:
-        return list(self._installing)
+    async def _uninstall_nimbus_snap(self, snap_name: str) -> dict:
+        from services import nimbus_store, container_snaps
+        catalog = await nimbus_store.get_catalog()
+        snap = nimbus_store.get_snap(catalog, snap_name)
+        if snap is None:
+            raise HTTPException(status_code=404, detail=f"App '{snap_name}' not found in nimbus store")
+        result = await container_snaps.remove_container_snap(snap_name)
+        if not result.get("ok"):
+            raise HTTPException(status_code=500, detail=result.get("stderr", "remove failed"))
+        ports = snap.get("ports", [])
+        if ports:
+            try:
+                await asyncio.to_thread(self.manager.teardown_snap_port_proxies, snap_name, ports)
+            except Exception as exc:
+                logger.warning("Could not tear down port proxies for '%s': %s", snap_name, exc)
+        return {"status": "uninstalled"}
+
+    async def _uninstall_snap(self, snap_name: str) -> dict:
+        from services import snap_store, container_snaps
+        result = await container_snaps.remove_container_snap(snap_name)
+        if not result.get("ok"):
+            raise HTTPException(status_code=500, detail=result.get("stderr", "remove failed"))
+        ports = snap_store.get_snap_ports(snap_name)
+        if ports:
+            try:
+                await asyncio.to_thread(self.manager.teardown_snap_port_proxies, snap_name, ports)
+            except Exception as exc:
+                logger.warning("Could not tear down port proxies for snap '%s': %s", snap_name, exc)
+        return {"status": "uninstalled"}
 
     async def get_stats(self) -> SystemStats:
         from services.network import is_online
@@ -643,41 +996,73 @@ class LxdControlPlane:
             cpu_pct=psutil.cpu_percent(interval=0.1),
             mem_pct=psutil.virtual_memory().percent,
             disk_pct=psutil.disk_usage("/").percent,
-            app_count=app_count,
-            control_mode="lxd",
-            container_name=info.name,
-            container_status=info.status,
-            container_ip=info.ip_address,
-            container_bootstrapped=info.bootstrapped,
-            bootstrap_state=bootstrap_state,
-            bootstrap_error=info.bootstrap_error,
-            oobe_complete=is_oobe_complete(),
-            online=online,
+            app_count=app_count, control_mode="lxd",
+            container_name=info.name, container_status=info.status,
+            container_ip=info.ip_address, container_bootstrapped=info.bootstrapped,
+            bootstrap_state=bootstrap_state, bootstrap_error=info.bootstrap_error,
+            oobe_complete=is_oobe_complete(), online=online,
             appstore_visible=settings.appstore_visible,
+            app_store_type=settings.app_store_type,
         ))
-
-    async def restart_system(self) -> dict:
-        await _call_device_manager(get_device_manager().restart_system)
-        return {"status": "restarting"}
-
-    async def power_off_system(self) -> dict:
-        await _call_device_manager(get_device_manager().power_off_system)
-        return {"status": "powering_off"}
-
-    async def _do_system_update(self, targets: list[str]) -> None:
-        try:
-            await asyncio.to_thread(get_device_manager().refresh_system, targets)
-        except Exception as exc:
-            logger.error("System update failed: %s", exc)
-
-    async def update_system(self) -> dict:
-        data = await _call_device_manager(get_device_manager().request_system_refresh)
-        if data["status"] == "running":
-            asyncio.create_task(self._do_system_update(list(data.get("targets", []))))
-        return dict(data)
 
     async def get_ca_cert(self) -> tuple[bytes, str, str]:
         raise HTTPException(status_code=404, detail="CA certificate is not available in LXD controller mode")
+
+
+# ---------------------------------------------------------------------------
+# Lemonade auto-config helper
+# ---------------------------------------------------------------------------
+
+
+async def run_lemonade_autoconfig() -> None:
+    """Re-run the lemonade --auto onboard command for every installed claw app.
+
+    Called after the user switches the active AI model so that all apps
+    supporting auto-config pick up the new model without a reinstall.
+    Passes --model <active_model_name> so each script uses the exact model
+    rather than relying on its own scoring heuristic.
+    """
+    from services import container_snaps, nimbus_store, lemonade as lemon
+    logger.info("Re-running lemonade auto-config for all installed claw apps")
+    active_model = lemon.get_active_model_spec()["model_name"]
+    try:
+        catalog, installed_snaps = await asyncio.gather(
+            nimbus_store.get_catalog(),
+            container_snaps.list_container_snaps(),
+        )
+    except Exception as exc:
+        logger.error("run_lemonade_autoconfig: could not fetch catalog/snap list: %s", exc)
+        return
+
+    installed_names = {s.get("name") for s in installed_snaps}
+    for snap in nimbus_store.get_snaps(catalog):
+        if snap.get("name") not in installed_names:
+            continue
+        onboard = nimbus_store.get_onboard_cmd(snap)
+        if not onboard:
+            continue
+        cmd, args = onboard
+        args = list(args) + ["--model", active_model]
+        snap_name = snap["name"]
+        logger.info("Lemonade auto-config: %s → %s %s", snap_name, cmd, " ".join(args))
+        try:
+            result = await container_snaps.run_snap_cmd(cmd, args)
+            if result.get("ok"):
+                logger.info("Lemonade auto-config completed for %s", snap_name)
+            else:
+                logger.warning(
+                    "Lemonade auto-config non-zero for %s | stdout: %s | stderr: %s",
+                    snap_name,
+                    result.get("stdout", "").strip(),
+                    result.get("stderr", "").strip(),
+                )
+        except Exception as exc:
+            logger.warning("Lemonade auto-config failed for %s (non-fatal): %s", snap_name, exc)
+
+
+# ---------------------------------------------------------------------------
+# Factory
+# ---------------------------------------------------------------------------
 
 
 if settings.control_mode == "remote":

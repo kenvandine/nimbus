@@ -95,19 +95,44 @@ LIVEFS_EDIT=("$VENV_DIR/bin/python3" -m livefs_edit)
 # 4 GiB and our pc.img.xz is well above that with the gemma4 model component
 # preseeded. The patch is idempotent — we look for our marker before applying.
 CONTEXT_PY=$(find "$VENV_DIR/lib" -path '*/livefs_edit/context.py' | head -1)
-if [ -n "$CONTEXT_PY" ] && ! grep -q "nimbus-iso-level3" "$CONTEXT_PY"; then
+if [ -n "$CONTEXT_PY" ] && ! grep -q "'-iso-level', '3'" "$CONTEXT_PY"; then
     python3 - "$CONTEXT_PY" <<'PY'
-import sys, re
+import sys
 path = sys.argv[1]
 src = open(path).read()
 needle = "['xorriso', '-as', 'mkisofs'] + opts +"
-inject = (
-    "['xorriso', '-as', 'mkisofs', '-iso-level', '3'] "
-    "+ opts +  # nimbus-iso-level3"
-)
+inject = "['xorriso', '-as', 'mkisofs', '-iso-level', '3'] + opts +"
 assert needle in src, f"could not find xorriso line in {path}"
 open(path, "w").write(src.replace(needle, inject))
 print(f"Patched {path} for iso-level 3")
+PY
+fi
+
+# Patch livefs-edit's install_packages to strip cdrom apt sources before
+# running apt-get update — /cdrom is not mounted in the chroot so the source
+# always fails, causing apt-get update to exit non-zero even when all real
+# repos succeed.
+ACTIONS_PY=$(find "$VENV_DIR/lib" -path '*/livefs_edit/actions.py' | head -1)
+if [ -n "$ACTIONS_PY" ] && ! grep -q "cdrom is not mounted" "$ACTIONS_PY"; then
+    python3 - "$ACTIONS_PY" <<'PY'
+import sys
+path = sys.argv[1]
+src = open(path).read()
+needle = "    ctxt.run(['chroot', base, 'apt-get', 'update'])"
+inject = (
+    "    # Remove cdrom apt sources — /cdrom is not mounted in the chroot.\n"
+    "    import glob as _glob, os as _os\n"
+    "    for _f in (_glob.glob(base + '/etc/apt/sources.list.d/cdrom*') +\n"
+    "               _glob.glob(base + '/etc/apt/sources.list.d/*cdrom*')):\n"
+    "        try:\n"
+    "            _os.unlink(_f)\n"
+    "        except OSError:\n"
+    "            pass\n"
+    "    ctxt.run(['chroot', base, 'apt-get', 'update'])"
+)
+assert needle in src, f"could not find apt-get update line in {path}"
+open(path, "w").write(src.replace(needle, inject))
+print(f"Patched {path} to remove cdrom apt sources file")
 PY
 fi
 
@@ -258,6 +283,7 @@ EOF
     --cp "$INSTALL_SCRIPT_ABS" new/iso/install.sh \
     --cp "$CLEAR_UEFI_SCRIPT_ABS" new/iso/clear-ubuntu-uefi-entries.sh \
     --cp "$PC_IMG_XZ_ABS" new/iso/pc.img.xz \
+    --install-packages efibootmgr \
     --edit-squashfs "$INJECT_LAYER" \
     --shell "mkdir -p new/$INJECT_LAYER/etc/systemd/system/multi-user.target.wants" \
     --cp "$SERVICE_FILE" "new/$INJECT_LAYER/etc/systemd/system/nimbus-install.service" \

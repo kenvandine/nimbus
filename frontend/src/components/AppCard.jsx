@@ -86,6 +86,15 @@ export default function AppCard({ app, onRefresh, onOpenDetail, isInstalling = f
         <span style={styles.updateBadge}>⬆ Update available</span>
       )}
       <p style={styles.tagline}>{app.tagline || ''}</p>
+      {app.confinement && (
+        <span style={{
+          ...styles.confinementBadge,
+          ...(app.confinement === 'classic'
+            ? { background: 'rgba(255,152,0,0.12)', color: 'rgba(255,180,80,0.8)', border: '1px solid rgba(255,152,0,0.2)' }
+            : { background: 'rgba(76,175,80,0.08)', color: 'rgba(100,210,110,0.8)', border: '1px solid rgba(76,175,80,0.18)' }
+          ),
+        }}>{app.confinement}</span>
+      )}
 
       {error && <p style={styles.error}>{error}</p>}
 
@@ -189,6 +198,15 @@ const styles = {
     overflow: 'hidden',
   },
   error: { color: '#ff6b6b', fontSize: '12px', margin: 0 },
+  confinementBadge: {
+    display: 'inline-block',
+    borderRadius: '5px',
+    padding: '1px 7px',
+    fontSize: '10px',
+    fontWeight: 600,
+    textTransform: 'uppercase',
+    letterSpacing: '0.06em',
+  },
   updateBadge: {
     display: 'inline-block',
     background: 'rgba(255,152,0,0.18)',

@@ -16,10 +16,31 @@ NM_IP4_CONFIG_IFACE = "org.freedesktop.NetworkManager.IP4Config"
 NM_SETTINGS_PATH = "/org/freedesktop/NetworkManager/Settings"
 NM_SETTINGS_IFACE = "org.freedesktop.NetworkManager.Settings"
 NM_CONN_IFACE = "org.freedesktop.NetworkManager.Settings.Connection"
+NM_ACTIVE_CONN_IFACE = "org.freedesktop.NetworkManager.Connection.Active"
 DBUS_PROPS_IFACE = "org.freedesktop.DBus.Properties"
 
 NM_DEVICE_TYPE_WIFI = 2
 NM_802_11_AP_FLAGS_PRIVACY = 0x1
+
+# NMActiveConnectionState
+NM_ACTIVE_CONNECTION_STATE_ACTIVATING = 1
+NM_ACTIVE_CONNECTION_STATE_ACTIVATED = 2
+NM_ACTIVE_CONNECTION_STATE_DEACTIVATED = 4
+
+# NMDeviceStateReason values worth translating into human-readable errors.
+_DEVICE_STATE_REASONS = {
+    7: "incorrect Wi-Fi password",
+    8: "incorrect Wi-Fi password",
+    9: "incorrect Wi-Fi password",
+    39: "incorrect Wi-Fi password",
+    11: "association with the access point timed out",
+    12: "association with the access point failed",
+    13: "authentication with the access point failed",
+    15: "the network was not found",
+}
+
+# How long to wait for a connection to fully activate (association + DHCP).
+ACTIVATION_TIMEOUT_S = 25.0
 
 
 @dataclass
@@ -207,7 +228,73 @@ def scan_networks() -> list[AccessPoint]:
         return []
 
 
+def _device_failure_reason(bus, wifi_path) -> str | None:
+    """Translate the wifi device's current StateReason into a human message."""
+    try:
+        import dbus
+        dev = bus.get_object(NM_SERVICE, wifi_path)
+        state_reason = dbus.Interface(dev, DBUS_PROPS_IFACE).Get(NM_DEVICE_IFACE, "StateReason")
+        reason = int(state_reason[1])
+        return _DEVICE_STATE_REASONS.get(reason)
+    except Exception as exc:
+        logger.debug("Could not read device state reason: %s", exc)
+        return None
+
+
+def _wait_for_activation(bus, active_path, wifi_path) -> None:
+    """Block until the active connection reaches ACTIVATED, or raise on failure.
+
+    NetworkManager's Add/ActivateConnection calls return as soon as activation
+    *starts*; association, authentication and DHCP all happen asynchronously
+    afterwards. Without waiting, a wrong password or DHCP timeout looks like a
+    silent success to the caller. Poll the active-connection state so we can
+    report a real error back to the UI.
+    """
+    import time
+
+    import dbus
+    if not active_path or str(active_path) == "/":
+        raise RuntimeError("NetworkManager did not start the connection")
+
+    deadline = time.monotonic() + ACTIVATION_TIMEOUT_S
+    active = bus.get_object(NM_SERVICE, active_path)
+    props = dbus.Interface(active, DBUS_PROPS_IFACE)
+    while time.monotonic() < deadline:
+        try:
+            state = int(props.Get(NM_ACTIVE_CONN_IFACE, "State"))
+        except dbus.exceptions.DBusException:
+            # The active connection object disappeared — activation failed and
+            # NM tore it down. Fall back to the device state reason.
+            reason = _device_failure_reason(bus, wifi_path)
+            raise RuntimeError(f"Connection failed: {reason}" if reason else "Connection failed")
+        if state == NM_ACTIVE_CONNECTION_STATE_ACTIVATED:
+            return
+        if state == NM_ACTIVE_CONNECTION_STATE_DEACTIVATED:
+            reason = _device_failure_reason(bus, wifi_path)
+            raise RuntimeError(f"Connection failed: {reason}" if reason else "Connection failed")
+        time.sleep(0.5)
+
+    reason = _device_failure_reason(bus, wifi_path)
+    raise RuntimeError(
+        f"Timed out connecting: {reason}" if reason else "Timed out connecting to the network"
+    )
+
+
 def connect_network(ssid: str, password: str | None) -> None:
+    """Connect to a Wi-Fi network, raising RuntimeError with a usable message
+    on any failure (bad password, NM/permission errors, timeout) so the API
+    can surface it to the UI instead of returning an opaque 500."""
+    import dbus
+    try:
+        _connect_network(ssid, password)
+    except RuntimeError:
+        raise
+    except dbus.exceptions.DBusException as exc:
+        logger.warning("WiFi connect D-Bus error for %r: %s", ssid, exc)
+        raise RuntimeError(f"NetworkManager error: {exc.get_dbus_message() or exc}")
+
+
+def _connect_network(ssid: str, password: str | None) -> None:
     import dbus
     bus = _bus()
     nm = bus.get_object(NM_SERVICE, NM_PATH)
@@ -221,11 +308,12 @@ def connect_network(ssid: str, password: str | None) -> None:
     if not password:
         saved = _saved_conn_for_ssid(bus, ssid)
         if saved:
-            nm_iface.ActivateConnection(
+            active_path = nm_iface.ActivateConnection(
                 dbus.ObjectPath(saved),
                 dbus.ObjectPath(wifi_path),
                 dbus.ObjectPath("/"),
             )
+            _wait_for_activation(bus, active_path, wifi_path)
             return
 
     conn: dict = {
@@ -248,11 +336,22 @@ def connect_network(ssid: str, password: str | None) -> None:
             "psk": dbus.String(password),
         }, signature="sv")
 
-    nm_iface.AddAndActivateConnection(
+    conn_path, active_path = nm_iface.AddAndActivateConnection(
         dbus.Dictionary(conn, signature="sa{sv}"),
         dbus.ObjectPath(wifi_path),
         dbus.ObjectPath("/"),
     )
+    try:
+        _wait_for_activation(bus, active_path, wifi_path)
+    except RuntimeError:
+        # Activation failed (e.g. wrong password). Remove the profile we just
+        # created so it doesn't linger and auto-reconnect-fail or accumulate.
+        try:
+            conn_obj = bus.get_object(NM_SERVICE, conn_path)
+            dbus.Interface(conn_obj, NM_CONN_IFACE).Delete()
+        except Exception as exc:
+            logger.debug("Could not delete failed connection profile: %s", exc)
+        raise
 
 
 def disconnect_network() -> None:

@@ -5,10 +5,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
-_DEFAULT_APPSTORE_WHITELIST = [
-    "openclaw", "hermes-agent", "picoclaw", "immich",
-]
-
 
 def _env_bool(name: str, default: bool) -> bool:
     value = os.getenv(name)
@@ -66,8 +62,15 @@ class Settings:
     preseed_apps: list[str] = field(default_factory=list)
     # Whether the App Store UI is shown (default True; set NIMBUS_APPSTORE_VISIBLE=false to hide)
     appstore_visible: bool = True
-    # App IDs shown in the App Store. Overridden by NIMBUS_APPSTORE_WHITELIST (comma-separated).
-    appstore_whitelist: list[str] = field(default_factory=list)
+    # TLS settings
+    tls_enabled: bool = False
+    # Port the plain-HTTP redirect listener binds when TLS is enabled.
+    http_redirect_port: int = 80
+    # ACME / Let's Encrypt provisioning backend
+    provisioning_url: str | None = None
+    provisioning_token: str | None = None
+    # Set to True to use Let's Encrypt staging (for testing; certs not trusted)
+    acme_staging: bool = False
     # Root directory exposed by the file browser
     files_root: Path = field(default_factory=lambda: Path.home())
     # Directory containing nimbus-shipped overlay files for Umbrel apps
@@ -80,6 +83,12 @@ class Settings:
     # OpenClaw will be pointed at. Defaults derived from model_provider when
     # NIMBUS_OPENAI_URL is unset.
     openai_url: str = DEFAULT_OPENAI_URL[MODEL_PROVIDER_LEMONADE]
+    # App store backend. "nimbus" = nimbus-app-store (default); "umbrel" = Umbrel git store.
+    app_store_type: str = "nimbus"
+    # Override URL for the nimbus-app-store catalog.json (useful for testing).
+    nimbus_store_url: str = "https://raw.githubusercontent.com/kenvandine/nimbus-app-store/main/catalog.json"
+    # Comma-separated CORS origins. Empty string = allow all (*).
+    cors_origins: str = ""
 
 
 def _build_settings() -> Settings:
@@ -92,12 +101,6 @@ def _build_settings() -> Settings:
         remote_base_url = remote_base_url.rstrip("/")
 
     appstore_visible = _env_bool("NIMBUS_APPSTORE_VISIBLE", True)
-
-    whitelist_env = os.getenv("NIMBUS_APPSTORE_WHITELIST", "").strip()
-    if whitelist_env:
-        appstore_whitelist = [a.strip() for a in whitelist_env.split(",") if a.strip()]
-    else:
-        appstore_whitelist = list(_DEFAULT_APPSTORE_WHITELIST)
 
     # When the App Store is visible, users install openclaw themselves; skip
     # auto-preseed so first-boot doesn't block on it. When the store is hidden,
@@ -130,6 +133,14 @@ def _build_settings() -> Settings:
     openai_url_env = (os.getenv("NIMBUS_OPENAI_URL") or "").strip()
     openai_url = (openai_url_env or DEFAULT_OPENAI_URL[model_provider]).rstrip("/")
 
+    app_store_type = os.getenv("NIMBUS_APP_STORE_TYPE", "nimbus").strip().lower()
+    if app_store_type not in {"nimbus", "umbrel"}:
+        raise ValueError("NIMBUS_APP_STORE_TYPE must be 'nimbus' or 'umbrel'")
+    nimbus_store_url = (
+        os.getenv("NIMBUS_STORE_URL", "").strip()
+        or "https://raw.githubusercontent.com/kenvandine/nimbus-app-store/main/catalog.json"
+    )
+
     return Settings(
         control_mode=control_mode,
         store_dir=Path(os.getenv("NIMBUS_STORE_DIR", "/var/lib/nimbus/store")),
@@ -156,17 +167,24 @@ def _build_settings() -> Settings:
         lxd_image_protocol=os.getenv("NIMBUS_LXD_IMAGE_PROTOCOL", "simplestreams"),
         lxd_image_alias=os.getenv("NIMBUS_LXD_IMAGE_ALIAS", "24.04"),
         lxd_local_image_alias=os.getenv("NIMBUS_LXD_LOCAL_IMAGE_ALIAS", ""),
-        lxd_agent_port=int(os.getenv("NIMBUS_LXD_AGENT_PORT", "8000")),
+        lxd_agent_port=int(os.getenv("NIMBUS_LXD_AGENT_PORT", "9001")),
         lxd_agent_bind_host=os.getenv("NIMBUS_LXD_AGENT_BIND_HOST", "127.0.0.1"),
         lxd_agent_token=os.getenv("NIMBUS_LXD_AGENT_TOKEN") or os.getenv("NIMBUS_API_TOKEN"),
         lxd_publish_host=os.getenv("NIMBUS_LXD_PUBLISH_HOST", "0.0.0.0"),
         preseed_apps=preseed_apps,
         appstore_visible=appstore_visible,
-        appstore_whitelist=appstore_whitelist,
+        tls_enabled=_env_bool("NIMBUS_TLS", False),
+        http_redirect_port=int(os.getenv("NIMBUS_HTTP_REDIRECT_PORT", "80")),
+        provisioning_url=(os.getenv("NIMBUS_PROVISIONING_URL") or "").rstrip("/") or None,
+        provisioning_token=os.getenv("NIMBUS_PROVISIONING_TOKEN") or None,
+        acme_staging=_env_bool("NIMBUS_ACME_STAGING", False),
         files_root=files_root,
         overlay_dir=overlay_dir,
         model_provider=model_provider,
         openai_url=openai_url,
+        app_store_type=app_store_type,
+        nimbus_store_url=nimbus_store_url,
+        cors_origins=os.getenv("NIMBUS_CORS_ORIGINS", ""),
     )
 
 

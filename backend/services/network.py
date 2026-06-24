@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 import logging
+from pathlib import Path
 
 from config import settings
 
@@ -140,3 +141,46 @@ def get_all_addresses() -> list[dict]:
 
 def build_open_url(host_ip: str, port: int) -> str:
     return f"http://{host_ip}:{port}"
+
+
+_RESOLV_CONF = "/etc/resolv.conf"
+_DEFAULT_DNS = ["1.1.1.1", "1.0.0.1"]
+
+
+def get_dns_servers() -> list[str]:
+    """Return the current upstream DNS servers from /etc/resolv.conf."""
+    servers: list[str] = []
+    try:
+        with open(_RESOLV_CONF) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("nameserver "):
+                    ip = line.split()[1]
+                    if ip and ip not in servers:
+                        servers.append(ip)
+    except OSError:
+        pass
+    return servers or _DEFAULT_DNS[:]
+
+
+def set_dns_servers(servers: list[str]) -> None:
+    """Write new nameservers to /etc/resolv.conf (best-effort; may need resolvconf)."""
+    import subprocess
+    if not servers:
+        servers = _DEFAULT_DNS[:]
+    try:
+        lines = [f"nameserver {s}" for s in servers]
+        content = "\n".join(lines) + "\n"
+        Path(_RESOLV_CONF).write_text(content)
+    except OSError:
+        # Direct write failed (e.g. /etc/resolv.conf is a managed symlink).
+        # Use `resolvconf -a <iface>` which accepts nameserver lines on stdin
+        # and registers them in resolvconf's own database, then rebuilds
+        # resolv.conf.  `resolvconf -u` alone ignores stdin and is a no-op here.
+        iface = get_primary_interface() or "eth0"
+        subprocess.run(
+            ["resolvconf", "-a", iface],
+            input="\n".join(f"nameserver {s}" for s in servers) + "\n",
+            text=True,
+            check=False,
+        )

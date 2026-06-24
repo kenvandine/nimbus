@@ -11,6 +11,7 @@ from config import settings
 from models import AppDetail
 from services.icons import generate_icon_svg
 from services.control_plane import get_control_plane
+import services.control_plane as cp_module
 
 router = APIRouter(prefix="/api/apps", tags=["apps"], dependencies=[Depends(require_api_token)])
 
@@ -45,6 +46,12 @@ async def active_installs() -> list[str]:
     return await get_control_plane().active_installs()
 
 
+@router.post("/check-updates")
+async def check_updates() -> dict:
+    asyncio.create_task(cp_module._run_update_check(get_control_plane()))
+    return {"status": "checking"}
+
+
 @router.get("/{app_id}/icon.svg")
 async def app_icon(app_id: str) -> Response:
     try:
@@ -61,7 +68,22 @@ async def _sse_log_lines(app_id: str, tail: int):
     """Yield SSE-formatted lines from the app's containers."""
     try:
         if settings.control_mode == "lxd":
-            gen = _lxd_log_stream(app_id, tail)
+            # Check if this is a nimbus snap app — snaps use the agent journal,
+            # not docker logs.
+            from services import nimbus_store
+            service_name = None
+            try:
+                catalog = await nimbus_store.get_catalog()
+                snap = nimbus_store.get_snap(catalog, app_id)
+                if snap:
+                    service_name = nimbus_store.get_service_name(snap)
+            except Exception:
+                pass
+
+            if service_name:
+                gen = _snap_journal_stream(service_name, tail)
+            else:
+                gen = _lxd_log_stream(app_id, tail)
         else:
             from services.docker import stream_app_logs
             gen = stream_app_logs(app_id, tail)
@@ -72,6 +94,28 @@ async def _sse_log_lines(app_id: str, tail: int):
         return
     except Exception as exc:
         yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+
+
+async def _snap_journal_stream(service_name: str, tail: int):
+    """Stream systemd user journal for a snap service via the container agent."""
+    import httpx
+    import urllib.parse
+    from config import settings as _s
+    from constants import LXC_AGENT_PORT
+    unit_enc = urllib.parse.quote(service_name, safe="")
+    url = f"http://{_s.lxd_agent_bind_host}:{LXC_AGENT_PORT}/journal?unit={unit_enc}&lines={tail}"
+    async with httpx.AsyncClient(timeout=None) as client:
+        async with client.stream("GET", url) as resp:
+            async for raw_line in resp.aiter_lines():
+                if raw_line.startswith("data: "):
+                    try:
+                        payload = json.loads(raw_line[6:])
+                        if "line" in payload:
+                            yield payload["line"]
+                        elif "error" in payload:
+                            yield f"[error] {payload['error']}"
+                    except Exception:
+                        pass
 
 
 async def _lxd_log_stream(app_id: str, tail: int):

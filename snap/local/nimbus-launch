@@ -34,16 +34,25 @@ if command -v snapctl >/dev/null 2>&1; then
   appstore_visible="$(snapctl get appstore-visible 2>/dev/null || true)"
   if [ "$appstore_visible" = "true" ]; then
     export NIMBUS_APPSTORE_VISIBLE=true
-  else
+  elif [ "$appstore_visible" = "false" ]; then
     export NIMBUS_APPSTORE_VISIBLE=false
   fi
+  # If unset (empty string), do not export — let config.py use its default (true).
   preseed_apps="$(snapctl get preseed-apps 2>/dev/null || true)"
   if [ -n "$preseed_apps" ]; then
     export NIMBUS_PRESEED_APPS="$preseed_apps"
   fi
-  appstore_whitelist="$(snapctl get appstore-whitelist 2>/dev/null || true)"
-  if [ -n "$appstore_whitelist" ]; then
-    export NIMBUS_APPSTORE_WHITELIST="$appstore_whitelist"
+  app_store_type="$(snapctl get app-store-type 2>/dev/null || true)"
+  if [ -n "$app_store_type" ]; then
+    export NIMBUS_APP_STORE_TYPE="$app_store_type"
+  fi
+  provisioning_url="$(snapctl get provisioning-url 2>/dev/null || true)"
+  if [ -n "$provisioning_url" ]; then
+    export NIMBUS_PROVISIONING_URL="$provisioning_url"
+  fi
+  provisioning_token="$(snapctl get provisioning-token 2>/dev/null || true)"
+  if [ -n "$provisioning_token" ]; then
+    export NIMBUS_PROVISIONING_TOKEN="$provisioning_token"
   fi
 fi
 
@@ -54,7 +63,28 @@ if [ -n "${SNAP_DATA:-}" ]; then
   : > "$SNAP_DATA/.daemon-started" 2>/dev/null || true
 fi
 
-exec "${SNAP}/bin/python3" -m uvicorn main:app \
+# Build the uvicorn argument list.
+set -- \
+  "${SNAP}/bin/python3" -m uvicorn main:app \
   --app-dir "${SNAP}/backend" \
   --host "${NIMBUS_BIND_HOST:-0.0.0.0}" \
-  --port "${NIMBUS_PORT:-8000}"
+  --port "${NIMBUS_PORT:-443}"
+
+# TLS: generate a self-signed certificate (once) and enable HTTPS.
+if [ "${NIMBUS_TLS:-1}" != "0" ] && [ "${NIMBUS_TLS:-1}" != "false" ]; then
+  export NIMBUS_TLS=1
+  _tls_dir="${SNAP_COMMON}/tls"
+  _tls_cert="${_tls_dir}/nimbus.crt"
+  _tls_key="${_tls_dir}/nimbus.key"
+  "${SNAP}/bin/python3" -c "
+import sys
+sys.path.insert(0, '${SNAP}/backend')
+from services.provisioning import provision_tls
+provision_tls()
+"
+  set -- "$@" \
+    --ssl-certfile "${_tls_cert}" \
+    --ssl-keyfile "${_tls_key}"
+fi
+
+exec "$@"

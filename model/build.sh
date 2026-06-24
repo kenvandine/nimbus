@@ -123,7 +123,7 @@ Wants=snapd.seeded.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'snap connect nimbus:network-control; snap connect nimbus:network-observe; snap connect nimbus:system-observe'
+ExecStart=/bin/sh -c 'snap connect nimbus:network-control; snap connect nimbus:network-observe; snap connect nimbus:system-observe; snap set system hostname=nimbus'
 RemainAfterExit=yes
 Restart=on-failure
 RestartSec=5s

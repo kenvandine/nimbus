@@ -1,14 +1,50 @@
 import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
+import { restartSystem, powerOffSystem } from '../api.js'
+
+const LONG_PRESS_MS = 1200
+
+function useLongPress(onLongPress) {
+  const timerRef = useRef(null)
+  const [pressing, setPressing] = useState(false)
+
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
+
+  function start() {
+    if (timerRef.current) clearTimeout(timerRef.current)
+    setPressing(true)
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null
+      setPressing(false)
+      onLongPress()
+    }, LONG_PRESS_MS)
+  }
+
+  function cancel() {
+    setPressing(false)
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
+  }
+
+  return {
+    onMouseDown: start,
+    onTouchStart: start,
+    onMouseUp: cancel,
+    onMouseLeave: cancel,
+    onTouchEnd: cancel,
+    pressing,
+  }
+}
 
 export default function KioskReadyScreen({ stats }) {
   const canvasRef = useRef(null)
   const [qrError, setQrError] = useState(false)
+  const [powerBusy, setPowerBusy] = useState(null)
 
   const hostIp = stats?.host_ip
   const nimbuUrl = hostIp ? `http://${hostIp}` : null
   const bootstrapReady = stats?.container_bootstrapped && stats?.bootstrap_state === 'ready'
   const bootstrapError = stats?.bootstrap_error
+  const powerAvailable = Boolean(stats?.device_management_available)
 
   useEffect(() => {
     if (!nimbuUrl || !canvasRef.current) return
@@ -18,6 +54,21 @@ export default function KioskReadyScreen({ stats }) {
       color: { dark: '#0d1117', light: '#f0f6ff' },
     }).catch(() => setQrError(true))
   }, [nimbuUrl, bootstrapReady])
+
+  async function handleRestart() {
+    setPowerBusy('restart')
+    try { await restartSystem() } catch {}
+    finally { setPowerBusy(null) }
+  }
+
+  async function handlePowerOff() {
+    setPowerBusy('poweroff')
+    try { await powerOffSystem() } catch {}
+    finally { setPowerBusy(null) }
+  }
+
+  const restartPress = useLongPress(handleRestart)
+  const powerOffPress = useLongPress(handlePowerOff)
 
   return (
     <div style={styles.screen}>
@@ -65,6 +116,40 @@ export default function KioskReadyScreen({ stats }) {
           </>
         )}
 
+        {powerAvailable && (
+          <div style={styles.powerRow}>
+            <div style={styles.powerHint}>Hold button to activate</div>
+            <div style={styles.powerBtns}>
+              <button
+                style={{
+                  ...styles.powerBtn,
+                  ...(restartPress.pressing ? styles.powerBtnActive : {}),
+                  ...(powerBusy ? styles.powerBtnDisabled : {}),
+                }}
+                disabled={Boolean(powerBusy)}
+                title="Hold to restart"
+                {...restartPress}
+              >
+                {powerBusy === 'restart' ? '…' : '↺'}
+                <span style={styles.powerBtnLabel}>Restart</span>
+              </button>
+              <button
+                style={{
+                  ...styles.powerBtn,
+                  ...styles.powerBtnOff,
+                  ...(powerOffPress.pressing ? styles.powerBtnActive : {}),
+                  ...(powerBusy ? styles.powerBtnDisabled : {}),
+                }}
+                disabled={Boolean(powerBusy)}
+                title="Hold to power off"
+                {...powerOffPress}
+              >
+                {powerBusy === 'poweroff' ? '…' : '⏻'}
+                <span style={styles.powerBtnLabel}>Power Off</span>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -210,5 +295,57 @@ const styles = {
     fontSize: 13,
     color: 'rgba(255,255,255,0.45)',
     fontStyle: 'italic',
+  },
+  powerRow: {
+    width: '100%',
+    borderTop: '1px solid rgba(255,255,255,0.08)',
+    paddingTop: 16,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 10,
+  },
+  powerHint: {
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.25)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.08em',
+  },
+  powerBtns: {
+    display: 'flex',
+    gap: 12,
+  },
+  powerBtn: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 4,
+    padding: '10px 20px',
+    background: 'rgba(255,255,255,0.07)',
+    border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: 12,
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 20,
+    cursor: 'pointer',
+    transition: 'background 0.1s, transform 0.1s',
+    userSelect: 'none',
+  },
+  powerBtnOff: {
+    color: 'rgba(255,138,128,0.75)',
+  },
+  powerBtnActive: {
+    background: 'rgba(79,195,247,0.15)',
+    border: '1px solid rgba(79,195,247,0.4)',
+    transform: 'scale(0.95)',
+  },
+  powerBtnDisabled: {
+    opacity: 0.4,
+    cursor: 'not-allowed',
+  },
+  powerBtnLabel: {
+    fontSize: 10,
+    fontWeight: 600,
+    letterSpacing: '0.05em',
+    textTransform: 'uppercase',
   },
 }

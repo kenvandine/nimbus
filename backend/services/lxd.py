@@ -20,35 +20,35 @@ from pylxd.models.profile import Profile
 from pylxd.models.storage_pool import StoragePool
 
 from config import settings
+from constants import (
+    BACKEND_VERSION,
+    BACKEND_VERSION_MARKER_PATH,
+    CONTAINER_INSTALLED_DIR,
+    CONTAINER_OPENCLAW_WORKSPACE,
+    CONTAINER_OVERLAY_DIR,
+    DOCKER_DNS_SERVERS,
+    LXC_AGENT_VERSION,
+    LXC_AGENT_VERSION_MARKER_PATH,
+    LXC_AGENT_PROXY_DEVICE_NAME,
+    LXC_AGENT_PORT,
+    PACKAGES_MARKER_PATH,
+    AGENT_PYTHON_MARKER_PATH,
+    PROVIDER_PROXY_DEVICE_NAME,
+    BOOTSTRAP_MARKER_PATH,
+    BOOTSTRAP_VERSION,
+    DEFAULT_LXD_STORAGE_POOL,
+    DEFAULT_LXD_PROFILE,
+    DEFAULT_LXD_BRIDGE_PREFIX,
+    NIMBUS_USER_MARKER_PATH,
+)
 from services import docker
 
 logger = logging.getLogger(__name__)
 
-CONTAINER_INSTALLED_DIR = Path("/var/lib/nimbus/installed")
-CONTAINER_OVERLAY_DIR = Path("/opt/nimbus/openclaw-overlay")
-# Where the openclaw container's workspace lives inside the LXC. The host
-# snap bind-mounts <files_root>/openclaw-workspace to this path so the
-# file browser and the agent see the same files.
-CONTAINER_OPENCLAW_WORKSPACE = "/var/lib/nimbus/installed/openclaw/data/data/.openclaw/workspace"
-BOOTSTRAP_MARKER = Path("/var/lib/nimbus/.agent-bootstrap-version")
-BOOTSTRAP_VERSION = "1"
-# Written into the pre-built image at build time to signal that APT packages
-# are already installed and _install_runtime_packages can be skipped.
-PACKAGES_MARKER = Path("/var/lib/nimbus/.packages-preinstalled")
-# Written into the pre-built image to signal that /opt/nimbus-venv already
-# contains all agent Python dependencies and _install_agent_python can be skipped.
-AGENT_PYTHON_MARKER = Path("/var/lib/nimbus/.agent-python-preinstalled")
 BACKEND_SOURCE_DIR = Path(__file__).resolve().parents[1]
 SETUP_DIR = Path(__file__).resolve().parents[2] / "setup"
 AGENT_SERVICE_SOURCE = SETUP_DIR / "nimbus.service"
 LXC_AGENT_SERVICE_SOURCE = SETUP_DIR / "nimbus-lxc-agent.service"
-LXC_AGENT_VERSION_MARKER = Path("/var/lib/nimbus/.lxc-agent-version")
-LXC_AGENT_PORT = 9001
-# Bump this whenever agent/daemon.py changes to trigger a re-deploy on next startup.
-_LXC_AGENT_VERSION = "7"
-DEFAULT_LXD_STORAGE_POOL = "default"
-DEFAULT_LXD_PROFILE = "default"
-DEFAULT_LXD_BRIDGE_PREFIX = "lxdbr"
 
 
 @dataclass(frozen=True)
@@ -76,6 +76,8 @@ class LxdManager:
         self._bootstrap_error: str | None = None
         self._snapshot_lock = threading.Lock()
         self._snapshot_cache: AppRuntimeSnapshot | None = None
+        self._snapshotting = False
+        self._last_good_container_info: ContainerInfo | None = None
 
     def _set_bootstrap_state(self, state: str, error: str | None = None) -> None:
         self._bootstrap_state = state
@@ -92,9 +94,7 @@ class LxdManager:
     # Single LXD proxy device that surfaces the host-side model service
     # (gemma4 / lemonade bound to 127.0.0.1) inside the nimbus LXC, where the
     # openclaw container can reach it via docker's host-gateway alias.
-    _PROVIDER_PROXY_DEVICE_NAME = "nimbus-provider-fwd"
-    # LXD proxy device that exposes the LXC agent daemon's HTTP API on the host.
-    _LXC_AGENT_PROXY_DEVICE_NAME = "nimbus-lxc-agent"
+    # (Defined in constants.PROVIDER_PROXY_DEVICE_NAME)
 
     def _bootstrap_in_progress(self) -> bool:
         return self._bootstrap_state in {
@@ -108,14 +108,14 @@ class LxdManager:
         }
 
     def _has_bootstrap_marker(self, instance) -> bool:
-        marker = self._read_file(instance, str(BOOTSTRAP_MARKER))
+        marker = self._read_file(instance, BOOTSTRAP_MARKER_PATH)
         return bool(marker and marker.strip() == BOOTSTRAP_VERSION)
 
     def _has_packages_marker(self, instance) -> bool:
-        return self._read_file(instance, str(PACKAGES_MARKER)) is not None
+        return self._read_file(instance, PACKAGES_MARKER_PATH) is not None
 
     def _has_agent_python_marker(self, instance) -> bool:
-        return self._read_file(instance, str(AGENT_PYTHON_MARKER)) is not None
+        return self._read_file(instance, AGENT_PYTHON_MARKER_PATH) is not None
 
     def _import_seeded_image(self) -> None:
         """Import a pre-built LXC image tarball.
@@ -233,7 +233,7 @@ class LxdManager:
                 continue
             return name
 
-    def _ensure_nm_ignores_lxd(self) -> None:
+    def _ensure_nm_ignores_lxd(self) -> bool:
         """Write a NetworkManager drop-in that prevents NM from managing LXD
         bridge and veth interfaces.
 
@@ -241,6 +241,8 @@ class LxdManager:
         failed and detaches it from lxdbr0 — breaking all container networking
         (both external DNS and host→container port forwarding).  This fix is
         idempotent and runs on every boot so it survives NM snap updates.
+
+        Returns True if the drop-in was written and NM was restarted.
         """
         dropin_content = (
             "[keyfile]\n"
@@ -265,6 +267,10 @@ class LxdManager:
 
         if wrote:
             # Restart NM so the new policy takes effect immediately.
+            # Prefer `snap restart network-manager` (Ubuntu Core / snap NM).
+            # Fall back to `systemctl restart NetworkManager` for classic
+            # Ubuntu Server, but catch PermissionError too since the nimbus
+            # snap's AppArmor profile may not allow exec of /usr/bin/systemctl.
             for cmd in (
                 ["snap", "restart", "network-manager"],
                 ["systemctl", "restart", "NetworkManager"],
@@ -274,63 +280,32 @@ class LxdManager:
                     if result.returncode == 0:
                         logger.info("Restarted NetworkManager after drop-in update")
                         break
-                except (FileNotFoundError, subprocess.TimeoutExpired):
+                except (FileNotFoundError, subprocess.TimeoutExpired, PermissionError):
                     pass
 
+        return wrote
+
     def _ensure_lxd_nat_rules(self) -> None:
-        """Ensure LXD's iptables-legacy MASQUERADE and FORWARD rules exist.
+        """Re-establish LXD's MASQUERADE and FORWARD rules via the LXD API.
 
-        When NetworkManager is restarted it flushes iptables-legacy, removing
-        LXD's MASQUERADE and FORWARD rules.  Without them the container's
-        private source IP is never NATed, so external responses never arrive.
-
-        We add missing rules directly with iptables-legacy rather than calling
-        network.save(), which would restart the bridge and disrupt running
-        containers (they lose their default route).
+        NetworkManager can flush iptables-legacy on restart, removing the rules
+        LXD added for its bridge networks.  We ask LXD to re-apply its own
+        network config by toggling ipv4.nat false→true via a PATCH to the LXD
+        API.  This causes LXD's own setup() path to re-add both the MASQUERADE
+        and FORWARD rules without taking the bridge down or disrupting the
+        container's IP.  The brief window (~ms) without NAT is acceptable here
+        because NM restart already caused disruption.
         """
-        import ipaddress as _ipaddress
-
         for network in self._managed_networks():
             if network.config.get("ipv4.nat") != "true":
                 continue
             bridge = network.name
-            # Resolve "auto" to the actual interface address.
-            raw_addr = network.config.get("ipv4.address", "")
-            if not raw_addr or raw_addr in ("none", "auto"):
-                try:
-                    out = subprocess.run(
-                        ["ip", "-4", "-o", "addr", "show", "dev", bridge],
-                        capture_output=True, text=True,
-                    ).stdout
-                    raw_addr = next(
-                        (p for p in out.split() if "/" in p and not p.startswith("peer")),
-                        "",
-                    )
-                except Exception:
-                    pass
-            if not raw_addr or "/" not in raw_addr:
-                logger.warning("Could not determine subnet for %s — skipping NAT rules", bridge)
-                continue
             try:
-                subnet = str(_ipaddress.ip_interface(raw_addr).network)
-            except ValueError:
-                continue
-
-            rules = [
-                (["-t", "nat", "-C", "POSTROUTING", "-s", subnet, "!", "-d", subnet, "-j", "MASQUERADE"],
-                 ["-t", "nat", "-A", "POSTROUTING", "-s", subnet, "!", "-d", subnet, "-j", "MASQUERADE"]),
-                (["-C", "FORWARD", "-o", bridge, "-j", "ACCEPT"],
-                 ["-A", "FORWARD", "-o", bridge, "-j", "ACCEPT"]),
-                (["-C", "FORWARD", "-i", bridge, "-j", "ACCEPT"],
-                 ["-A", "FORWARD", "-i", bridge, "-j", "ACCEPT"]),
-            ]
-            for check_args, add_args in rules:
-                try:
-                    if subprocess.run(["iptables-legacy"] + check_args, capture_output=True).returncode != 0:
-                        subprocess.run(["iptables-legacy"] + add_args, capture_output=True, check=True)
-                        logger.info("Added iptables-legacy rule for %s: %s", bridge, " ".join(add_args))
-                except Exception as exc:
-                    logger.warning("Could not add iptables-legacy rule: %s", exc)
+                network.raw_patch({"config": {"ipv4.nat": "false"}})
+                network.raw_patch({"config": {"ipv4.nat": "true"}})
+                logger.info("Re-established LXD NAT rules for %s via API toggle", bridge)
+            except Exception as exc:
+                logger.warning("Could not re-establish LXD NAT rules for %s: %s", bridge, exc)
 
     def ensure_initialized(self) -> None:
         client = self.client()
@@ -548,8 +523,14 @@ class LxdManager:
         return dict(getattr(instance, "devices", {}) or {})
 
     def _save_instance_devices(self, instance, devices: dict) -> None:
-        instance.devices = devices
-        instance.save(wait=True)
+        # Use PATCH rather than PUT so that only the devices field is sent.
+        # A full PUT would include instance.config, which may be missing
+        # protected volatile keys (e.g. volatile.idmap.current) that LXD
+        # sets internally after container start.  Omitting them from a PUT
+        # causes LXD to treat them as deletions and reject the request.
+        response = instance.api.patch(json={"devices": devices})
+        instance._handle_async_response(response, wait=True)
+        instance.sync()
 
     def _app_proxy_device(self, port: int) -> dict[str, str]:
         return {
@@ -576,7 +557,7 @@ class LxdManager:
         removes it otherwise (e.g. operator pointed at an off-host server)."""
         from services import model_provider
         devices = self._instance_devices(instance)
-        name = self._PROVIDER_PROXY_DEVICE_NAME
+        name = PROVIDER_PROXY_DEVICE_NAME
         port = model_provider.loopback_listen_port()
         if not port:
             if name in devices:
@@ -605,6 +586,84 @@ class LxdManager:
 
         devices[name] = desired
         self._save_instance_devices(instance, devices)
+
+    def _snap_proxy_device_name(self, snap_name: str, port: int) -> str:
+        safe = re.sub(r"[^a-zA-Z0-9-]", "-", snap_name)
+        return f"nimbus-snap-{safe}-{port}"
+
+    def _occupied_host_ports(self, devices: dict) -> dict[int, str]:
+        """Return host_port -> device_name for every proxy device in the instance."""
+        occupied: dict[int, str] = {}
+        for name, device in devices.items():
+            if device.get("type") != "proxy":
+                continue
+            listen = device.get("listen", "")
+            # listen format: "tcp:<bind_addr>:<port>"
+            parts = listen.rsplit(":", 1)
+            if len(parts) == 2:
+                try:
+                    occupied[int(parts[1])] = name
+                except ValueError:
+                    pass
+        return occupied
+
+    def setup_snap_port_proxies(self, snap_name: str, ports: list[int]) -> None:
+        """Add LXD host→container proxy devices for each of the snap's ports.
+
+        Logs a warning for ports already owned by a different device (conflict)
+        but still sets up the non-conflicting ones.
+        """
+        instance = self.get_instance()
+        if instance is None:
+            return
+        devices = self._instance_devices(instance)
+        occupied = self._occupied_host_ports(devices)
+        changed = False
+        for port in ports:
+            dev_name = self._snap_proxy_device_name(snap_name, port)
+            desired = self._app_proxy_device(port)
+            existing_owner = occupied.get(port)
+            if existing_owner and existing_owner != dev_name:
+                logger.warning(
+                    "Port %d requested by snap '%s' is already in use by LXD device '%s' — skipping",
+                    port, snap_name, existing_owner,
+                )
+                continue
+            if devices.get(dev_name) != desired:
+                devices[dev_name] = desired
+                changed = True
+        if changed:
+            self._save_instance_devices(instance, devices)
+
+    def teardown_snap_port_proxies(self, snap_name: str, ports: list[int]) -> None:
+        """Remove LXD proxy devices that were set up for the snap's ports."""
+        instance = self.get_instance()
+        if instance is None:
+            return
+        devices = self._instance_devices(instance)
+        changed = False
+        for port in ports:
+            dev_name = self._snap_proxy_device_name(snap_name, port)
+            if dev_name in devices:
+                devices.pop(dev_name)
+                changed = True
+        if changed:
+            self._save_instance_devices(instance, devices)
+
+    def get_conflicting_ports(self, snap_name: str, ports: list[int]) -> list[int]:
+        """Return ports from `ports` that are already in use by a different device."""
+        instance = self.get_instance()
+        if instance is None:
+            return []
+        devices = self._instance_devices(instance)
+        occupied = self._occupied_host_ports(devices)
+        conflicts = []
+        for port in ports:
+            dev_name = self._snap_proxy_device_name(snap_name, port)
+            owner = occupied.get(port)
+            if owner and owner != dev_name:
+                conflicts.append(port)
+        return conflicts
 
     def _reconcile_app_proxies(self, instance, installed: dict[str, dict[str, str | int | bool | None]]) -> None:
         devices = self._instance_devices(instance)
@@ -643,6 +702,22 @@ class LxdManager:
                 f"Command failed in {settings.lxd_container_name}: {' '.join(command)}\n{stderr or stdout}"
             )
         return exit_code, stdout, stderr
+
+    def exec_in_container(
+        self,
+        command: list[str],
+        *,
+        environment: dict[str, str] | None = None,
+        cwd: str | None = None,
+        acceptable: set[int] | None = None,
+    ) -> tuple[int, str, str]:
+        """Run a command in the managed container; returns (exit_code, stdout, stderr).
+
+        Unlike _run(), this never raises on non-zero exit — the caller decides.
+        """
+        instance = self.get_instance()
+        ok = acceptable if acceptable is not None else {0, 1, 2, 3, 4, 5, 127, 255}
+        return self._run(instance, command, acceptable=ok, environment=environment, cwd=cwd)
 
     def _wait_for_container_dns(self, instance, timeout: int = 120) -> None:
         deadline = time.monotonic() + timeout
@@ -734,6 +809,7 @@ class LxdManager:
             "NIMBUS_REFRESH_STORE_ON_STARTUP=true",
             "NIMBUS_STORE_DIR=/var/lib/nimbus/store",
             "NIMBUS_INSTALLED_DIR=/var/lib/nimbus/installed",
+            "NIMBUS_FILES_ROOT=/home/nimbus",
             f"NIMBUS_MODEL_PROVIDER={settings.model_provider}",
             f"NIMBUS_OPENAI_URL={settings.openai_url}",
         ]
@@ -768,7 +844,7 @@ class LxdManager:
 
     def _configure_lxc_agent_proxy(self, instance) -> None:
         devices = self._instance_devices(instance)
-        name = self._LXC_AGENT_PROXY_DEVICE_NAME
+        name = LXC_AGENT_PROXY_DEVICE_NAME
         desired = {
             "type": "proxy",
             "bind": "host",
@@ -780,16 +856,94 @@ class LxdManager:
         devices[name] = desired
         self._save_instance_devices(instance, devices)
 
+    def _has_nimbus_user_marker(self, instance) -> bool:
+        return self._read_file(instance, NIMBUS_USER_MARKER_PATH) is not None
+
+    def _update_agent_env(self, instance) -> None:
+        """Rewrite /etc/default/nimbus with the current settings and restart.
+
+        Called on every startup so that configuration changes (e.g. new env
+        vars like NIMBUS_FILES_ROOT) take effect on already-bootstrapped
+        containers without requiring a full re-bootstrap.
+        """
+        self._write_file(instance, "/etc/default/nimbus", self._agent_env(), mode=0o600)
+        self._run(instance, ["systemctl", "restart", "nimbus"], acceptable={0, 1})
+
+    def _setup_nimbus_user(self, instance) -> None:
+        """Create the nimbus system user and configure it for snap service execution.
+
+        The nimbus user owns all snap user-session services and is the default
+        interactive user in the embedded terminal.  Setup is idempotent — a marker
+        file prevents re-running on already-configured containers.
+        """
+        if self._has_nimbus_user_marker(instance):
+            return
+        logger.info("Setting up nimbus user in container")
+
+        # Create user if it doesn't exist yet
+        code, _, _ = self._run(instance, ["id", "-u", "nimbus"], acceptable={0, 1})
+        if code != 0:
+            self._run(instance, [
+                "useradd",
+                "--create-home",
+                "--shell", "/bin/bash",
+                "--groups", "sudo,docker",
+                "nimbus",
+            ])
+        else:
+            # User exists — make sure it has the required group memberships
+            self._run(instance, ["usermod", "-aG", "sudo,docker", "nimbus"], acceptable={0, 1})
+
+        # Passwordless sudo (required for terminal convenience and agent delegation)
+        self._write_file(
+            instance,
+            "/etc/sudoers.d/nimbus-nopasswd",
+            "nimbus ALL=(ALL) NOPASSWD:ALL\n",
+            mode=0o440,
+        )
+
+        # Persistent systemd user session: linger keeps the session alive so
+        # snap user-services and D-Bus are available even without an active login
+        self._run(instance, ["loginctl", "enable-linger", "nimbus"])
+
+        self._write_file(instance, NIMBUS_USER_MARKER_PATH, "1\n")
+        logger.info("nimbus user setup complete")
+
+    def _ensure_hostname_in_hosts(self, instance) -> None:
+        """Ensure the container's hostname resolves via /etc/hosts.
+
+        sudo logs a warning and adds a slight delay when it cannot resolve the
+        current hostname.  This is a cosmetic issue but confusing to users, so
+        we guarantee that a 127.0.1.1 entry exists for the hostname.
+        """
+        _, hostname, _ = self._run(instance, ["hostname"], acceptable={0})
+        hostname = hostname.strip()
+        if not hostname:
+            return
+        # Check whether /etc/hosts already has an entry for this hostname.
+        code, _, _ = self._run(
+            instance,
+            ["grep", "-qw", hostname, "/etc/hosts"],
+            acceptable={0, 1},
+        )
+        if code == 0:
+            return
+        logger.info("Adding hostname %r to /etc/hosts in container", hostname)
+        self._run(instance, [
+            "sh", "-c",
+            f"echo '127.0.1.1 {hostname}' >> /etc/hosts",
+        ])
+
     def _ensure_lxc_agent(self, instance) -> None:
         """Push the LXC agent daemon and (re)start it if the version changed."""
-        current = self._read_file(instance, str(LXC_AGENT_VERSION_MARKER))
-        if current and current.strip() == _LXC_AGENT_VERSION:
+        current = self._read_file(instance, LXC_AGENT_VERSION_MARKER_PATH)
+        if current and current.strip() == LXC_AGENT_VERSION:
             # Agent is up to date — still ensure the proxy device exists (it
             # won't be present on a freshly started seeded-image container).
             self._configure_lxc_agent_proxy(instance)
             return
 
-        logger.info("Installing LXC agent daemon v%s", _LXC_AGENT_VERSION)
+        logger.info("Installing LXC agent daemon v%s", LXC_AGENT_VERSION)
         agent_src = BACKEND_SOURCE_DIR / "agent"
         if not agent_src.exists():
             logger.warning("LXC agent source not found at %s — skipping", agent_src)
@@ -797,6 +951,9 @@ class LxdManager:
 
         self._run(instance, ["mkdir", "-p", "/opt/nimbus/backend/agent"])
         instance.files.recursive_put(str(agent_src), "/opt/nimbus/backend/agent")
+        constants_src = BACKEND_SOURCE_DIR / "constants.py"
+        if constants_src.exists():
+            instance.files.put("/opt/nimbus/backend/constants.py", constants_src.read_bytes())
         self._write_file(
             instance,
             "/etc/systemd/system/nimbus-lxc-agent.service",
@@ -805,7 +962,7 @@ class LxdManager:
         self._run(instance, ["systemctl", "daemon-reload"])
         self._run(instance, ["systemctl", "enable", "nimbus-lxc-agent"])
         self._run(instance, ["systemctl", "restart", "nimbus-lxc-agent"], acceptable={0, 1})
-        self._write_file(instance, str(LXC_AGENT_VERSION_MARKER), _LXC_AGENT_VERSION + "\n")
+        self._write_file(instance, LXC_AGENT_VERSION_MARKER_PATH, LXC_AGENT_VERSION + "\n")
         self._configure_lxc_agent_proxy(instance)
         logger.info("LXC agent daemon installed and started")
 
@@ -814,6 +971,24 @@ class LxdManager:
         instance.files.recursive_put(str(BACKEND_SOURCE_DIR), "/opt/nimbus/backend")
         self._write_file(instance, "/etc/systemd/system/nimbus.service", AGENT_SERVICE_SOURCE.read_text())
         self._write_file(instance, "/etc/default/nimbus", self._agent_env(), mode=0o600)
+
+    def _ensure_backend_payload(self, instance) -> None:
+        """Re-push the backend payload and restart the nimbus service if the version changed.
+
+        Mirrors the _ensure_lxc_agent version-marker pattern so that backend
+        updates (e.g. new routers, bug fixes) are deployed to already-bootstrapped
+        containers on next host startup without requiring a full re-bootstrap.
+       Bump BACKEND_VERSION whenever backend files change.
+        """
+        current = self._read_file(instance, BACKEND_VERSION_MARKER_PATH)
+        if current and current.strip() == BACKEND_VERSION:
+            return
+        logger.info("Deploying backend payload v%s to container", BACKEND_VERSION)
+        self._push_agent_payload(instance)
+        self._run(instance, ["systemctl", "daemon-reload"])
+        self._run(instance, ["systemctl", "restart", "nimbus"], acceptable={0, 1})
+        self._write_file(instance, BACKEND_VERSION_MARKER_PATH, BACKEND_VERSION + "\n")
+        logger.info("Backend payload deployed and nimbus service restarted")
 
     def _install_runtime_packages(self, instance) -> None:
         env = {"DEBIAN_FRONTEND": "noninteractive"}
@@ -853,7 +1028,7 @@ class LxdManager:
         self._write_file(
             instance,
             "/etc/docker/daemon.json",
-            '{"dns": ["1.1.1.1", "8.8.8.8"]}\n',
+            '{"dns": %s}\n' % json.dumps(DOCKER_DNS_SERVERS),
         )
         self._run(instance, ["systemctl", "restart", "docker"])
         self._run(instance, ["systemctl", "enable", "docker"])
@@ -865,9 +1040,10 @@ class LxdManager:
         with self._lock:
             try:
                 self._set_bootstrap_state("ensuring-daemon")
-                self._ensure_nm_ignores_lxd()
+                nm_restarted = self._ensure_nm_ignores_lxd()
                 self.ensure_initialized()
-                self._ensure_lxd_nat_rules()
+                if nm_restarted:
+                    self._ensure_lxd_nat_rules()
                 self._set_bootstrap_state("ensuring-profile")
                 self.ensure_profile()
                 self._set_bootstrap_state("importing-image")
@@ -878,6 +1054,10 @@ class LxdManager:
                     self._set_bootstrap_state("starting-agent")
                     self._wait_for_docker(instance)
                     self._repatch_provider_apps(instance)
+                    self._setup_nimbus_user(instance)
+                    self._ensure_hostname_in_hosts(instance)
+                    self._ensure_backend_payload(instance)
+                    self._update_agent_env(instance)
                     self._ensure_lxc_agent(instance)
                     self._set_bootstrap_state("ready")
                     return
@@ -902,14 +1082,23 @@ class LxdManager:
                     logger.info("Python env already preinstalled — skipping venv/pip setup")
                 self._set_bootstrap_state("starting-agent")
                 self._enable_services(instance)
+                self._setup_nimbus_user(instance)
+                self._ensure_hostname_in_hosts(instance)
                 self._ensure_lxc_agent(instance)
-                self._write_file(instance, str(BOOTSTRAP_MARKER), BOOTSTRAP_VERSION + "\n")
+                self._write_file(instance, BACKEND_VERSION_MARKER_PATH, BACKEND_VERSION + "\n")
+                self._write_file(instance, BOOTSTRAP_MARKER_PATH, BOOTSTRAP_VERSION + "\n")
                 self._set_bootstrap_state("ready")
-            except (ClientConnectionFailed, LXDAPIException, RuntimeError) as exc:
+            except (ClientConnectionFailed, LXDAPIException, RuntimeError, Exception) as exc:
                 self._set_bootstrap_state("error", str(exc))
                 raise
 
     def container_info(self) -> ContainerInfo:
+        # While a snapshot is in progress LXD may briefly report the container
+        # as non-running (e.g. "frozen"), which would cause the UI to show the
+        # "setting up" screen.  Return the last known-good state instead.
+        if self._snapshotting and self._last_good_container_info is not None:
+            return self._last_good_container_info
+
         try:
             instance = self.get_instance()
         except (ClientConnectionFailed, LXDAPIException) as exc:
@@ -939,7 +1128,7 @@ class LxdManager:
         if status == "running":
             bootstrapped = self._has_bootstrap_marker(instance)
 
-        return ContainerInfo(
+        info = ContainerInfo(
             name=settings.lxd_container_name,
             exists=True,
             status=status,
@@ -948,6 +1137,12 @@ class LxdManager:
             bootstrap_state=self._bootstrap_state,
             bootstrap_error=self._bootstrap_error,
         )
+
+        # Cache the last fully-ready info so we can serve it during snapshots.
+        if bootstrapped and status == "running" and self._bootstrap_state == "ready":
+            self._last_good_container_info = info
+
+        return info
 
     def installed_app_ids(self) -> list[str]:
         return sorted(self.app_runtime_snapshot().installed.keys())
@@ -1079,17 +1274,19 @@ print(json.dumps(apps), end='')
         current = dict(instance.devices.get(devname) or {})
         if current == desired:
             return
-        instance.devices[devname] = desired
         try:
-            instance.save(wait=True)
+            devices = self._instance_devices(instance)
+            devices[devname] = desired
+            self._save_instance_devices(instance, devices)
             logger.info("Attached openclaw-workspace bind: host %s -> lxc %s", src, CONTAINER_OPENCLAW_WORKSPACE)
         except LXDAPIException as exc:
             # Fall back to no-shift if the kernel/storage backend rejects it.
             if "shift" in str(exc).lower():
                 logger.warning("LXD rejected shift=true; retrying without it")
                 desired.pop("shift")
-                instance.devices[devname] = desired
-                instance.save(wait=True)
+                devices = self._instance_devices(instance)
+                devices[devname] = desired
+                self._save_instance_devices(instance, devices)
             else:
                 raise
 
@@ -1448,6 +1645,97 @@ print(json.dumps(apps), end='')
             ],
         )
         self._invalidate_snapshot()
+
+    # ------------------------------------------------------------------ #
+    # Snapshots                                                            #
+    # ------------------------------------------------------------------ #
+
+    def list_snapshots(self) -> list[dict]:
+        instance = self.get_instance()
+        if instance is None:
+            raise RuntimeError("Container does not exist")
+        result = []
+        for snap in instance.snapshots.all():
+            result.append({
+                "name": snap.name,
+                "created_at": getattr(snap, "created_at", "") or "",
+                "description": getattr(snap, "description", "") or "",
+                "stateful": bool(getattr(snap, "stateful", False)),
+            })
+        return result
+
+    def create_snapshot(self, name: str, description: str = "", stateful: bool = False) -> None:
+        instance = self.get_instance()
+        if instance is None:
+            raise RuntimeError("Container does not exist")
+        self._snapshotting = True
+        try:
+            instance.snapshots.create(name, stateful=stateful, wait=True)
+        finally:
+            self._snapshotting = False
+
+    def delete_snapshot(self, name: str) -> None:
+        instance = self.get_instance()
+        if instance is None:
+            raise RuntimeError("Container does not exist")
+        try:
+            snap = instance.snapshots.get(name)
+            snap.delete(wait=True)
+        except NotFound:
+            raise RuntimeError(f"Snapshot '{name}' not found")
+
+    def restore_snapshot(self, name: str) -> None:
+        instance = self.get_instance()
+        if instance is None:
+            raise RuntimeError("Container does not exist")
+        try:
+            instance.snapshots.get(name)
+        except NotFound:
+            raise RuntimeError(f"Snapshot '{name}' not found")
+        instance.restore_snapshot(name, wait=True)
+
+    # ------------------------------------------------------------------ #
+    # Resource limits                                                      #
+    # ------------------------------------------------------------------ #
+
+    def get_resource_limits(self) -> dict:
+        profile = self._get_profile(settings.lxd_profile_name)
+        if profile is None:
+            return {"cpu_cores": None, "memory_mb": None}
+        cfg = getattr(profile, "config", {}) or {}
+        cpu = cfg.get("limits.cpu")
+        mem = cfg.get("limits.memory")
+        cpu_int = int(cpu) if cpu and cpu.isdigit() else None
+        mem_mb = None
+        if mem:
+            mem = str(mem).strip().upper()
+            if mem.endswith("GB"):
+                try:
+                    mem_mb = int(float(mem[:-2]) * 1024)
+                except ValueError:
+                    pass
+            elif mem.endswith("MB"):
+                try:
+                    mem_mb = int(mem[:-2])
+                except ValueError:
+                    pass
+        return {"cpu_cores": cpu_int, "memory_mb": mem_mb}
+
+    def set_resource_limits(self, cpu_cores: int | None, memory_mb: int | None) -> None:
+        profile = self._get_profile(settings.lxd_profile_name)
+        if profile is None:
+            raise RuntimeError(f"LXD profile '{settings.lxd_profile_name}' not found")
+        cfg = dict(getattr(profile, "config", {}) or {})
+        if cpu_cores is not None:
+            cfg["limits.cpu"] = str(cpu_cores)
+        else:
+            cfg.pop("limits.cpu", None)
+        if memory_mb is not None:
+            cfg["limits.memory"] = f"{memory_mb}MB"
+        else:
+            cfg.pop("limits.memory", None)
+        profile.config = cfg
+        profile.save(wait=True)
 
 
 _manager = LxdManager()

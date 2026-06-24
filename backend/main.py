@@ -17,7 +17,14 @@ from routers.auth import router as auth_router
 from routers.files import router as files_router
 from routers.network import router as network_router
 from routers.openclaw import router as openclaw_router
+from routers.snap_store import router as snap_store_router
 from routers.system import router as system_router
+from routers.terminal import router as terminal_router
+from routers.snapshots import router as snapshots_router
+from routers.firewall import router as firewall_router
+from routers.ssh import router as ssh_router
+from routers.models import router as models_router
+from routers.keys import router as keys_router
 from services.control_plane import get_control_plane
 from services import openclaw as openclaw_service
 from services.store import ensure_store, refresh_store
@@ -79,10 +86,106 @@ if _snap_common:
 STATIC_DIR = Path(__file__).parent / "static"
 
 
+_LOCALHOST_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+async def _run_http_redirect(http_port: int, https_port: int) -> None:
+    """Accept plain-HTTP connections.
+
+    * localhost / 127.0.0.1 / ::1 — transparently proxy to the local HTTPS
+      backend so browsers never see a certificate warning for local access.
+    * all other Host headers — return a 301 redirect to the HTTPS URL.
+    """
+    import asyncio
+    import ssl
+
+    async def _pipe(src: asyncio.StreamReader, dst: asyncio.StreamWriter) -> None:
+        try:
+            while True:
+                chunk = await src.read(65536)
+                if not chunk:
+                    break
+                dst.write(chunk)
+                await dst.drain()
+        except Exception:
+            pass
+        finally:
+            try:
+                dst.close()
+            except Exception:
+                pass
+
+    async def _proxy_localhost(initial: bytes, client_r: asyncio.StreamReader,
+                               client_w: asyncio.StreamWriter) -> None:
+        """Forward the HTTP request to the local HTTPS backend and pipe back the response."""
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        try:
+            backend_r, backend_w = await asyncio.open_connection(
+                "127.0.0.1", https_port, ssl=ctx
+            )
+        except Exception as exc:
+            logger.debug("localhost proxy connect failed: %s", exc)
+            return
+        backend_w.write(initial)
+        await backend_w.drain()
+        await asyncio.gather(
+            _pipe(backend_r, client_w),
+            _pipe(client_r, backend_w),
+            return_exceptions=True,
+        )
+
+    async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        try:
+            raw = await asyncio.wait_for(reader.read(4096), timeout=5.0)
+            path = "/"
+            host = "localhost"
+            lines = raw.split(b"\r\n")
+            if lines:
+                parts = lines[0].split()
+                if len(parts) >= 2:
+                    path = parts[1].decode(errors="replace")
+            for line in lines[1:]:
+                if line.lower().startswith(b"host:"):
+                    host = line[5:].decode(errors="replace").strip().split(":")[0]
+                    break
+            if host in _LOCALHOST_HOSTS:
+                await _proxy_localhost(raw, reader, writer)
+                return
+            port_suffix = f":{https_port}" if https_port != 443 else ""
+            location = f"https://{host}{port_suffix}{path}"
+            writer.write(
+                f"HTTP/1.1 301 Moved Permanently\r\n"
+                f"Location: {location}\r\n"
+                f"Content-Length: 0\r\n"
+                f"Connection: close\r\n\r\n".encode()
+            )
+            await writer.drain()
+        except Exception:
+            pass
+        finally:
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+    server = await asyncio.start_server(_handle, "0.0.0.0", http_port)
+    logger.info("HTTP→HTTPS redirect listening on port %d (localhost proxied)", http_port)
+    async with server:
+        await server.serve_forever()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     store_task = None
-    if settings.refresh_store_on_startup:
+    redirect_task = None
+    if settings.tls_enabled:
+        redirect_task = asyncio.create_task(
+            _run_http_redirect(settings.http_redirect_port, int(os.environ.get("NIMBUS_PORT", "443")))
+        )
+    if settings.refresh_store_on_startup and settings.app_store_type != "nimbus":
         logger.info("Refreshing app store on startup...")
         try:
             await refresh_store()
@@ -92,6 +195,12 @@ async def lifespan(app: FastAPI):
     await get_control_plane().initialize()
     openclaw_service.start()
     yield
+    if redirect_task and not redirect_task.done():
+        redirect_task.cancel()
+        try:
+            await redirect_task
+        except asyncio.CancelledError:
+            pass
     if store_task and not store_task.done():
         store_task.cancel()
         try:
@@ -102,9 +211,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Nimbus", version=os.environ.get("SNAP_VERSION", "dev"), lifespan=lifespan)
 
+# Build CORS origin list from settings.  An empty NIMBUS_CORS_ORIGINS env var
+# means "allow all" (backwards-compatible with the previous wildcard config).
+_cors_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()] if settings.cors_origins else ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -114,7 +227,14 @@ app.include_router(apps_router)
 app.include_router(files_router)
 app.include_router(network_router)
 app.include_router(openclaw_router)
+app.include_router(snap_store_router)
 app.include_router(system_router)
+app.include_router(terminal_router)
+app.include_router(snapshots_router)
+app.include_router(firewall_router)
+app.include_router(ssh_router)
+app.include_router(models_router)
+app.include_router(keys_router)
 
 if settings.serve_frontend and STATIC_DIR.exists():
     app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="frontend")

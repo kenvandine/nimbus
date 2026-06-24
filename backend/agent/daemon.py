@@ -5,7 +5,7 @@ Runs as a systemd service inside the LXC container. On each tick it:
   - Ensures Docker daemon.json has reliable public DNS servers (fixes the
     lxdbr0/systemd-resolved chain that intermittently breaks image pulls).
 
-Exposes a minimal HTTP API on port 9001 for status queries and future
+  Exposes a minimal HTTP API for status queries and future
 snap-management commands issued by the host nimbus.
 
 Run directly:  python /opt/nimbus/backend/agent/daemon.py
@@ -19,17 +19,19 @@ import logging
 import sys
 from pathlib import Path
 
-DAEMON_VERSION = "7"
+from constants import AGENT_DNS_SERVERS, LXC_AGENT_PORT
+
+DAEMON_VERSION = "19"
 INSTALLED_DIR = Path("/var/lib/nimbus/installed")
 DOCKER_DAEMON_JSON = Path("/etc/docker/daemon.json")
 RESOLVED_DROPIN_DIR = Path("/etc/systemd/resolved.conf.d")
 RESOLVED_DROPIN = RESOLVED_DROPIN_DIR / "nimbus-dns.conf"
-DNS_SERVERS = ["1.1.1.1", "8.8.8.8"]
+DNS_SERVERS = AGENT_DNS_SERVERS
 DNS_FALLBACK_SERVERS = ["1.0.0.1", "8.8.4.4"]
 DNS_CHECK_HOST = "registry-1.docker.io"
 APP_CHECK_INTERVAL = 30   # seconds between app health sweeps
 DNS_CHECK_INTERVAL = 60   # seconds between DNS health checks
-HTTP_PORT = 9001
+HTTP_PORT = LXC_AGENT_PORT
 
 logging.basicConfig(
     level=logging.INFO,
@@ -301,9 +303,12 @@ async def _dns_health_loop() -> None:
 
 # ── Snap management (future) ───────────────────────────────────────────────────
 
-async def _snap_install(name: str, channel: str = "stable") -> dict:
+async def _snap_install(name: str, channel: str = "stable", classic: bool = False) -> dict:
+    cmd = ["snap", "install", name, "--channel", channel]
+    if classic:
+        cmd.append("--classic")
     proc = await asyncio.create_subprocess_exec(
-        "snap", "install", name, "--channel", channel,
+        *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -329,6 +334,168 @@ async def _snap_remove(name: str) -> dict:
     }
 
 
+def _user_env() -> dict:
+    """Environment variables for the nimbus user session.
+
+    Falls back to UID 0 if the nimbus user hasn't been provisioned yet.
+    """
+    import os
+    uid = _nimbus_uid() or 0
+    home = "/home/nimbus" if uid != 0 else "/root"
+    env = dict(os.environ)
+    env["XDG_RUNTIME_DIR"] = f"/run/user/{uid}"
+    env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path=/run/user/{uid}/bus"
+    env["HOME"] = home
+    return env
+
+
+def _nimbus_uid() -> int | None:
+    """Return the UID of the nimbus user, or None if it doesn't exist."""
+    try:
+        import pwd
+        return pwd.getpwnam("nimbus").pw_uid
+    except (KeyError, ImportError):
+        return None
+
+
+def _runuser_prefix(uid: int) -> list[str]:
+    """Build the runuser prefix to execute a command as the nimbus user.
+
+    runuser(1) is available on all Debian/Ubuntu systems and lets root
+    switch to a non-root user without a password.  We inject the D-Bus and
+    XDG_RUNTIME_DIR environment variables explicitly because the target
+    process inherits a minimal environment from runuser.
+    """
+    home = "/home/nimbus"
+    return [
+        "runuser", "-u", "nimbus", "--",
+        "env",
+        f"HOME={home}",
+        f"XDG_RUNTIME_DIR=/run/user/{uid}",
+        f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus",
+        "PATH=/snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    ]
+
+
+async def _systemctl_user(action: str, service_name: str = "") -> dict:
+    """Run `systemctl --user <action> [<service_name>]` as the nimbus user.
+
+    `daemon-reload` does not take a service name; all other actions require one.
+    Falls back to UID 0 (root) if the nimbus user hasn't been provisioned yet.
+    """
+    allowed = {"start", "stop", "restart", "status", "is-active", "daemon-reload"}
+    if action not in allowed:
+        return {"ok": False, "stderr": f"unsupported action: {action}"}
+    uid = _nimbus_uid()
+    if uid is not None:
+        # Run as the nimbus user which owns the snap user-services
+        sc_cmd = ["systemctl", "--user", action]
+        if action != "daemon-reload":
+            if not service_name:
+                return {"ok": False, "stderr": "service_name required for this action"}
+            sc_cmd.append(service_name)
+        full_cmd = _runuser_prefix(uid) + sc_cmd
+    else:
+        # Fallback: nimbus user not yet provisioned, run as root
+        full_cmd = ["systemctl", "--user", action]
+        if action != "daemon-reload":
+            if not service_name:
+                return {"ok": False, "stderr": "service_name required for this action"}
+            full_cmd.append(service_name)
+    proc = await asyncio.create_subprocess_exec(
+        *full_cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=_user_env(),
+    )
+    stdout, stderr = await proc.communicate()
+    return {
+        "ok": proc.returncode == 0,
+        "stdout": stdout.decode(),
+        "stderr": stderr.decode(),
+    }
+
+
+async def _run_snap_cmd(cmd: str, args: list[str]) -> dict:
+    """Run a snap command (e.g. nullclaw.lemonade) as the nimbus user.
+
+    The command name is looked up under /snap/bin/.  Only commands whose name
+    matches a simple identifier pattern (letters, digits, hyphens, dots) are
+    accepted to prevent shell injection.  Classic snaps are installed system-
+    wide but all user-session state (config, D-Bus, XDG dirs) should belong
+    to nimbus rather than root.
+
+    ``y\\n`` is piped to stdin so that any interactive confirmation prompts
+    (e.g. "Configure OpenClaw to use Lemonade now? [Y/n]") are auto-accepted
+    without requiring the command to support a --yes / --auto flag.
+    """
+    import re
+    import os
+    if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]*", cmd):
+        return {"ok": False, "stdout": "", "stderr": f"invalid command name: {cmd}"}
+    snap_bin = f"/snap/bin/{cmd}"
+    if not os.path.exists(snap_bin):
+        return {"ok": False, "stdout": "", "stderr": f"not found: {snap_bin}"}
+    uid = _nimbus_uid()
+    if uid is not None:
+        full_cmd = _runuser_prefix(uid) + [snap_bin] + [str(a) for a in args]
+    else:
+        full_cmd = [snap_bin] + [str(a) for a in args]
+    env = _user_env()
+    proc = await asyncio.create_subprocess_exec(
+        *full_cmd,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=env,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(input=b"y\n"), timeout=120)
+    except asyncio.TimeoutError:
+        proc.kill()
+        return {"ok": False, "stdout": "", "stderr": "command timed out after 120s"}
+    return {
+        "ok": proc.returncode == 0,
+        "stdout": stdout.decode(),
+        "stderr": stderr.decode(),
+    }
+
+
+async def _snap_sideload(url: str, filename: str, flags: list[str]) -> dict:
+    """Download a snap from URL to a temp file and install it with the given flags."""
+    import os
+    import tempfile
+    tmp_dir = tempfile.mkdtemp(prefix="nimbus-sideload-")
+    snap_path = os.path.join(tmp_dir, filename)
+    try:
+        dl = await asyncio.create_subprocess_exec(
+            "curl", "-fsSL", "-o", snap_path, url,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, dl_stderr = await dl.communicate()
+        if dl.returncode != 0:
+            return {"ok": False, "stdout": "", "stderr": f"Download failed: {dl_stderr.decode()}"}
+        cmd = ["snap", "install"] + flags + [snap_path]
+        inst = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await inst.communicate()
+        return {
+            "ok": inst.returncode == 0,
+            "stdout": stdout.decode(),
+            "stderr": stderr.decode(),
+        }
+    finally:
+        try:
+            os.unlink(snap_path)
+            os.rmdir(tmp_dir)
+        except Exception:
+            pass
+
+
 async def _snap_refresh(name: str, channel: str | None = None) -> dict:
     cmd = ["snap", "refresh", name]
     if channel:
@@ -344,6 +511,56 @@ async def _snap_refresh(name: str, channel: str | None = None) -> dict:
         "stdout": stdout.decode(),
         "stderr": stderr.decode(),
     }
+
+
+async def _snap_list() -> list[dict]:
+    """Return list of all installed snaps via `snap list`."""
+    proc = await asyncio.create_subprocess_exec(
+        "snap", "list", "--unicode=never",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    stdout, _ = await proc.communicate()
+    snaps = []
+    lines = stdout.decode().splitlines()
+    for line in lines[1:]:
+        parts = line.split()
+        if len(parts) >= 5:
+            snaps.append({
+                "name": parts[0],
+                "version": parts[1],
+                "revision": parts[2],
+                "tracking": parts[3],
+                "publisher": parts[4],
+                "notes": parts[5] if len(parts) > 5 else "",
+            })
+    return snaps
+
+
+async def _snap_info(name: str) -> dict | None:
+    """Return info for a specific snap, or None if not installed."""
+    proc = await asyncio.create_subprocess_exec(
+        "snap", "list", "--unicode=never", name,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    stdout, _ = await proc.communicate()
+    if proc.returncode != 0:
+        return None
+    lines = stdout.decode().splitlines()
+    for line in lines[1:]:
+        parts = line.split()
+        if len(parts) >= 5 and parts[0] == name:
+            return {
+                "name": parts[0],
+                "version": parts[1],
+                "revision": parts[2],
+                "tracking": parts[3],
+                "publisher": parts[4],
+                "notes": parts[5] if len(parts) > 5 else "",
+                "installed": True,
+            }
+    return None
 
 
 # ── HTTP API ───────────────────────────────────────────────────────────────────
@@ -369,7 +586,8 @@ async def _route(method: str, path: str, body: bytes) -> tuple[int, dict]:
         name = req.get("name", "").strip()
         if not name:
             return 400, {"error": "name required"}
-        result = await _snap_install(name, req.get("channel", "stable"))
+        classic = bool(req.get("classic", False))
+        result = await _snap_install(name, req.get("channel", "stable"), classic=classic)
         return (200 if result["ok"] else 500), result
 
     if method == "POST" and path == "/snaps/remove":
@@ -383,6 +601,22 @@ async def _route(method: str, path: str, body: bytes) -> tuple[int, dict]:
         result = await _snap_remove(name)
         return (200 if result["ok"] else 500), result
 
+    if method == "POST" and path == "/snaps/sideload":
+        try:
+            req = json.loads(body)
+        except json.JSONDecodeError:
+            return 400, {"error": "invalid JSON"}
+        url = req.get("url", "").strip()
+        filename = req.get("filename", "").strip()
+        flags = req.get("flags", ["--classic", "--dangerous"])
+        if not url or not filename:
+            return 400, {"error": "url and filename required"}
+        allowed_flags = {"--classic", "--dangerous", "--devmode"}
+        if any(f not in allowed_flags for f in flags):
+            return 400, {"error": "unsupported install flag"}
+        result = await _snap_sideload(url, filename, list(flags))
+        return (200 if result["ok"] else 500), result
+
     if method == "POST" and path == "/snaps/refresh":
         try:
             req = json.loads(body)
@@ -394,12 +628,102 @@ async def _route(method: str, path: str, body: bytes) -> tuple[int, dict]:
         result = await _snap_refresh(name, req.get("channel"))
         return (200 if result["ok"] else 500), result
 
+    if method == "POST" and path == "/snaps/service":
+        try:
+            req = json.loads(body)
+        except json.JSONDecodeError:
+            return 400, {"error": "invalid JSON"}
+        name = req.get("name", "").strip()
+        action = req.get("action", "").strip()
+        if not action:
+            return 400, {"error": "action required"}
+        if action != "daemon-reload" and not name:
+            return 400, {"error": "name required"}
+        result = await _systemctl_user(action, name)
+        return (200 if result["ok"] else 500), result
+
+    if method == "POST" and path == "/snaps/run":
+        try:
+            req = json.loads(body)
+        except json.JSONDecodeError:
+            return 400, {"error": "invalid JSON"}
+        cmd = req.get("cmd", "").strip()
+        args = req.get("args", [])
+        if not cmd:
+            return 400, {"error": "cmd required"}
+        if not isinstance(args, list):
+            return 400, {"error": "args must be a list"}
+        result = await _run_snap_cmd(cmd, [str(a) for a in args])
+        return (200 if result["ok"] else 500), result
+
+    if method == "GET" and path == "/snaps":
+        snaps = await _snap_list()
+        return 200, {"snaps": snaps}
+
+    if method == "GET" and path.startswith("/snaps/") and len(path.split("/")) == 3:
+        snap_name = path.split("/")[2]
+        info = await _snap_info(snap_name)
+        if info is None:
+            return 404, {"error": "snap not installed", "name": snap_name}
+        return 200, info
+
+    if method == "GET" and path.startswith("/files/read"):
+        import os
+        file_path = None
+        if "?" in path:
+            for param in path.split("?", 1)[1].split("&"):
+                if param.startswith("path="):
+                    import urllib.parse
+                    file_path = urllib.parse.unquote(param[5:])
+                    break
+        if not file_path:
+            return 400, {"error": "path query parameter required"}
+        # Restrict to home directories and /etc/default to avoid arbitrary reads.
+        allowed_prefixes = ("/home/", "/root/", "/etc/default/")
+        if not any(file_path.startswith(p) for p in allowed_prefixes):
+            return 403, {"error": "path not permitted"}
+        try:
+            with open(file_path, "r") as fh:
+                return 200, {"path": file_path, "content": fh.read()}
+        except FileNotFoundError:
+            return 404, {"error": "file not found", "path": file_path}
+        except Exception as exc:
+            return 500, {"error": str(exc)}
+
+    if method == "POST" and path == "/files/write":
+        try:
+            req = json.loads(body)
+        except json.JSONDecodeError:
+            return 400, {"error": "invalid JSON"}
+        file_path = req.get("path", "").strip()
+        content = req.get("content")
+        if not file_path or content is None:
+            return 400, {"error": "path and content required"}
+        allowed_prefixes = ("/home/", "/root/", "/etc/default/")
+        if not any(file_path.startswith(p) for p in allowed_prefixes):
+            return 403, {"error": "path not permitted"}
+        try:
+            import os
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            with open(file_path, "w") as fh:
+                fh.write(content)
+            return 200, {"ok": True, "path": file_path}
+        except Exception as exc:
+            return 500, {"error": str(exc)}
+
     return 404, {"error": "not found"}
 
 
 async def _handle_journal_sse(path: str, writer: asyncio.StreamWriter) -> None:
-    """Stream journalctl output as SSE over a persistent connection."""
+    """Stream journalctl output as SSE over a persistent connection.
+
+    Query params:
+      lines=N   — number of historical lines to show (default 200)
+      unit=NAME — stream a specific systemd user unit (snap service) as the
+                  nimbus user instead of the system nimbus service journal
+    """
     lines = 200
+    unit = None
     if "?" in path:
         for param in path.split("?", 1)[1].split("&"):
             if param.startswith("lines="):
@@ -407,6 +731,9 @@ async def _handle_journal_sse(path: str, writer: asyncio.StreamWriter) -> None:
                     lines = max(1, min(2000, int(param[6:])))
                 except ValueError:
                     pass
+            elif param.startswith("unit="):
+                import urllib.parse
+                unit = urllib.parse.unquote(param[5:]).strip()
 
     writer.write(
         b"HTTP/1.1 200 OK\r\n"
@@ -420,11 +747,29 @@ async def _handle_journal_sse(path: str, writer: asyncio.StreamWriter) -> None:
 
     proc = None
     try:
+        if unit:
+            # Stream a specific systemd user service (snap gateway) as nimbus.
+            uid = _nimbus_uid()
+            if uid is not None:
+                cmd = _runuser_prefix(uid) + [
+                    "journalctl", "--user", "-u", unit,
+                    "-f", f"-n{lines}", "--no-pager", "--output=short-iso",
+                ]
+            else:
+                cmd = [
+                    "journalctl", "--user", "-u", unit,
+                    "-f", f"-n{lines}", "--no-pager", "--output=short-iso",
+                ]
+        else:
+            cmd = [
+                "journalctl", "-u", "nimbus",
+                "-f", f"-n{lines}", "--no-pager", "--output=short-iso",
+            ]
         proc = await asyncio.create_subprocess_exec(
-            "journalctl", "-u", "nimbus",
-            "-f", f"-n{lines}", "--no-pager", "--output=short-iso",
+            *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
+            env=_user_env() if unit else None,
         )
         assert proc.stdout is not None
         async for raw in proc.stdout:
@@ -496,8 +841,23 @@ async def _handle_http(reader: asyncio.StreamReader, writer: asyncio.StreamWrite
             pass
 
 
+async def _ensure_root_linger() -> None:
+    """Enable systemd linger for the nimbus user (and root as fallback) so the
+    user session and its D-Bus socket persist across boots without an active login.
+    This is required for systemctl --user commands and snap user-services."""
+    for target in ("nimbus", "0"):
+        proc = await asyncio.create_subprocess_exec(
+            "loginctl", "enable-linger", target,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.communicate()
+
+
 async def main() -> None:
     logger.info("Nimbus LXC agent daemon v%s starting on port %d", DAEMON_VERSION, HTTP_PORT)
+
+    await _ensure_root_linger()
 
     server = await asyncio.start_server(_handle_http, "0.0.0.0", HTTP_PORT)
     asyncio.create_task(_app_health_loop())

@@ -20,8 +20,17 @@ export function openApp(url, meta = {}) {
     // always reaches it; the LAN IP only works from remote clients.
     const localUrl = rewriteToLocalhost(url)
     if (_kioskFallback) {
-      if (NO_IFRAME_APPS.has(meta.id)) {
-        // App blocks iframe embedding — show remote-access instructions instead.
+      // Browsers block HTTP iframes inside HTTPS pages (mixed content).
+      // Fall back to remoteOnly so the user sees a message rather than a blank frame.
+      let mixedContent = false
+      try {
+        mixedContent =
+          window.location.protocol === 'https:' &&
+          new URL(url).protocol === 'http:'
+      } catch {
+        // relative or invalid URL — no mixed-content concern
+      }
+      if (NO_IFRAME_APPS.has(meta.id) || mixedContent) {
         _kioskFallback(localUrl, { ...meta, remoteOnly: true, remoteUrl: url })
       } else {
         _kioskFallback(localUrl, meta)
@@ -31,10 +40,16 @@ export function openApp(url, meta = {}) {
     window.location.href = localUrl
     return
   }
-  const opened = window.open(url, '_blank', 'noopener,noreferrer')
-  if (!opened) {
-    window.location.href = url
-  }
+  // Use a programmatic anchor click rather than window.open(url, '_blank', 'noopener,noreferrer').
+  // window.open with the 'noopener' feature string always returns null in modern browsers,
+  // which causes the window.location.href fallback to fire too — double-navigation.
+  const a = document.createElement('a')
+  a.href = url
+  a.target = '_blank'
+  a.rel = 'noopener noreferrer'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
 }
 
 function rewriteToLocalhost(url) {

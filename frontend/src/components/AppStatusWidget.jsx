@@ -3,7 +3,7 @@ import { getApp } from '../api.js'
 
 const POLL_MS = 5000
 
-export default function HermesWidget() {
+export default function AppStatusWidget({ appId, title }) {
   const [app, setApp] = useState(null)
   const [collapsed, setCollapsed] = useState(false)
 
@@ -11,14 +11,14 @@ export default function HermesWidget() {
     let alive = true
     async function poll() {
       try {
-        const a = await getApp('hermes-agent')
+        const a = await getApp(appId)
         if (alive) setApp(a)
       } catch {}
     }
     poll()
     const id = setInterval(poll, POLL_MS)
     return () => { alive = false; clearInterval(id) }
-  }, [])
+  }, [appId])
 
   const running = app?.running ?? false
   const dotColor = running ? '#4caf50' : app ? '#ef5350' : '#ffb74d'
@@ -27,7 +27,7 @@ export default function HermesWidget() {
     <div style={styles.widget}>
       <button style={styles.header} onClick={() => setCollapsed(c => !c)}>
         <span style={{ ...styles.dot, background: dotColor }} />
-        <span style={styles.title}>Hermes Agent</span>
+        <span style={styles.title}>{title}</span>
         {running && <span style={styles.activeBadge}>running</span>}
         <span style={styles.chevron}>{collapsed ? '▲' : '▼'}</span>
       </button>
@@ -35,9 +35,9 @@ export default function HermesWidget() {
       {!collapsed && (
         <div style={styles.body}>
           {running ? (
-            <div style={styles.onlineMsg}>Agent is running</div>
+            <div style={styles.onlineMsg}>App is running</div>
           ) : app ? (
-            <div style={styles.offlineMsg}>Agent is offline</div>
+            <div style={styles.offlineMsg}>App is offline</div>
           ) : (
             <div style={styles.offlineMsg}>Connecting…</div>
           )}

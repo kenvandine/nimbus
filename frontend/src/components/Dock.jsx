@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-function buildApps(appstoreVisible) {
+function buildApps(appstoreVisible, terminalAvailable) {
   const apps = []
   if (appstoreVisible !== false) {
     apps.push({
@@ -48,12 +48,26 @@ function buildApps(appstoreVisible) {
       ),
     },
   )
+  if (terminalAvailable) {
+    apps.push({
+      id: 'terminal',
+      label: 'Terminal',
+      icon: (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ width: 28, height: 28 }}>
+          <rect x="3" y="4" width="18" height="16" rx="2" />
+          <path d="M7 9l4 3-4 3M13 15h4" />
+        </svg>
+      ),
+    })
+  }
   return apps
 }
 
-export default function Dock({ onOpen, updatableCount, appstoreVisible = true }) {
+export default function Dock({ onOpen, updatableCount, appUpdateCount = 0, appstoreVisible = true, terminalAvailable = false }) {
   const [hovered, setHovered] = useState(null)
-  const APPS = buildApps(appstoreVisible)
+  const APPS = buildApps(appstoreVisible, terminalAvailable)
+
+  const totalUpdates = Math.max(updatableCount || 0, appUpdateCount || 0)
 
   return (
     <div style={styles.bar}>
@@ -62,7 +76,7 @@ export default function Dock({ onOpen, updatableCount, appstoreVisible = true })
           <DockIcon
             key={app.id}
             app={app}
-            badge={app.id === 'appstore' && updatableCount > 0 ? updatableCount : 0}
+            badge={app.id === 'appstore' ? totalUpdates : 0}
             hovered={hovered === app.id}
             onMouseEnter={() => setHovered(app.id)}
             onMouseLeave={() => setHovered(null)}

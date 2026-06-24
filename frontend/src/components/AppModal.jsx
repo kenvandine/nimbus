@@ -91,6 +91,15 @@ export default function AppModal({ app, onClose, onRefresh, isInstalling = false
                 {statusLabel}
               </span>
               {app.developer && <span style={styles.metaChip}>by {app.developer}</span>}
+              {app.confinement && (
+                <span style={{
+                  ...styles.metaChip,
+                  ...(app.confinement === 'classic'
+                    ? { background: 'rgba(255,152,0,0.12)', color: 'rgba(255,180,80,0.85)', border: '1px solid rgba(255,152,0,0.25)' }
+                    : { background: 'rgba(76,175,80,0.1)', color: 'rgba(100,220,120,0.85)', border: '1px solid rgba(76,175,80,0.2)' }
+                  ),
+                }}>{app.confinement}</span>
+              )}
               {app.categories.map(c => (
                 <span key={c} style={styles.metaChip}>{c}</span>
               ))}

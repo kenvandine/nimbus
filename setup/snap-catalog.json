@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "store_id": "ai-labs",
+  "display_name": "AI Labs",
+  "description": "Curated AI and productivity apps for Nimbus Appliance",
+  "snaps": [
+    {
+      "name": "ollama",
+      "category": "ai",
+      "featured": true,
+      "ports": [11434]
+    },
+    {
+      "name": "nextcloud",
+      "category": "productivity",
+      "featured": true,
+      "ports": [80, 443]
+    },
+    {
+      "name": "forgejo",
+      "category": "development",
+      "ports": [3000]
+    },
+    {
+      "name": "dilyn-jellyfin",
+      "category": "media",
+      "ports": [8096]
+    },
+    {
+      "name": "dilyn-immich",
+      "category": "media",
+      "featured": true,
+      "ports": [2283]
+    }
+  ]
+}

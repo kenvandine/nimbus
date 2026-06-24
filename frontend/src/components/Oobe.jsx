@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { getWifiStatus, scanWifiNetworks, connectWifi, completeOobe, setupAccount } from '../api.js'
 
-const STATUS_REFRESH_DELAY_MS = 3000
 const STATUS_IP_RETRY_DELAY_MS = 1500
 
 function SignalBars({ strength }) {
@@ -59,13 +58,13 @@ function NetworkStep({ online, onNext, reconnect }) {
     setConnecting(ssid)
     setError(null)
     try {
+      // connectWifi resolves only once NetworkManager reports the connection
+      // fully activated (associated + DHCP lease), so status is ready now.
       await connectWifi(ssid, pwd || null)
       setExpandedSsid(null)
       setPassword('')
-      setTimeout(async () => {
-        await refreshWifiStatus()
-        try { setNetworks(await scanWifiNetworks()) } catch {}
-      }, STATUS_REFRESH_DELAY_MS)
+      await refreshWifiStatus()
+      try { setNetworks(await scanWifiNetworks()) } catch {}
     } catch (e) { setError(e.message) }
     finally { setConnecting(null) }
   }
@@ -79,24 +78,31 @@ function NetworkStep({ online, onNext, reconnect }) {
 
   const wifiAvailable = wifiStatus?.available !== false
 
+  // The parent `online` prop comes from NetworkManager's global connectivity
+  // state, which only flips to "online" once NM's connectivity check passes —
+  // that can stay stuck at connected-local on networks that block the check,
+  // even when Wi-Fi is associated and has a DHCP lease. Treat a local Wi-Fi
+  // association with an IP address as good enough to proceed through onboarding.
+  const connected = online || !!(wifiStatus?.connected && wifiStatus?.ip_address)
+
   return (
     <>
       {!reconnect && <div style={s.stepLabel}>Step 1 of 2</div>}
       <h1 style={s.heading}>{reconnect ? 'Reconnect to a network' : 'Connect to a network'}</h1>
       <p style={s.subheading}>
-        {online
+        {connected
           ? 'Your device is connected and ready to continue.'
           : reconnect
             ? 'Your device lost network connectivity. Connect to Wi-Fi to restore access.'
             : 'Connect your device to the internet to enable setup.'}
       </p>
 
-      <div style={{ ...s.badge, ...(online ? s.badgeOnline : s.badgeOffline) }}>
-        {online
+      <div style={{ ...s.badge, ...(connected ? s.badgeOnline : s.badgeOffline) }}>
+        {connected
           ? `✓ Connected${wifiStatus?.ssid ? ` — ${wifiStatus.ssid}` : ' via Ethernet'}`
           : '✗ Not connected'}
       </div>
-      {online && wifiStatus?.ip_address && (
+      {connected && wifiStatus?.ip_address && (
         <div style={s.connectionMeta}>IP address: {wifiStatus.ip_address}</div>
       )}
 
@@ -167,19 +173,19 @@ function NetworkStep({ online, onNext, reconnect }) {
       )}
 
       <button
-        style={{ ...s.btnPrimary, ...(!online ? s.btnPrimaryDisabled : {}) }}
-        onClick={onNext} disabled={!online}
+        style={{ ...s.btnPrimary, ...(!connected ? s.btnPrimaryDisabled : {}) }}
+        onClick={onNext} disabled={!connected}
       >
         {reconnect ? 'Continue' : 'Next →'}
       </button>
-      {!online && (
+      {!connected && (
         <button style={s.btnGhost} onClick={onNext}>Skip — I'm using Ethernet</button>
       )}
     </>
   )
 }
 
-function AccountStep({ onComplete }) {
+function AccountStep({ onNext }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -198,7 +204,7 @@ function AccountStep({ onComplete }) {
     try {
       await setupAccount(username.trim(), password)
       await completeOobe()
-      onComplete()
+      onNext()
     } catch (e) {
       setError(e.message)
       setBusy(false)
@@ -207,7 +213,7 @@ function AccountStep({ onComplete }) {
 
   return (
     <>
-      <div style={s.stepLabel}>Step 2 of 2</div>
+      <div style={s.stepLabel}>Step 2 of 3</div>
       <h1 style={s.heading}>Create your account</h1>
       <p style={s.subheading}>
         This account protects access to the Nimbus web interface.
@@ -273,8 +279,83 @@ function AccountStep({ onComplete }) {
         onClick={handleSubmit}
         disabled={!canSubmit}
       >
-        {busy ? 'Creating account…' : 'Create account & finish setup'}
+        {busy ? 'Creating account…' : 'Next →'}
       </button>
+    </>
+  )
+}
+
+const OOBE_PIN_LENGTH = 6
+
+function PinStep({ onComplete }) {
+  const [mode, setMode] = useState('set') // set | confirm
+  const [pin, setPin] = useState('')
+  const [firstPin, setFirstPin] = useState('')
+  const [error, setError] = useState(null)
+
+  function handleDigit(d) {
+    if (pin.length >= OOBE_PIN_LENGTH) return
+    const next = pin + d
+    setPin(next)
+    if (next.length === OOBE_PIN_LENGTH) setTimeout(() => advance(next), 80)
+  }
+
+  function advance(entered) {
+    if (mode === 'set') {
+      setFirstPin(entered); setPin(''); setMode('confirm'); setError(null)
+    } else {
+      if (entered === firstPin) {
+        localStorage.setItem('nimbus_lock_pin', entered)
+        onComplete()
+      } else {
+        setError('PINs did not match — try again'); setPin(''); setMode('set'); setFirstPin('')
+      }
+    }
+  }
+
+  return (
+    <>
+      <div style={s.stepLabel}>Step 3 of 3 — Optional</div>
+      <h1 style={s.heading}>Set a screen lock PIN</h1>
+      <p style={s.subheading}>
+        Choose a 6-digit PIN to lock the screen after inactivity. You can skip this and set it later in Settings.
+      </p>
+
+      {error && <div style={{ ...s.errorBox, marginBottom: 12 }}>{error}</div>}
+
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+        <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)' }}>
+          {mode === 'set' ? 'Enter a 6-digit PIN' : 'Confirm your PIN'}
+        </div>
+        <div style={{ display: 'flex', gap: 12 }}>
+          {Array.from({ length: OOBE_PIN_LENGTH }, (_, i) => (
+            <div key={i} style={{
+              width: 14, height: 14, borderRadius: '50%',
+              background: i < pin.length ? 'rgba(79,195,247,0.9)' : 'transparent',
+              border: '2px solid ' + (i < pin.length ? 'rgba(79,195,247,0.9)' : 'rgba(255,255,255,0.3)'),
+              transition: 'background 0.12s',
+            }} />
+          ))}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+          {['1','2','3','4','5','6','7','8','9','','0','⌫'].map((d, i) => (
+            <button key={i}
+              style={{
+                width: 68, height: 68, borderRadius: '50%',
+                background: d === '' ? 'transparent' : 'rgba(255,255,255,0.08)',
+                border: d === '' ? 'none' : '1px solid rgba(255,255,255,0.12)',
+                color: 'rgba(255,255,255,0.85)', fontSize: 22, fontWeight: 400,
+                cursor: d === '' ? 'default' : 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+              onClick={() => d === '⌫' ? setPin(p => p.slice(0, -1)) : d ? handleDigit(d) : undefined}
+              disabled={d === ''}
+            >{d}</button>
+          ))}
+        </div>
+      </div>
+
+      <button style={s.btnGhost} onClick={onComplete}>Skip — set up later in Settings</button>
     </>
   )
 }
@@ -296,7 +377,9 @@ export default function Oobe({ online, onComplete, networkOnly }) {
               reconnect={networkOnly}
               onNext={networkOnly ? onComplete : () => setStep('account')}
             />
-          : <AccountStep onComplete={onComplete} />}
+          : step === 'account'
+            ? <AccountStep onNext={() => setStep('pin')} />
+            : <PinStep onComplete={onComplete} />}
       </div>
       <style>{`@keyframes fadeIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}`}</style>
     </div>
