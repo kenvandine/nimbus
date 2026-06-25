@@ -16,10 +16,27 @@ on:
         required: true
         default: 'true'
         type: boolean
-  workflow_run:
-    workflows: ["Build and Publish Snap"]
-    types:
-      - completed
+      channel:
+        description: 'Nimbus Snap Channel'
+        required: true
+        default: 'edge'
+        type: choice
+        options:
+          - edge
+          - beta
+          - candidate
+          - stable
+      release:
+        description: 'Create a GitHub Release (non-edge channels only)'
+        required: true
+        default: false
+        type: boolean
+  schedule:
+    # Run once a day at midnight UTC
+    - cron: '0 0 * * *'
+
+permissions:
+  contents: write
 
 jobs:
   build-image-iso:
@@ -27,7 +44,6 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       GPG_PASSPHRASE: ${{ secrets.SNAP_SIGNING_KEY_PASSPHRASE }}
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') }}
     steps:
       - name: Checkout Nimbus
         uses: actions/checkout@v4
@@ -40,6 +56,26 @@ jobs:
           repository: ${{ github.repository_owner }}/pc-nimbus-gadget
           ref: main
           path: pc-amd64-gadget
+
+      - name: Update Nimbus Snap Channel in model definitions
+        env:
+          CHANNEL: ${{ github.event.inputs.channel || 'edge' }}
+        run: |
+          python3 -c "
+          import os, json
+          channel = 'latest/' + os.environ['CHANNEL']
+          for model in ['nimbus-lemonade', 'nimbus-gemma4']:
+              path = f'nimbus/model/{model}.json'
+              with open(path, 'r') as f:
+                  data = json.load(f)
+              for snap in data.get('snaps', []):
+                  if snap.get('name') == 'nimbus':
+                      snap['default-channel'] = channel
+                      break
+              with open(path, 'w') as f:
+                  json.dump(data, f, indent=4)
+                  f.write('\n')
+          "
 
       - name: Install System Dependencies
         run: |
@@ -83,6 +119,44 @@ jobs:
           gpg --homedir ~/.snap/gnupg --list-keys
           # We need to make sure the key name 'my-key' is recognized
           # (Keys generated with snapcraft create-key automatically have UID "my-key")
+
+      - name: Get Nimbus Snap Version
+        id: get-version
+        env:
+          CHANNEL: ${{ github.event.inputs.channel || 'edge' }}
+        run: |
+          VERSION=$(snap info nimbus | python3 -c "
+          import sys, os, re
+          channel = 'latest/' + os.environ['CHANNEL']
+          lines = sys.stdin.read().splitlines()
+          channels_start = False
+          channel_map = {}
+          for line in lines:
+              if line.startswith('channels:'):
+                  channels_start = True
+                  continue
+              if channels_start:
+                  if not line.startswith('  '): break
+                  match = re.match(r'^\s+([^\s:]+):\s+(.+)$', line)
+                  if match:
+                      channel_map[match.group(1)] = match.group(2).strip()
+          ch_order = ['latest/stable', 'latest/candidate', 'latest/beta', 'latest/edge']
+          def resolve(ch):
+              val = channel_map.get(ch)
+              if not val: return None
+              if '↑' in val:
+                  try:
+                      idx = ch_order.index(ch)
+                      for i in range(idx - 1, -1, -1):
+                          p_val = channel_map.get(ch_order[i])
+                          if p_val and '↑' not in p_val: return p_val
+                  except ValueError: pass
+              return val
+          val = resolve(channel)
+          print(val.split()[0] if val else 'unknown')
+          ")
+          echo "NIMBUS_VERSION=$VERSION" >> $GITHUB_ENV
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Setup LXD
         run: |
@@ -142,3 +216,21 @@ jobs:
         with:
           name: nimbus-appliance-iso-${{ github.event.inputs.model || 'nimbus-lemonade' }}
           path: nimbus-appliance-${{ github.event.inputs.model || 'nimbus-lemonade' }}.iso
+
+      - name: Create GitHub Release
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.channel != 'edge' && github.event.inputs.release == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          MODEL="${{ github.event.inputs.model || 'nimbus-lemonade' }}"
+          TAG="v${{ env.NIMBUS_VERSION }}"
+          
+          echo "Creating release for tag $TAG"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists, uploading assets to it..."
+            gh release upload "$TAG" nimbus-appliance-$MODEL.iso nimbus/model/$MODEL/pc.img.xz --clobber
+          else
+            gh release create "$TAG" nimbus-appliance-$MODEL.iso nimbus/model/$MODEL/pc.img.xz \
+              --title "Nimbus Appliance $TAG" \
+              --notes "Automated release of Nimbus Appliance ($MODEL) with Nimbus Snap $TAG"
+          fi
