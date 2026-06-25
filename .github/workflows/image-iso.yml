@@ -17,15 +17,10 @@ on:
         default: 'true'
         type: boolean
       channel:
-        description: 'Nimbus Snap Channel'
+        description: 'Nimbus Snap Channel/Branch (e.g. edge, edge/hostap)'
         required: true
         default: 'edge'
-        type: choice
-        options:
-          - edge
-          - beta
-          - candidate
-          - stable
+        type: string
       release:
         description: 'Create a GitHub Release (non-edge channels only)'
         required: true
@@ -63,7 +58,9 @@ jobs:
         run: |
           python3 -c "
           import os, json
-          channel = 'latest/' + os.environ['CHANNEL']
+          channel = os.environ['CHANNEL']
+          if not channel.startswith('latest/'):
+              channel = 'latest/' + channel
           for model in ['nimbus-lemonade', 'nimbus-gemma4']:
               path = f'nimbus/model/{model}.json'
               with open(path, 'r') as f:
@@ -127,7 +124,9 @@ jobs:
         run: |
           VERSION=$(snap info nimbus | python3 -c "
           import sys, os, re
-          channel = 'latest/' + os.environ['CHANNEL']
+          channel = os.environ['CHANNEL']
+          if not channel.startswith('latest/'):
+              channel = 'latest/' + channel
           lines = sys.stdin.read().splitlines()
           channels_start = False
           channel_map = {}
@@ -143,6 +142,11 @@ jobs:
           ch_order = ['latest/stable', 'latest/candidate', 'latest/beta', 'latest/edge']
           def resolve(ch):
               val = channel_map.get(ch)
+              if not val:
+                  parts = ch.split('/')
+                  if len(parts) > 2:
+                      base_ch = '/'.join(parts[:2])
+                      val = channel_map.get(base_ch)
               if not val: return None
               if '↑' in val:
                   try:

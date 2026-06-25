@@ -181,6 +181,7 @@ async def _run_http_redirect(http_port: int, https_port: int) -> None:
 async def lifespan(app: FastAPI):
     store_task = None
     redirect_task = None
+    ap_task = None
     if settings.tls_enabled:
         redirect_task = asyncio.create_task(
             _run_http_redirect(settings.http_redirect_port, int(os.environ.get("NIMBUS_PORT", "443")))
@@ -192,9 +193,21 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.warning("Store refresh failed (continuing anyway): %s", exc)
         store_task = asyncio.create_task(ensure_store())
+
+    if settings.control_mode == "lxd":
+        from services import wifi as wifi_service
+        logger.info("Scheduling startup AP management task...")
+        ap_task = asyncio.create_task(wifi_service.check_and_manage_ap_on_startup())
+
     await get_control_plane().initialize()
     openclaw_service.start()
     yield
+    if ap_task and not ap_task.done():
+        ap_task.cancel()
+        try:
+            await ap_task
+        except asyncio.CancelledError:
+            pass
     if redirect_task and not redirect_task.done():
         redirect_task.cancel()
         try:

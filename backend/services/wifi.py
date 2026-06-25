@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Optional
@@ -363,3 +364,200 @@ def disconnect_network() -> None:
 
     dev = bus.get_object(NM_SERVICE, wifi_path)
     dbus.Interface(dev, NM_DEVICE_IFACE).Disconnect()
+
+
+def is_ap_active(bus=None) -> bool:
+    import dbus
+    if bus is None:
+        try:
+            bus = _bus()
+        except Exception:
+            return False
+    try:
+        nm = bus.get_object(NM_SERVICE, NM_PATH)
+        active_connections = dbus.Interface(nm, DBUS_PROPS_IFACE).Get(NM_IFACE, "ActiveConnections")
+        for conn_path in active_connections:
+            try:
+                conn_obj = bus.get_object(NM_SERVICE, conn_path)
+                props = dbus.Interface(conn_obj, DBUS_PROPS_IFACE)
+                settings_path = props.Get(NM_ACTIVE_CONN_IFACE, "Connection")
+                settings_obj = bus.get_object(NM_SERVICE, settings_path)
+                settings = dbus.Interface(settings_obj, NM_CONN_IFACE).GetSettings()
+                conn_id = str(settings.get("connection", {}).get("id", ""))
+                conn_type = str(settings.get("connection", {}).get("type", ""))
+                mode = str(settings.get("802-11-wireless", {}).get("mode", ""))
+                if conn_id == "nimbus" and conn_type == "802-11-wireless" and mode == "ap":
+                    return True
+            except Exception:
+                continue
+    except Exception as exc:
+        logger.debug("Error checking if AP is active: %s", exc)
+    return False
+
+
+def _delete_existing_ap_profiles(bus) -> None:
+    import dbus
+    try:
+        settings_obj = bus.get_object(NM_SERVICE, NM_SETTINGS_PATH)
+        settings_iface = dbus.Interface(settings_obj, NM_SETTINGS_IFACE)
+        for conn_path in settings_iface.ListConnections():
+            try:
+                conn_obj = bus.get_object(NM_SERVICE, conn_path)
+                conn_iface = dbus.Interface(conn_obj, NM_CONN_IFACE)
+                s = conn_iface.GetSettings()
+                conn_id = str(s.get("connection", {}).get("id", ""))
+                conn_type = str(s.get("connection", {}).get("type", ""))
+                mode = str(s.get("802-11-wireless", {}).get("mode", ""))
+                if conn_id == "nimbus" and conn_type == "802-11-wireless" and mode == "ap":
+                    logger.info("Deleting existing AP connection profile: %s", conn_path)
+                    conn_iface.Delete()
+            except Exception:
+                continue
+    except Exception as exc:
+        logger.debug("Error while deleting old AP profiles: %s", exc)
+
+
+def start_ap() -> None:
+    import dbus
+    try:
+        bus = _bus()
+    except Exception as exc:
+        logger.error("D-Bus connection failed, cannot start AP: %s", exc)
+        return
+
+    if is_ap_active(bus):
+        logger.info("Nimbus AP is already active")
+        return
+
+    wifi_path = _find_wifi_device(bus)
+    if not wifi_path:
+        logger.warning("No WiFi adapter found, cannot start AP")
+        return
+
+    logger.info("Starting Nimbus hostap Access Point...")
+
+    # Delete any existing AP connection profiles to keep things clean.
+    _delete_existing_ap_profiles(bus)
+
+    # Define connection settings for AP mode.
+    # We use "shared" method for IPv4 to activate dnsmasq/DHCP on the interface.
+    conn = {
+        "connection": dbus.Dictionary({
+            "id": dbus.String("nimbus"),
+            "type": dbus.String("802-11-wireless"),
+            "autoconnect": dbus.Boolean(False),
+        }, signature="sv"),
+        "802-11-wireless": dbus.Dictionary({
+            "ssid": dbus.Array([dbus.Byte(c) for c in b"nimbus"], signature="y"),
+            "mode": dbus.String("ap"),
+            "band": dbus.String("bg"),
+        }, signature="sv"),
+        "ipv4": dbus.Dictionary({
+            "method": dbus.String("shared"),
+        }, signature="sv"),
+        "ipv6": dbus.Dictionary({
+            "method": dbus.String("ignore"),
+        }, signature="sv"),
+    }
+
+    try:
+        nm = bus.get_object(NM_SERVICE, NM_PATH)
+        nm_iface = dbus.Interface(nm, NM_IFACE)
+        conn_path, active_path = nm_iface.AddAndActivateConnection(
+            dbus.Dictionary(conn, signature="sa{sv}"),
+            dbus.ObjectPath(wifi_path),
+            dbus.ObjectPath("/"),
+        )
+        logger.info("Nimbus AP connection created and activation initiated (AP connection: %s)", active_path)
+    except Exception as exc:
+        logger.error("Failed to start AP: %s", exc)
+
+
+def stop_ap() -> None:
+    import dbus
+    try:
+        bus = _bus()
+    except Exception as exc:
+        logger.error("D-Bus connection failed, cannot stop AP: %s", exc)
+        return
+
+    logger.info("Stopping Nimbus hostap Access Point...")
+    
+    try:
+        nm = bus.get_object(NM_SERVICE, NM_PATH)
+        active_connections = dbus.Interface(nm, DBUS_PROPS_IFACE).Get(NM_IFACE, "ActiveConnections")
+        for conn_path in active_connections:
+            try:
+                conn_obj = bus.get_object(NM_SERVICE, conn_path)
+                props = dbus.Interface(conn_obj, DBUS_PROPS_IFACE)
+                settings_path = props.Get(NM_ACTIVE_CONN_IFACE, "Connection")
+                settings_obj = bus.get_object(NM_SERVICE, settings_path)
+                settings_val = dbus.Interface(settings_obj, NM_CONN_IFACE).GetSettings()
+                conn_id = str(settings_val.get("connection", {}).get("id", ""))
+                conn_type = str(settings_val.get("connection", {}).get("type", ""))
+                mode = str(settings_val.get("802-11-wireless", {}).get("mode", ""))
+                if conn_id == "nimbus" and conn_type == "802-11-wireless" and mode == "ap":
+                    logger.info("Deactivating active AP connection: %s", conn_path)
+                    dbus.Interface(nm, NM_IFACE).DeactivateConnection(conn_path)
+            except Exception:
+                continue
+    except Exception as exc:
+        logger.debug("Error while deactivating AP connection: %s", exc)
+
+    # Clean up settings connection profiles
+    _delete_existing_ap_profiles(bus)
+
+
+async def handover_ap_to_wifi(ssid: str, password: str | None) -> None:
+    logger.info("Handing over AP to client Wi-Fi: %s", ssid)
+    # 1. Sleep for 2 seconds to let the response reach the client browser.
+    await asyncio.sleep(2.0)
+    
+    # 2. Stop the AP
+    try:
+        await asyncio.to_thread(stop_ap)
+    except Exception as exc:
+        logger.error("Failed to stop AP during handover: %s", exc)
+        
+    # 3. Connect to the new Wi-Fi
+    try:
+        await asyncio.to_thread(connect_network, ssid, password)
+        logger.info("Successfully transitioned to client Wi-Fi: %s", ssid)
+    except Exception as exc:
+        logger.warning("Handover connect failed: %s. Re-activating AP...", exc)
+        # 4. Fallback: Re-activate AP since connection failed
+        try:
+            await asyncio.to_thread(start_ap)
+        except Exception as start_ap_exc:
+            logger.error("Failed to re-activate AP after connection failure: %s", start_ap_exc)
+
+
+async def check_and_manage_ap_on_startup() -> None:
+    # Wait for NetworkManager to settle (e.g. 10 seconds).
+    await asyncio.sleep(10.0)
+    
+    from services.device import is_oobe_complete
+    if is_oobe_complete():
+        logger.info("OOBE is complete, skipping startup AP check")
+        return
+        
+    from services.network import is_online
+    if is_online():
+        logger.info("Device is online on startup, skipping AP check")
+        return
+        
+    import dbus
+    try:
+        bus = _bus()
+        if is_ap_active(bus):
+            logger.info("Nimbus AP is already active on startup")
+            return
+            
+        wifi_path = _find_wifi_device(bus)
+        if wifi_path:
+            logger.info("Device is offline, OOBE is incomplete, and WiFi is available. Starting AP...")
+            await asyncio.to_thread(start_ap)
+        else:
+            logger.warning("No WiFi adapter found on startup, cannot start AP")
+    except Exception as exc:
+        logger.error("Error during startup AP check: %s", exc)

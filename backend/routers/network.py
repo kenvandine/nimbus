@@ -57,6 +57,13 @@ async def wifi_networks() -> list[dict]:
 
 @router.post("/wifi/connect")
 async def wifi_connect(req: ConnectRequest) -> dict:
+    # Check if the Nimbus AP is currently active
+    ap_active = await asyncio.to_thread(wifi_service.is_ap_active)
+    if ap_active:
+        # Schedule the transition in the background
+        asyncio.create_task(wifi_service.handover_ap_to_wifi(req.ssid, req.password))
+        return {"status": "transitioning", "ssid": req.ssid}
+
     try:
         await asyncio.to_thread(wifi_service.connect_network, req.ssid, req.password)
     except RuntimeError as exc:
