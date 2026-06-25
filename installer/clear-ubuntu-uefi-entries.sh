@@ -24,12 +24,13 @@ if ! command -v efibootmgr >/dev/null 2>&1; then
   exit 1
 fi
 
+TAB=$'\t'
 entries=()
 while IFS= read -r line; do
-  if [[ $line =~ ^Boot([0-9A-Fa-f]{4})[\*\ ]+([^\t]+) ]]; then
+  if [[ $line =~ ^Boot([0-9A-Fa-f]{4})[\*\ ]+([^$TAB]+) ]]; then
     num="${BASH_REMATCH[1]}"
     label="${BASH_REMATCH[2]}"
-    label="${label%%$'\t'*}"
+    label="${label%%$TAB*}"
     if [[ "$label" == "ubuntu" || "$label" == "Ubuntu" ]]; then
       entries+=("$num:$label")
     fi
