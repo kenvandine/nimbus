@@ -22,9 +22,9 @@ A self-hosted appliance platform for managing AI agents and apps. Nimbus feature
   │  │  ┌──────────────────────┐  REST/SSE  ┌──────────────────────────────────────────────┐    │ │
   │  │  │      Frontend        │◄──────────►│  Backend  (FastAPI)                          │    │ │
   │  │  │     React / Vite     │            │  /apps · /models · /terminal · /ssh          │    │ │
-  │  │  └──────────────────────┘            │  /network · /snapshots · /firewall · /files │    │ │
+  │  │  └──────────────────────┘            │  /network · /snapshots · /firewall · /files  │    │ │
   │  │           ▲                          └──────┬───────────────────────────┬───────────┘    │ │
-  │  └───────────┼────────────────── pylxd / :9001─┘───────────────── :13305──┘────────────────┘ │
+  │  └───────────┼────────────────── pylxd / :9001─┴───────────────── :13305──┴────────────────┘ │
   │              │ :443                            │                            │                 │
   │  ┌───────────┴──────────────────────┐          │                            │                 │
   │  │  Kiosk Stack                     │          │                            │                 │
@@ -474,14 +474,13 @@ nimbus/
 ├── snapcraft.yaml              # Strict snap definition
 ├── pyproject.toml              # Python packaging metadata
 └── SPEC.md                     # Historical product specification (architectural history)
+```
 
 ### Host Utilities & Diagnostic Scripts (Root Directory)
 * [clear-ubuntu-uefi-entries.sh](file:///home/ken/src/github/kenvandine/nimbus-appliance/nimbus/clear-ubuntu-uefi-entries.sh) - Cleans up Ubuntu UEFI entries on bare-metal targets.
 * [fix-lxd-network.sh](file:///home/ken/src/github/kenvandine/nimbus-appliance/nimbus/fix-lxd-network.sh) - Solves NetworkManager clashes with LXD bridges.
 * [verify-lxd-network-fix.sh](file:///home/ken/src/github/kenvandine/nimbus-appliance/nimbus/verify-lxd-network-fix.sh) - Unpacks the pre-built installer image to verify NetworkManager configuration.
 * [perf-diag.sh](file:///home/ken/src/github/kenvandine/nimbus-appliance/nimbus/perf-diag.sh) - Gathers host and container performance metrics for debugging.
-```
-```
 
 ---
 
