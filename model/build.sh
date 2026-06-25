@@ -74,6 +74,14 @@ inject_nm_lxd_unmanaged() {
 unmanaged-devices=interface-name:lxdbr0;interface-name:veth*
 EOF
 
+    nm_dnsmasq_relpath=var/snap/network-manager/common/etc/NetworkManager/dnsmasq-shared.d/nimbus-captive-portal.conf
+    mkdir -p "$workdir/$(dirname "$nm_dnsmasq_relpath")"
+    cat > "$workdir/$nm_dnsmasq_relpath" <<'EOF'
+# Redirect all DNS queries to the gateway IP for the captive portal flow
+address=/#/10.42.0.1
+EOF
+
+
     # ── System performance fixes (applied to all models) ──────────────────────
 
     # 1. Mask ttyS0 getty — no serial console hardware; agetty respawns every

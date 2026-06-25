@@ -153,10 +153,26 @@ async def _run_http_redirect(http_port: int, https_port: int) -> None:
             if host in _LOCALHOST_HOSTS:
                 await _proxy_localhost(raw, reader, writer)
                 return
-            port_suffix = f":{https_port}" if https_port != 443 else ""
-            location = f"https://{host}{port_suffix}{path}"
+
+            local_ip = "10.42.0.1"
+            try:
+                sockname = writer.get_extra_info('sockname')
+                if sockname:
+                    local_ip = sockname[0]
+            except Exception:
+                pass
+
+            local_hosts = {"nimbus.local", local_ip}
+            if host in local_hosts:
+                port_suffix = f":{https_port}" if https_port != 443 else ""
+                location = f"https://{host}{port_suffix}{path}"
+                status_line = "HTTP/1.1 301 Moved Permanently"
+            else:
+                location = f"http://{local_ip}/"
+                status_line = "HTTP/1.1 302 Found"
+
             writer.write(
-                f"HTTP/1.1 301 Moved Permanently\r\n"
+                f"{status_line}\r\n"
                 f"Location: {location}\r\n"
                 f"Content-Length: 0\r\n"
                 f"Connection: close\r\n\r\n".encode()

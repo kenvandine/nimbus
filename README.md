@@ -104,6 +104,16 @@ Then open `https://<host-ip>` in a browser. On first boot:
 > generated automatically on first start. See [TLS / HTTPS](#tls--https) to
 > configure Let's Encrypt.
 
+### Headless Wi-Fi Onboarding
+
+If the appliance has a Wi-Fi adapter but no ethernet cable connected on first boot, it automatically starts a Wi-Fi Access Point (hotspot) with the SSID `nimbus` (no password required).
+
+1. Connect your phone or computer to the **`nimbus`** Wi-Fi network.
+2. A **captive portal notification** will pop up on your device (e.g. "Sign in to network"). Click it to open the onboarding wizard. If the notification does not appear, open a browser and go to `http://10.42.0.1`.
+3. Select your local Wi-Fi network and enter its credentials.
+4. The appliance will connect to your local Wi-Fi, disable the onboarding hotspot, and allow you to complete the OOBE setup.
+
+
 ### Local / container mode (development)
 
 Use the helper scripts if you want Nimbus to run fully inside the LXD container:
