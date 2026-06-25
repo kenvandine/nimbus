@@ -158,9 +158,11 @@ def get_wifi_status() -> WifiStatus:
         dev = bus.get_object(NM_SERVICE, wifi_path)
         active_ap = dbus.Interface(dev, DBUS_PROPS_IFACE).Get(NM_WIRELESS_IFACE, "ActiveAccessPoint")
 
+        ap_active = is_ap_active(bus)
+
         ssid = None
         ip_address = _ipv4_address_for_device(bus, dev)
-        if str(active_ap) != "/":
+        if str(active_ap) != "/" and not ap_active:
             ap = bus.get_object(NM_SERVICE, active_ap)
             ssid_bytes = dbus.Interface(ap, DBUS_PROPS_IFACE).Get(NM_AP_IFACE, "Ssid")
             ssid = bytes(ssid_bytes).decode("utf-8", errors="replace")
@@ -177,7 +179,11 @@ def get_wifi_status() -> WifiStatus:
         return WifiStatus(available=False, enabled=False, connected=False, error=str(exc))
 
 
+_cached_networks: list[AccessPoint] = []
+
+
 def scan_networks() -> list[AccessPoint]:
+    global _cached_networks
     try:
         import dbus
         bus = _bus()
@@ -223,10 +229,20 @@ def scan_networks() -> list[AccessPoint]:
                 logger.debug("Skipping AP at %s: %s", ap_path, exc)
 
         results.sort(key=lambda a: (-a.in_use, -a.strength))
-        return results
+
+        # Filter out the onboarding hotspot from results
+        real_results = [r for r in results if r.ssid != "nimbus"]
+
+        if real_results:
+            _cached_networks = real_results
+            return real_results
+
+        # If we only found 'nimbus' (or nothing) because we are in AP mode,
+        # return the cached results so the user can see available networks.
+        return _cached_networks
     except Exception as exc:
         logger.warning("WiFi scan error: %s", exc)
-        return []
+        return _cached_networks
 
 
 def _device_failure_reason(bus, wifi_path) -> str | None:
@@ -508,6 +524,134 @@ def stop_ap() -> None:
     _delete_existing_ap_profiles(bus)
 
 
+class CaptiveDNSProtocol(asyncio.DatagramProtocol):
+    def __init__(self, target_ip: str):
+        self.target_ip = target_ip
+
+    def connection_made(self, transport):
+        self.transport = transport
+
+    def datagram_received(self, data, addr):
+        try:
+            reply = self.build_reply(data)
+            self.transport.sendto(reply, addr)
+        except Exception as exc:
+            logger.debug("Error building DNS reply: %s", exc)
+
+    def build_reply(self, data):
+        transaction_id = data[:2]
+        flags = b"\x81\x80"
+        qdcount = data[4:6]
+        ancount = b"\x00\x01"
+        nscount = b"\x00\x00"
+        arcount = b"\x00\x00"
+        
+        end = 12
+        while True:
+            length = data[end]
+            if length == 0:
+                end += 1
+                break
+            end += 1 + length
+        
+        question = data[12:end+4]
+        answer_name = b"\xc0\x0c"
+        answer_type = b"\x00\x01"
+        answer_class = b"\x00\x01"
+        answer_ttl = b"\x00\x00\x00\x3c"
+        answer_rdlength = b"\x00\x04"
+        
+        ip_bytes = bytes(int(x) for x in self.target_ip.split("."))
+        return transaction_id + flags + qdcount + ancount + nscount + arcount + question + answer_name + answer_type + answer_class + answer_ttl + answer_rdlength + ip_bytes
+
+
+_dns_server_transport = None
+
+async def start_dns_server(ip: str) -> None:
+    global _dns_server_transport
+    if _dns_server_transport:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+        transport, protocol = await loop.create_datagram_endpoint(
+            lambda: CaptiveDNSProtocol(ip),
+            local_addr=("0.0.0.0", 5300)
+        )
+        _dns_server_transport = transport
+        logger.info("Captive portal DNS server started on 0.0.0.0:5300")
+    except Exception as exc:
+        logger.error("Failed to start captive portal DNS server: %s", exc)
+
+
+async def stop_dns_server() -> None:
+    global _dns_server_transport
+    if _dns_server_transport:
+        try:
+            _dns_server_transport.close()
+            logger.info("Captive portal DNS server stopped")
+        except Exception as exc:
+            logger.debug("Error stopping DNS server: %s", exc)
+        _dns_server_transport = None
+
+
+def _manage_dns_redirect(iface: str, ip: str, add: bool) -> None:
+    import subprocess
+    action = "-I" if add else "-D"
+    cmd = [
+        "iptables", "-t", "nat", action, "PREROUTING",
+        "-i", iface, "-p", "udp", "--dport", "53",
+        "-j", "DNAT", "--to-destination", f"{ip}:5300"
+    ]
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        logger.info("Successfully %s DNS redirect rule on %s for %s", "added" if add else "removed", iface, ip)
+    except Exception as exc:
+        logger.debug("Failed to %s DNS redirect rule: %s", "add" if add else "remove", exc)
+
+
+async def async_start_ap() -> None:
+    await asyncio.to_thread(start_ap)
+    import dbus
+    try:
+        bus = _bus()
+        wifi_path = _find_wifi_device(bus)
+        if wifi_path:
+            dev = bus.get_object(NM_SERVICE, wifi_path)
+            iface_name = str(dbus.Interface(dev, DBUS_PROPS_IFACE).Get(NM_DEVICE_IFACE, "Interface"))
+            
+            # Wait up to 5 seconds for local IP assignment (default shared is 10.42.0.1)
+            ip = "10.42.0.1"
+            for _ in range(5):
+                temp_ip = _ipv4_address_for_device(bus, dev)
+                if temp_ip:
+                    ip = temp_ip
+                    break
+                await asyncio.sleep(1.0)
+                
+            await start_dns_server(ip)
+            await asyncio.to_thread(_manage_dns_redirect, iface_name, ip, True)
+    except Exception as exc:
+        logger.error("Failed to set up captive portal DNS redirect: %s", exc)
+
+
+async def async_stop_ap() -> None:
+    import dbus
+    try:
+        bus = _bus()
+        wifi_path = _find_wifi_device(bus)
+        if wifi_path:
+            dev = bus.get_object(NM_SERVICE, wifi_path)
+            iface_name = str(dbus.Interface(dev, DBUS_PROPS_IFACE).Get(NM_DEVICE_IFACE, "Interface"))
+            
+            ip = _ipv4_address_for_device(bus, dev) or "10.42.0.1"
+            await asyncio.to_thread(_manage_dns_redirect, iface_name, ip, False)
+    except Exception as exc:
+        logger.debug("Failed to remove captive portal DNS redirect: %s", exc)
+
+    await stop_dns_server()
+    await asyncio.to_thread(stop_ap)
+
+
 async def handover_ap_to_wifi(ssid: str, password: str | None) -> None:
     logger.info("Handing over AP to client Wi-Fi: %s", ssid)
     # 1. Sleep for 2 seconds to let the response reach the client browser.
@@ -515,7 +659,7 @@ async def handover_ap_to_wifi(ssid: str, password: str | None) -> None:
     
     # 2. Stop the AP
     try:
-        await asyncio.to_thread(stop_ap)
+        await async_stop_ap()
     except Exception as exc:
         logger.error("Failed to stop AP during handover: %s", exc)
         
@@ -527,7 +671,7 @@ async def handover_ap_to_wifi(ssid: str, password: str | None) -> None:
         logger.warning("Handover connect failed: %s. Re-activating AP...", exc)
         # 4. Fallback: Re-activate AP since connection failed
         try:
-            await asyncio.to_thread(start_ap)
+            await async_start_ap()
         except Exception as start_ap_exc:
             logger.error("Failed to re-activate AP after connection failure: %s", start_ap_exc)
 
@@ -555,8 +699,10 @@ async def check_and_manage_ap_on_startup() -> None:
             
         wifi_path = _find_wifi_device(bus)
         if wifi_path:
-            logger.info("Device is offline, OOBE is incomplete, and WiFi is available. Starting AP...")
-            await asyncio.to_thread(start_ap)
+            logger.info("Device is offline, OOBE is incomplete. Scanning networks before starting AP...")
+            await asyncio.to_thread(scan_networks)
+            logger.info("Starting AP...")
+            await async_start_ap()
         else:
             logger.warning("No WiFi adapter found on startup, cannot start AP")
     except Exception as exc:
