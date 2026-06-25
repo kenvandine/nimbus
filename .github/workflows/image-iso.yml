@@ -169,6 +169,13 @@ jobs:
           echo "NIMBUS_VERSION=$VERSION" >> $GITHUB_ENV
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
+          # Generate timestamp and ISO filename
+          TIMESTAMP=$(date +'%Y%m%d%H%M')
+          MODEL="${{ github.event.inputs.model || 'nimbus-lemonade' }}"
+          ISO_FILENAME="nimbus-appliance-${MODEL}-${VERSION}-${TIMESTAMP}.iso"
+          echo "ISO_FILENAME=${ISO_FILENAME}" >> $GITHUB_ENV
+          echo "ISO_TIMESTAMP=${TIMESTAMP}" >> $GITHUB_ENV
+
       - name: Setup LXD
         run: |
           sudo snap install lxd
@@ -214,7 +221,7 @@ jobs:
           fi
           
           # Run build-iso.sh using sudo (required by livefs-edit)
-          sudo ./nimbus/installer/build-iso.sh ubuntu-server.iso nimbus-appliance-$MODEL.iso "$IMAGE_PATH"
+          sudo ./nimbus/installer/build-iso.sh ubuntu-server.iso "${{ env.ISO_FILENAME }}" "$IMAGE_PATH"
 
       - name: Upload Image Artifact
         uses: actions/upload-artifact@v4
@@ -225,8 +232,8 @@ jobs:
       - name: Upload Installer ISO Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nimbus-appliance-iso-${{ github.event.inputs.model || 'nimbus-lemonade' }}
-          path: nimbus-appliance-${{ github.event.inputs.model || 'nimbus-lemonade' }}.iso
+          name: nimbus-appliance-iso-${{ github.event.inputs.model || 'nimbus-lemonade' }}-${{ env.NIMBUS_VERSION }}-${{ env.ISO_TIMESTAMP }}
+          path: ${{ env.ISO_FILENAME }}
 
       - name: Create GitHub Release
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.channel != 'edge' && github.event.inputs.release == 'true' }}
@@ -239,9 +246,9 @@ jobs:
           echo "Creating release for tag $TAG"
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists, uploading assets to it..."
-            gh release upload "$TAG" nimbus-appliance-$MODEL.iso nimbus/model/$MODEL/pc.img.xz --clobber
+            gh release upload "$TAG" "${{ env.ISO_FILENAME }}" nimbus/model/$MODEL/pc.img.xz --clobber
           else
-            gh release create "$TAG" nimbus-appliance-$MODEL.iso nimbus/model/$MODEL/pc.img.xz \
+            gh release create "$TAG" "${{ env.ISO_FILENAME }}" nimbus/model/$MODEL/pc.img.xz \
               --title "Nimbus Appliance $TAG" \
               --notes "Automated release of Nimbus Appliance ($MODEL) with Nimbus Snap $TAG"
           fi
