@@ -27,6 +27,13 @@ on:
       - 'scripts/**'
       - 'pyproject.toml'
       - '.github/workflows/snap.yml'
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Snap Store release channel/branch (e.g. edge, edge/hostap)'
+        required: true
+        default: 'edge'
+        type: string
 
 jobs:
   build:
@@ -63,7 +70,7 @@ jobs:
   publish:
     name: Publish Snap
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     steps:
       - name: Download Snap Artifact
@@ -77,4 +84,4 @@ jobs:
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
         with:
           snap: ${{ needs.build.outputs.snap }}
-          release: edge
+          release: ${{ github.event.inputs.channel || 'edge' }}
