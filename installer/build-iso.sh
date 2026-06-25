@@ -118,19 +118,32 @@ if [ -n "$ACTIONS_PY" ] && ! grep -q "cdrom is not mounted" "$ACTIONS_PY"; then
 import sys
 path = sys.argv[1]
 src = open(path).read()
-needle = "    ctxt.run(['chroot', base, 'apt-get', 'update'])"
+needle = "    cache = Cache()"
 inject = (
     "    # Remove cdrom apt sources — /cdrom is not mounted in the chroot.\n"
     "    import glob as _glob, os as _os\n"
-    "    for _f in (_glob.glob(base + '/etc/apt/sources.list.d/cdrom*') +\n"
-    "               _glob.glob(base + '/etc/apt/sources.list.d/*cdrom*')):\n"
+    "    for _f in (_glob.glob(overlay + '/etc/apt/sources.list.d/cdrom*') +\n"
+    "               _glob.glob(overlay + '/etc/apt/sources.list.d/*cdrom*')):\n"
     "        try:\n"
     "            _os.unlink(_f)\n"
     "        except OSError:\n"
     "            pass\n"
-    "    ctxt.run(['chroot', base, 'apt-get', 'update'])"
+    "    _sources = overlay + '/etc/apt/sources.list'\n"
+    "    if _os.path.exists(_sources):\n"
+    "        try:\n"
+    "            with open(_sources, 'r') as _f:\n"
+    "                _lines = _f.readlines()\n"
+    "            with open(_sources, 'w') as _f:\n"
+    "                for _line in _lines:\n"
+    "                    if 'cdrom:' in _line:\n"
+    "                        _f.write('# ' + _line)\n"
+    "                    else:\n"
+    "                        _f.write(_line)\n"
+    "        except Exception:\n"
+    "            pass\n"
+    "    cache = Cache()"
 )
-assert needle in src, f"could not find apt-get update line in {path}"
+assert needle in src, f"could not find cache = Cache() line in {path}"
 open(path, "w").write(src.replace(needle, inject))
 print(f"Patched {path} to remove cdrom apt sources file")
 PY
