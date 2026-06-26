@@ -68,8 +68,6 @@ def is_online() -> bool:
 
 def get_primary_interface_ip() -> str | None:
     """Synchronous variant — returns the LAN IP or None if not determinable."""
-    if _cached_ip:
-        return _cached_ip
     iface = get_primary_interface() or settings.primary_interface
     try:
         import socket
@@ -87,10 +85,6 @@ def get_primary_interface_ip() -> str | None:
 
 
 async def get_host_ip() -> str:
-    global _cached_ip
-    if _cached_ip:
-        return _cached_ip
-
     # Ask NetworkManager which interface carries the default route, then read
     # its IP. This works on both WiFi and Ethernet without manual configuration.
     # Fall back to NIMBUS_PRIMARY_INTERFACE if NM is unavailable.
@@ -103,8 +97,7 @@ async def get_host_ip() -> str:
         import psutil
         for addr in psutil.net_if_addrs().get(iface, []):
             if addr.family == socket.AF_INET:
-                _cached_ip = addr.address
-                return _cached_ip
+                return addr.address
     except Exception as exc:
         logger.warning("psutil addr lookup for %s failed: %s", iface, exc)
 
@@ -115,8 +108,7 @@ async def get_host_ip() -> str:
         for addrs in psutil.net_if_addrs().values():
             for addr in addrs:
                 if addr.family == socket.AF_INET and not addr.address.startswith(("127.", "172.")):
-                    _cached_ip = addr.address
-                    return _cached_ip
+                    return addr.address
     except Exception as exc:
         logger.warning("psutil fallback addr scan failed: %s", exc)
 

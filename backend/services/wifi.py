@@ -337,6 +337,7 @@ def _connect_network(ssid: str, password: str | None) -> None:
         "connection": dbus.Dictionary({
             "id": dbus.String(ssid),
             "type": dbus.String("802-11-wireless"),
+            "mdns": dbus.Int32(2),
         }, signature="sv"),
         "802-11-wireless": dbus.Dictionary({
             "ssid": dbus.Array([dbus.Byte(c) for c in ssid.encode("utf-8")], signature="y"),
@@ -462,6 +463,7 @@ def start_ap() -> None:
             "id": dbus.String("nimbus"),
             "type": dbus.String("802-11-wireless"),
             "autoconnect": dbus.Boolean(False),
+            "mdns": dbus.Int32(2),
         }, signature="sv"),
         "802-11-wireless": dbus.Dictionary({
             "ssid": dbus.Array([dbus.Byte(c) for c in b"nimbus"], signature="y"),
@@ -539,30 +541,49 @@ class CaptiveDNSProtocol(asyncio.DatagramProtocol):
             logger.debug("Error building DNS reply: %s", exc)
 
     def build_reply(self, data):
+        if len(data) < 12:
+            raise ValueError("Data too short")
+
         transaction_id = data[:2]
         flags = b"\x81\x80"
         qdcount = data[4:6]
-        ancount = b"\x00\x01"
         nscount = b"\x00\x00"
         arcount = b"\x00\x00"
         
         end = 12
-        while True:
+        while end < len(data):
             length = data[end]
             if length == 0:
                 end += 1
                 break
+            if length & 0xC0 == 0xC0:
+                end += 2
+                break
             end += 1 + length
         
+        if end + 4 > len(data):
+            raise ValueError("Truncated question section")
+
         question = data[12:end+4]
-        answer_name = b"\xc0\x0c"
-        answer_type = b"\x00\x01"
-        answer_class = b"\x00\x01"
-        answer_ttl = b"\x00\x00\x00\x3c"
-        answer_rdlength = b"\x00\x04"
+        qtype = data[end : end+2]
         
-        ip_bytes = bytes(int(x) for x in self.target_ip.split("."))
-        return transaction_id + flags + qdcount + ancount + nscount + arcount + question + answer_name + answer_type + answer_class + answer_ttl + answer_rdlength + ip_bytes
+        # We only answer A queries (type 1) with our IPv4 address.
+        # For other queries (like AAAA or HTTPS), we return NODATA (success with 0 answers)
+        # so the client falls back to IPv4 A queries.
+        if qtype == b"\x00\x01":
+            ancount = b"\x00\x01"
+            answer_name = b"\xc0\x0c"
+            answer_type = b"\x00\x01"
+            answer_class = b"\x00\x01"
+            answer_ttl = b"\x00\x00\x00\x3c"
+            answer_rdlength = b"\x00\x04"
+            ip_bytes = bytes(int(x) for x in self.target_ip.split("."))
+            answers = answer_name + answer_type + answer_class + answer_ttl + answer_rdlength + ip_bytes
+        else:
+            ancount = b"\x00\x00"
+            answers = b""
+            
+        return transaction_id + flags + qdcount + ancount + nscount + arcount + question + answers
 
 
 _dns_server_transport = None
@@ -603,10 +624,11 @@ def _manage_dns_redirect(iface: str, ip: str, add: bool) -> None:
         "-j", "DNAT", "--to-destination", f"{ip}:5300"
     ]
     try:
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         logger.info("Successfully %s DNS redirect rule on %s for %s", "added" if add else "removed", iface, ip)
     except Exception as exc:
-        logger.debug("Failed to %s DNS redirect rule: %s", "add" if add else "remove", exc)
+        stderr = getattr(exc, "stderr", "") or str(exc)
+        logger.error("Failed to %s DNS redirect rule on %s: %s", "add" if add else "remove", iface, stderr)
 
 
 async def async_start_ap() -> None:

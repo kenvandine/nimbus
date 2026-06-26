@@ -187,7 +187,11 @@ export default function App() {
       setStats(statsData)
       setActiveInstalls(active)
       setError(null)
-      if (statsData.oobe_complete === false && !oobeCompletedRef.current) setOobeComplete(false)
+      if (statsData.oobe_complete === true) {
+        setOobeComplete(true)
+      } else if (statsData.oobe_complete === false && !oobeCompletedRef.current) {
+        setOobeComplete(false)
+      }
     } catch (e) {
       // A 401 means the session expired — re-check auth status.
       if (e.message.startsWith('401:')) {
@@ -214,7 +218,11 @@ export default function App() {
           setError(null)
           setLoading(false)
           sseBackoffRef.current = 1000
-          if (statsData.oobe_complete === false && !oobeCompletedRef.current) setOobeComplete(false)
+          if (statsData.oobe_complete === true) {
+            setOobeComplete(true)
+          } else if (statsData.oobe_complete === false && !oobeCompletedRef.current) {
+            setOobeComplete(false)
+          }
         }
       } catch {}
     }

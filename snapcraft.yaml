@@ -23,6 +23,7 @@ apps:
       - network-observe
       - network-control
       - system-observe
+      - firewall-control
       - lxd
     environment:
       HOME: $SNAP_COMMON
@@ -117,6 +118,7 @@ parts:
       - gir1.2-snapd-2
       - python3-dbus
       - python3-gi
+      - iptables
     after:
       - frontend
     override-build: |
