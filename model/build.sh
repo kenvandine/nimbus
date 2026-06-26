@@ -262,16 +262,16 @@ PY
     sudo mcopy -o -i "$seed_img" "$rebuilt_preseed" "::/systems/$system_name/preseed.tgz"
     sudo mcopy -o -i "$seed_img" "$rebuilt_assert" "::/systems/$system_name/preseed"
 
-    seed_start=$(
-        sfdisk --json "$img" | python3 -c '
+    loop_dev=$(sudo losetup --find --show "$img")
+    seed_start=$(sudo sfdisk --json "$loop_dev" | python3 -c '
 import json, sys
 data = json.load(sys.stdin)
 for part in data.get("partitiontable", {}).get("partitions", []):
     if part.get("name") == "ubuntu-seed":
         print(part["start"])
         break
-'
-    )
+')
+    sudo losetup -d "$loop_dev"
     if [ -z "$seed_start" ]; then
         echo "could not locate ubuntu-seed start sector in $img" >&2
         rm -f "$rebuilt_assert" "$rebuilt_assert_json"
@@ -294,24 +294,27 @@ inject_lxc_seed_image() {
 
     echo "==> Injecting LXC seed image into ubuntu-data..."
 
-    # Set up the loopback device first so we can query partition labels
-    # reliably via lsblk (same approach as inject_sideload_models).
-    loop_dev=$(sudo losetup --find --show --partscan "$img")
+    loop_dev=$(sudo losetup --find --show "$img")
+    data_start=$(sudo sfdisk --json "$loop_dev" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+for part in data.get("partitiontable", {}).get("partitions", []):
+    if part.get("name") == "ubuntu-data":
+        print(part["start"])
+        break
+')
+    sudo losetup -d "$loop_dev"
 
-    data_part=$(sudo lsblk -o NAME,PARTLABEL -rn "$loop_dev" \
-        | awk '$2 == "ubuntu-data" {print $1; exit}')
-
-    if [ -z "$data_part" ]; then
+    if [ -z "$data_start" ]; then
         echo "    Warning: ubuntu-data partition not found — skipping LXC seed injection" >&2
-        sudo losetup -d "$loop_dev"
         return 0
     fi
 
+    offset=$((data_start * 512))
     mnt=$(mktemp -d "${TMPDIR%/}/nimbus-data-mnt.XXXXXX")
 
-    if ! sudo mount "/dev/$data_part" "$mnt"; then
-        echo "    Warning: could not mount ubuntu-data (/dev/$data_part) — skipping LXC seed injection" >&2
-        sudo losetup -d "$loop_dev"
+    if ! sudo mount -o loop,offset=$offset "$img" "$mnt"; then
+        echo "    Warning: could not mount ubuntu-data (offset $offset) — skipping LXC seed injection" >&2
         rmdir "$mnt"
         return 0
     fi
@@ -323,7 +326,6 @@ inject_lxc_seed_image() {
     sudo chown -R 0:0 "$dest"
 
     sudo umount "$mnt"
-    sudo losetup -d "$loop_dev"
     rmdir "$mnt"
 
     echo "    LXC seed injected ($(du -sh "$seed_tgz" | cut -f1)) at system-data/var/snap/nimbus/common/lxc-seed/"
@@ -337,26 +339,27 @@ inject_sideload_models() {
 
     echo "==> Injecting sideloaded models into ubuntu-data..."
 
-    # Set up the loopback device first so we can query partition labels
-    # reliably via lsblk. Calling sfdisk --json on a raw file (not a block
-    # device) can silently return incomplete output for large images.
-    loop_dev=$(sudo losetup --find --show --partscan "$img")
+    loop_dev=$(sudo losetup --find --show "$img")
+    data_start=$(sudo sfdisk --json "$loop_dev" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+for part in data.get("partitiontable", {}).get("partitions", []):
+    if part.get("name") == "ubuntu-data":
+        print(part["start"])
+        break
+')
+    sudo losetup -d "$loop_dev"
 
-    # Find the partition whose PARTLABEL is "ubuntu-data"
-    data_part=$(sudo lsblk -o NAME,PARTLABEL -rn "$loop_dev" \
-        | awk '$2 == "ubuntu-data" {print $1; exit}')
-
-    if [ -z "$data_part" ]; then
+    if [ -z "$data_start" ]; then
         echo "    Warning: ubuntu-data partition not found — skipping model injection" >&2
-        sudo losetup -d "$loop_dev"
         return 0
     fi
 
+    offset=$((data_start * 512))
     mnt=$(mktemp -d "${TMPDIR%/}/nimbus-data-mnt.XXXXXX")
 
-    if ! sudo mount "/dev/$data_part" "$mnt"; then
-        echo "    Warning: could not mount ubuntu-data (/dev/$data_part) — skipping model injection" >&2
-        sudo losetup -d "$loop_dev"
+    if ! sudo mount -o loop,offset=$offset "$img" "$mnt"; then
+        echo "    Warning: could not mount ubuntu-data (offset $offset) — skipping model injection" >&2
         rmdir "$mnt"
         return 0
     fi
@@ -368,10 +371,9 @@ inject_sideload_models() {
     sudo chown -R 0:0 "$dest"
 
     sudo umount "$mnt"
-    sudo losetup -d "$loop_dev"
     rmdir "$mnt"
 
-    echo "    Models injected from $cache_dir into /dev/$data_part"
+    echo "    Models injected from $cache_dir into $img (offset $offset)"
 }
 
 [ "$#" -ge 1 ] || usage
