@@ -494,6 +494,45 @@ nimbus/
 
 ---
 
+## Building the Appliance Image and ISO
+
+Nimbus supports building pre-seeded appliance images and installer ISOs via the GitHub Actions workflow `Build Appliance Image and ISO` (`.github/workflows/image-iso.yml`). This workflow packages Ubuntu Core along with the configured nimbus snaps and optionally pre-seeds local AI model files so the device boots fully offline-ready.
+
+### Workflow Inputs
+
+When dispatching the workflow, you can specify several options:
+
+* **`model`** (Choice, required): The target appliance model definition to build:
+  * `nimbus-lemonade` (default)
+  * `nimbus-gemma4`
+* **`preseed`** (Boolean, required): Enable preseeding of snaps (pre-configures snaps inside the seed to save time on first boot). Defaults to `true`.
+* **`channel`** (String, required): The Snap Store channel/branch to fetch the `nimbus` snap from (e.g. `edge`, `beta`, `stable`). Defaults to `edge`.
+* **`release`** (Boolean, required): Creates a GitHub Release with the build artifacts (only works for non-edge channels). Defaults to `false`.
+* **`ssh_key`** (String, optional): Public SSH key to embed directly into the Ubuntu Core system-user assertion, allowing passwordless login on first boot.
+* **`hf_model_repo`** (String, optional): A HuggingFace model repository to download and pre-seed in the image cache (e.g., `unsloth/Qwen3.5-9B-GGUF`).
+* **`hf_model_file`** (String, optional): Specific model file to download from the HuggingFace repository (e.g., `Qwen3.5-9B-Q4_K_M.gguf`). If left empty, the workflow downloads the entire snapshot.
+
+### Example: Building with Qwen3.5-9B-GGUF Pre-seeded
+
+To build an installer ISO containing the `nimbus-lemonade` appliance pre-loaded with the `Qwen3.5-9B` model, trigger the workflow with the following parameters:
+
+1. Go to the **Actions** tab in your repository.
+2. Select the **Build Appliance Image and ISO** workflow.
+3. Click **Run workflow** and fill in:
+   * **Appliance Model to build**: `nimbus-lemonade`
+   * **Nimbus Snap Channel/Branch**: `edge` (or whichever branch has your changes)
+   * **Optional HuggingFace model repository**: `unsloth/Qwen3.5-9B-GGUF`
+   * **Optional HuggingFace model filename/pattern**: `Qwen3.5-9B-Q4_K_M.gguf`
+4. Click **Run workflow**.
+
+On build completion:
+* The workflow will download `Qwen3.5-9B-Q4_K_M.gguf`.
+* It detects the `Qwen3.5-9B-GGUF` repo name and automatically downloads the companion vision file `mmproj-F16.gguf`.
+* It packages the cache and pre-writes a custom `model_override.json` so `lemonade-server` defaults to it automatically.
+* The pre-seeded model will be bundled into the compiled `.iso` and `.img` files, ready for offline installation.
+
+---
+
 ## How apps are installed
 
 In the default configuration (`app-store-type=nimbus`), Nimbus installs apps as classic snaps inside the managed LXD container:
