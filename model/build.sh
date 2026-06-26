@@ -131,7 +131,7 @@ Wants=snapd.seeded.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'snap connect nimbus:firewall-control; snap connect nimbus:network-control; snap connect nimbus:network-observe; snap connect nimbus:system-observe; snap set system hostname=nimbus; snap set system service.systemd-resolved.multicast-dns=yes'
+ExecStart=/bin/sh -c 'snap connect nimbus:firewall-control; snap connect nimbus:network-control; snap connect nimbus:network-observe; snap connect nimbus:system-observe; snap set system hostname=nimbus; hostnamectl set-hostname nimbus; snap set system service.systemd-resolved.multicast-dns=yes; systemctl restart systemd-resolved'
 RemainAfterExit=yes
 Restart=on-failure
 RestartSec=5s
