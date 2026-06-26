@@ -294,25 +294,23 @@ inject_lxc_seed_image() {
 
     echo "==> Injecting LXC seed image into ubuntu-data..."
 
-    # Map the GPT partition name "ubuntu-data" to its partition number.
-    data_partnum=$(sfdisk --json "$img" | python3 -c '
-import json, sys
-data = json.load(sys.stdin)
-for i, p in enumerate(data.get("partitiontable", {}).get("partitions", []), 1):
-    if p.get("name") == "ubuntu-data":
-        print(i)
-        break
-')
-    if [ -z "$data_partnum" ]; then
+    # Set up the loopback device first so we can query partition labels
+    # reliably via lsblk (same approach as inject_sideload_models).
+    loop_dev=$(sudo losetup --find --show --partscan "$img")
+
+    data_part=$(sudo lsblk -o NAME,PARTLABEL -rn "$loop_dev" \
+        | awk '$2 == "ubuntu-data" {print $1; exit}')
+
+    if [ -z "$data_part" ]; then
         echo "    Warning: ubuntu-data partition not found — skipping LXC seed injection" >&2
+        sudo losetup -d "$loop_dev"
         return 0
     fi
 
     mnt=$(mktemp -d "${TMPDIR%/}/nimbus-data-mnt.XXXXXX")
-    loop_dev=$(sudo losetup --find --show --partscan "$img")
 
-    if ! sudo mount "${loop_dev}p${data_partnum}" "$mnt"; then
-        echo "    Warning: could not mount ubuntu-data — skipping LXC seed injection" >&2
+    if ! sudo mount "/dev/$data_part" "$mnt"; then
+        echo "    Warning: could not mount ubuntu-data (/dev/$data_part) — skipping LXC seed injection" >&2
         sudo losetup -d "$loop_dev"
         rmdir "$mnt"
         return 0
@@ -339,25 +337,25 @@ inject_sideload_models() {
 
     echo "==> Injecting sideloaded models into ubuntu-data..."
 
-    # Map the GPT partition name "ubuntu-data" to its partition number.
-    data_partnum=$(sfdisk --json "$img" | python3 -c '
-import json, sys
-data = json.load(sys.stdin)
-for i, p in enumerate(data.get("partitiontable", {}).get("partitions", []), 1):
-    if p.get("name") == "ubuntu-data":
-        print(i)
-        break
-')
-    if [ -z "$data_partnum" ]; then
+    # Set up the loopback device first so we can query partition labels
+    # reliably via lsblk. Calling sfdisk --json on a raw file (not a block
+    # device) can silently return incomplete output for large images.
+    loop_dev=$(sudo losetup --find --show --partscan "$img")
+
+    # Find the partition whose PARTLABEL is "ubuntu-data"
+    data_part=$(sudo lsblk -o NAME,PARTLABEL -rn "$loop_dev" \
+        | awk '$2 == "ubuntu-data" {print $1; exit}')
+
+    if [ -z "$data_part" ]; then
         echo "    Warning: ubuntu-data partition not found — skipping model injection" >&2
+        sudo losetup -d "$loop_dev"
         return 0
     fi
 
     mnt=$(mktemp -d "${TMPDIR%/}/nimbus-data-mnt.XXXXXX")
-    loop_dev=$(sudo losetup --find --show --partscan "$img")
 
-    if ! sudo mount "${loop_dev}p${data_partnum}" "$mnt"; then
-        echo "    Warning: could not mount ubuntu-data — skipping model injection" >&2
+    if ! sudo mount "/dev/$data_part" "$mnt"; then
+        echo "    Warning: could not mount ubuntu-data (/dev/$data_part) — skipping model injection" >&2
         sudo losetup -d "$loop_dev"
         rmdir "$mnt"
         return 0
@@ -373,7 +371,7 @@ for i, p in enumerate(data.get("partitiontable", {}).get("partitions", []), 1):
     sudo losetup -d "$loop_dev"
     rmdir "$mnt"
 
-    echo "    Models injected from $cache_dir"
+    echo "    Models injected from $cache_dir into /dev/$data_part"
 }
 
 [ "$#" -ge 1 ] || usage
