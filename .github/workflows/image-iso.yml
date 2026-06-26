@@ -31,6 +31,16 @@ on:
         required: false
         default: ''
         type: string
+      hf_model_repo:
+        description: 'Optional HuggingFace model repository to sideload (e.g. google/gemma-2-2b-it-sollama)'
+        required: false
+        default: ''
+        type: string
+      hf_model_file:
+        description: 'Optional HuggingFace model filename/pattern to download (e.g. gemma-2-2b-it.sollama)'
+        required: false
+        default: ''
+        type: string
   schedule:
     # Run once a day at midnight UTC
     - cron: '0 0 * * *'
@@ -224,6 +234,67 @@ jobs:
               with open('nimbus/model/user.json', 'w') as f:
                   json.dump(user_data, f, indent=4)
                   f.write('\n')
+          "
+
+      - name: Download HuggingFace Model to Sideload
+        if: ${{ github.event.inputs.hf_model_repo != '' }}
+        env:
+          HF_REPO: ${{ github.event.inputs.hf_model_repo }}
+          HF_FILE: ${{ github.event.inputs.hf_model_file }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          pip install huggingface_hub
+          mkdir -p model-cache/huggingface/hub
+          python3 -c "
+          import os, json
+          from huggingface_hub import hf_hub_download, snapshot_download
+          
+          repo = os.environ.get('HF_REPO')
+          filename = os.environ.get('HF_FILE')
+          token = os.environ.get('HF_TOKEN') or None
+          
+          cache_dir = os.path.join(os.getcwd(), 'model-cache', 'huggingface', 'hub')
+          print(f'Downloading {repo} (file: {filename or \"all\"}) into {cache_dir}...')
+          
+          if filename:
+              path = hf_hub_download(repo_id=repo, filename=filename, cache_dir=cache_dir, token=token)
+              checkpoint_val = f'{repo}:{filename}'
+              model_name = f'user.{filename.replace(\"/\", \"-\")}'
+          else:
+              path = snapshot_download(repo_id=repo, cache_dir=cache_dir, token=token)
+              # If we download the whole snapshot, try to find a .gguf or .sollama file
+              gguf_files = []
+              for root, dirs, files in os.walk(cache_dir):
+                  for f in files:
+                      if f.endswith('.gguf') or f.endswith('.sollama'):
+                          rel_path = os.path.relpath(os.path.join(root, f), cache_dir)
+                          gguf_files.append(rel_path)
+              
+              if gguf_files:
+                  checkpoint_val = f'{repo}:{gguf_files[0]}'
+                  model_name = f'user.{os.path.basename(gguf_files[0]).replace(\"/\", \"-\")}'
+              else:
+                  checkpoint_val = f'{repo}:model'
+                  model_name = f'user.{repo.replace(\"/\", \"-\")}'
+          
+          # Create model_override.json to register this model in lemonade-server
+          override_path = os.path.join(os.getcwd(), 'model-cache', 'model_override.json')
+          override_data = {
+              'model_name': model_name,
+              'checkpoints': {
+                  'main': checkpoint_val
+              },
+              'labels': ['vision', 'tool-calling'],
+              'recipe': 'llamacpp',
+              'recipe_options': {
+                  'ctx_size': 32768
+              },
+              'size': 5.0
+          }
+          with open(override_path, 'w') as f:
+              json.dump(override_data, f, indent=2)
+          print(f'Created model override at {override_path}:')
+          print(json.dumps(override_data, indent=2))
           "
 
       - name: Build Appliance Image
