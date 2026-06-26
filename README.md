@@ -104,14 +104,19 @@ Then open `https://<host-ip>` in a browser. On first boot:
 > generated automatically on first start. See [TLS / HTTPS](#tls--https) to
 > configure Let's Encrypt.
 
-### Headless Wi-Fi Onboarding
+### Headless Wi-Fi Onboarding & Network Handover
 
-If the appliance has a Wi-Fi adapter but no ethernet cable connected on first boot, it automatically starts a Wi-Fi Access Point (hotspot) with the SSID `nimbus` (no password required).
+If the appliance has a Wi-Fi adapter but no ethernet cable connected on first boot, it automatically starts a Wi-Fi Access Point (hotspot) with the SSID `nimbus` (no password required) and starts a captive portal DNS server on port 5300.
 
 1. Connect your phone or computer to the **`nimbus`** Wi-Fi network.
 2. A **captive portal notification** will pop up on your device (e.g. "Sign in to network"). Click it to open the onboarding wizard. If the notification does not appear, open a browser and go to `http://10.42.0.1`.
 3. Select your local Wi-Fi network and enter its credentials.
 4. The appliance will connect to your local Wi-Fi, disable the onboarding hotspot, and allow you to complete the OOBE setup.
+
+#### Under the Hood: Network Transition & LXC Restart
+To ensure a smooth transition from the temporary onboarding hotspot to the target client network:
+* **Dynamic LXC Restart:** Since the first boot with the Wi-Fi AP lacks a real WAN/Internet connection, the LXD container is automatically restarted once the host transitions to the client network to prevent DNS resolution race conditions and ensure the container's network connection is fully established.
+* **NetworkManager D-Bus Bridge Unmanagement:** To prevent NetworkManager on the host from attempting to manage or capture the LXD bridge interface (`lxdbr0`) and causing DNS routing failures, Nimbus uses a dynamic D-Bus unmanagement mechanism. It registers the bridge interface as unmanaged on the fly via D-Bus, ensuring robust container-to-host DNS and internet routing.
 
 
 ### Local / container mode (development)
