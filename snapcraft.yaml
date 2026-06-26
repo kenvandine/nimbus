@@ -12,10 +12,8 @@ grade: stable
 confinement: strict
 
 layout:
-  /sbin/iptables:
-    bind-file: $SNAP/usr/sbin/iptables-nft
   /usr/sbin/iptables:
-    bind-file: $SNAP/usr/sbin/iptables-nft
+    symlink: $SNAP/usr/sbin/iptables-nft
 
 apps:
   nimbus:
