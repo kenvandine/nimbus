@@ -26,12 +26,13 @@ export default function AppStore({ apps, onRefresh, onOpenDetail, activeInstalls
 
   return (
     <div style={styles.container}>
-      <div style={styles.toolbar}>
+      <div className="store-toolbar" style={styles.toolbar}>
         <input
           type="search"
           placeholder="Search apps…"
           value={search}
           onChange={e => setSearch(e.target.value)}
+          className="store-search"
           style={styles.search}
         />
         <button
@@ -69,6 +70,18 @@ export default function AppStore({ apps, onRefresh, onOpenDetail, activeInstalls
           onRefresh={() => { onRefresh(); setSelectedApp(null) }}
         />
       )}
+      <style>{`
+        @media (max-width: 600px) {
+          .store-toolbar {
+            flex-wrap: wrap !important;
+            gap: 8px !important;
+          }
+          .store-search {
+            flex: 1 1 100% !important;
+            width: 100% !important;
+          }
+        }
+      `}</style>
     </div>
   )
 }

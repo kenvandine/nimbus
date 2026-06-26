@@ -175,7 +175,7 @@ function WifiPanel() {
           </div>
           {expandedSsid === net.ssid && (
             <div style={styles.passwordRow}>
-              <div style={{ position: 'relative', flex: 1 }}>
+              <div style={{ position: 'relative', width: '100%' }}>
                 <input type={showPw ? 'text' : 'password'} placeholder="Password" value={password}
                   onChange={e => setPassword(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleConnect(net.ssid, password)}
@@ -184,11 +184,13 @@ function WifiPanel() {
                   {showPw ? '🙈' : '👁'}
                 </button>
               </div>
-              <button style={{ ...styles.btnPrimary, ...(connecting === net.ssid || !password ? styles.btnDisabled : {}) }}
-                onClick={() => handleConnect(net.ssid, password)} disabled={connecting === net.ssid || !password}>
-                {connecting === net.ssid ? 'Connecting…' : 'Connect'}
-              </button>
-              <button style={styles.btnCancel} onClick={() => setExpandedSsid(null)}>Cancel</button>
+              <div style={{ display: 'flex', gap: '8px', width: '100%', justifyContent: 'flex-end', marginTop: '4px' }}>
+                <button style={styles.btnCancel} onClick={() => setExpandedSsid(null)}>Cancel</button>
+                <button style={{ ...styles.btnPrimary, ...(connecting === net.ssid || !password ? styles.btnDisabled : {}) }}
+                  onClick={() => handleConnect(net.ssid, password)} disabled={connecting === net.ssid || !password}>
+                  {connecting === net.ssid ? 'Connecting…' : 'Connect'}
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -865,7 +867,7 @@ const styles = {
     fontFamily: 'ui-monospace, "SF Mono", "Fira Mono", monospace', whiteSpace: 'nowrap',
   },
   passwordRow: {
-    display: 'flex', alignItems: 'center', gap: '8px',
+    display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: '8px',
     padding: '8px 16px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)',
     background: 'rgba(255,255,255,0.02)',
   },

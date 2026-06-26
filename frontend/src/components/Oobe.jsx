@@ -170,7 +170,7 @@ function NetworkStep({ online, onNext, reconnect }) {
               </div>
               {expandedSsid === net.ssid && (
                 <div style={s.pwRow}>
-                  <div style={{ position: 'relative', flex: 1 }}>
+                  <div style={{ position: 'relative', width: '100%' }}>
                     <input
                       type={showPw ? 'text' : 'password'}
                       placeholder="Wi-Fi password"
@@ -184,14 +184,16 @@ function NetworkStep({ online, onNext, reconnect }) {
                       {showPw ? '🙈' : '👁'}
                     </button>
                   </div>
-                  <button
-                    style={{ ...s.btnSm, ...(!password || connecting === net.ssid ? s.btnSmDisabled : {}) }}
-                    onClick={() => handleConnect(net.ssid, password)}
-                    disabled={!password || connecting === net.ssid}
-                  >
-                    {connecting === net.ssid ? 'Connecting…' : 'Connect'}
-                  </button>
-                  <button style={s.btnCancel} onClick={() => setExpandedSsid(null)}>Cancel</button>
+                  <div style={{ display: 'flex', gap: '8px', width: '100%', justifyContent: 'flex-end', marginTop: '4px' }}>
+                    <button style={s.btnCancel} onClick={() => setExpandedSsid(null)}>Cancel</button>
+                    <button
+                      style={{ ...s.btnSm, ...(!password || connecting === net.ssid ? s.btnSmDisabled : {}) }}
+                      onClick={() => handleConnect(net.ssid, password)}
+                      disabled={!password || connecting === net.ssid}
+                    >
+                      {connecting === net.ssid ? 'Connecting…' : 'Connect'}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -392,7 +394,7 @@ export default function Oobe({ online, onComplete, networkOnly }) {
 
   return (
     <div style={s.overlay}>
-      <div style={s.card}>
+      <div className="oobe-card" style={s.card}>
         <div style={s.logoRow}>
           <span style={s.logoIcon}>☁</span>
           <span style={s.logoText}>Nimbus</span>
@@ -411,6 +413,13 @@ export default function Oobe({ online, onComplete, networkOnly }) {
       <style>{`
         @keyframes fadeIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
         @keyframes spin { to { transform: rotate(360deg); } }
+        @media (max-width: 480px) {
+          .oobe-card {
+            padding: 24px 20px 20px !important;
+            border-radius: 20px !important;
+          }
+          .net-row { flex-direction: column !important; align-items: stretch !important; gap: 8px !important; }
+        }
       `}</style>
     </div>
   )
@@ -464,7 +473,7 @@ const s = {
   netNameActive: { color: 'rgba(129,212,250,0.9)' },
   connTag: { marginLeft: '6px', fontSize: '11px', color: 'rgba(129,199,132,0.9)' },
   pwRow: {
-    display: 'flex', alignItems: 'center', gap: '8px',
+    display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: '8px',
     padding: '8px 14px 11px', background: 'rgba(255,255,255,0.02)',
     borderBottom: '1px solid rgba(255,255,255,0.05)',
   },

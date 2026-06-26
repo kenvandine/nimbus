@@ -424,7 +424,7 @@ export default function App() {
   }
 
   return (
-    <div style={{ ...styles.desktop, background: `linear-gradient(145deg, hsl(${hue},75%,${light}%) 0%, hsl(${hue + 10},60%,${light + 8}%) 60%, hsl(200,55%,${light + 22}%) 100%)` }}>
+    <div className="desktop-container" style={{ ...styles.desktop, background: `linear-gradient(145deg, hsl(${hue},75%,${light}%) 0%, hsl(${hue + 10},60%,${light + 8}%) 60%, hsl(200,55%,${light + 22}%) 100%)` }}>
       {locked && (
         <ScreenLock
           deviceName={stats?.host_ip ? `Nimbus @ ${stats.host_ip}` : 'Nimbus'}
@@ -636,6 +636,11 @@ export default function App() {
         @keyframes spin { to { transform: rotate(360deg); } }
         * { box-sizing: border-box; }
         body { margin: 0; overflow: hidden; }
+        .desktop-container {
+          height: 100vh;
+          height: 100dvh;
+          padding-bottom: env(safe-area-inset-bottom, 0px);
+        }
         input::placeholder { color: rgba(255,255,255,0.3); }
         input:focus { border-color: rgba(79,195,247,0.5) !important; box-shadow: 0 0 0 3px rgba(79,195,247,0.15); }
         button:hover:not(:disabled) { filter: brightness(1.12); }

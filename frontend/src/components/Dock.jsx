@@ -70,7 +70,7 @@ export default function Dock({ onOpen, updatableCount, appUpdateCount = 0, appst
   const totalUpdates = Math.max(updatableCount || 0, appUpdateCount || 0)
 
   return (
-    <div style={styles.bar}>
+    <div className="dock-bar" style={styles.bar}>
       <div style={styles.dock}>
         {APPS.map(app => (
           <DockIcon
@@ -84,6 +84,11 @@ export default function Dock({ onOpen, updatableCount, appUpdateCount = 0, appst
           />
         ))}
       </div>
+      <style>{`
+        .dock-bar {
+          padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)) !important;
+        }
+      `}</style>
     </div>
   )
 }
