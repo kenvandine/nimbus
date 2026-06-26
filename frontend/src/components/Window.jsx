@@ -30,11 +30,12 @@ export default function Window({ title, onClose, children, noPad = false }) {
         @media (max-width: 640px) {
           .window-overlay {
             padding: 8px !important;
+            padding-top: calc(8px + env(safe-area-inset-top, 0px)) !important;
             padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)) !important;
           }
           .window-container {
             height: 100% !important;
-            max-height: calc(100% - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)) !important;
+            max-height: 100% !important;
             border-radius: 12px !important;
           }
         }
