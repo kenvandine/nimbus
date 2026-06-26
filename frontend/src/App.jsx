@@ -163,6 +163,22 @@ export default function App() {
   const idleTimerRef = useRef(null)
   const authStatusRef = useRef(null)
 
+  useEffect(() => {
+    let link = document.querySelector('link[rel="manifest"]')
+    if (oobeComplete) {
+      if (!link) {
+        link = document.createElement('link')
+        link.rel = 'manifest'
+        link.href = '/manifest.json'
+        document.head.appendChild(link)
+      }
+    } else {
+      if (link) {
+        link.remove()
+      }
+    }
+  }, [oobeComplete])
+
   async function checkAuth() {
     try {
       const status = await getAuthStatus()
