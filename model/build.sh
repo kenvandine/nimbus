@@ -307,6 +307,11 @@ for part in data.get("partitiontable", {}).get("partitions", []):
 
     if [ -z "$data_start" ]; then
         echo "    Warning: ubuntu-data partition not found — skipping LXC seed injection" >&2
+        echo "    === DEBUG: sfdisk output ===" >&2
+        loop_debug=$(sudo losetup --find --show "$img")
+        sudo sfdisk --json "$loop_debug" >&2 || true
+        sudo losetup -d "$loop_debug"
+        echo "    === END DEBUG ===" >&2
         return 0
     fi
 
@@ -352,6 +357,11 @@ for part in data.get("partitiontable", {}).get("partitions", []):
 
     if [ -z "$data_start" ]; then
         echo "    Warning: ubuntu-data partition not found — skipping model injection" >&2
+        echo "    === DEBUG: sfdisk output ===" >&2
+        loop_debug=$(sudo losetup --find --show "$img")
+        sudo sfdisk --json "$loop_debug" >&2 || true
+        sudo losetup -d "$loop_debug"
+        echo "    === END DEBUG ===" >&2
         return 0
     fi
 
