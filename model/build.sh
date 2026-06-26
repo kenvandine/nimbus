@@ -140,6 +140,12 @@ snap set system hostname=nimbus; \
 hostnamectl set-hostname --transient nimbus || true; \
 snap set system service.systemd-resolved.multicast-dns=yes; \
 systemctl restart systemd-resolved || true; \
+NM_DROPIN=/var/snap/network-manager/current/conf.d/90-lxd-unmanaged.conf; \
+NM_CONTENT="[keyfile]\nunmanaged-devices=interface-name:lxdbr*;interface-name:veth*\n"; \
+mkdir -p "$(dirname $NM_DROPIN)" || true; \
+if [ ! -f "$NM_DROPIN" ] || [ "$(cat $NM_DROPIN)" != "$(printf "$NM_CONTENT")" ]; then \
+  printf "$NM_CONTENT" > "$NM_DROPIN" && snap restart network-manager || true; \
+fi; \
 mkdir -p /var/snap/nimbus/common/sideload; \
 if mount -o ro /dev/disk/by-partlabel/nimbus-sideload /var/snap/nimbus/common/sideload; then \
   if [ -d /var/snap/nimbus/common/sideload/huggingface/hub ]; then \
@@ -176,7 +182,7 @@ Wants=nimbus-connect.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/lxc restart nimbus
+ExecStart=/snap/bin/lxc restart nimbus
 RemainAfterExit=yes
 StandardOutput=journal
 StandardError=journal

@@ -248,11 +248,13 @@ class LxdManager:
             "[keyfile]\n"
             "unmanaged-devices=interface-name:lxdbr*;interface-name:veth*\n"
         )
-        # Try both the standard path (works on Ubuntu Server / with network-control
-        # snap interface) and the NM snap's own data directory (Ubuntu Core).
+        # Priority order: revision-specific conf.d (what NM snap actually reads),
+        # then the common/etc path (used as --system-config-dir on some Ubuntu Core
+        # builds), then the classic Ubuntu Server path.
         candidates = [
-            Path("/etc/NetworkManager/conf.d/90-lxd-unmanaged.conf"),
+            Path("/var/snap/network-manager/current/conf.d/90-lxd-unmanaged.conf"),
             Path("/var/snap/network-manager/common/etc/NetworkManager/conf.d/90-lxd-unmanaged.conf"),
+            Path("/etc/NetworkManager/conf.d/90-lxd-unmanaged.conf"),
         ]
         wrote = False
         for dropin in candidates:
@@ -291,6 +293,13 @@ class LxdManager:
     def _unmanage_lxd_devices_via_dbus(self) -> None:
         """Use the NetworkManager D-Bus API to dynamically set all lxdbr* and veth*
         interfaces to unmanaged.
+
+        We unconditionally set Managed=False for every matching interface,
+        regardless of its current NM state.  NM's auto-connect will pick up a
+        veth after a failed DHCP attempt and transition it back from
+        'failed' → 'disconnected' → 'managed', so checking is_managed first
+        would silently miss the window when the interface reports as unmanaged
+        mid-cycle and allow the next auto-connect attempt to proceed.
         """
         try:
             import dbus
@@ -307,13 +316,11 @@ class LxdManager:
                     continue
                 if iface_name.startswith("lxdbr") or iface_name.startswith("veth"):
                     try:
-                        is_managed = bool(props_iface.Get("org.freedesktop.NetworkManager.Device", "Managed"))
-                    except Exception:
-                        is_managed = True
-                    if is_managed:
                         logger.info("Setting interface %s (%s) to unmanaged via D-Bus", iface_name, dev_path)
                         device_iface = dbus.Interface(dev_obj, "org.freedesktop.NetworkManager.Device")
                         device_iface.SetManaged(0, 0)
+                    except Exception as exc:
+                        logger.debug("Could not unmanage %s: %s", iface_name, exc)
         except Exception as exc:
             logger.warning("Could not set LXD devices to unmanaged via D-Bus: %s", exc)
 
