@@ -256,40 +256,59 @@ jobs:
           cache_dir = os.path.join(os.getcwd(), 'model-cache', 'huggingface', 'hub')
           print(f'Downloading {repo} (file: {filename or \"all\"}) into {cache_dir}...')
           
+          checkpoints = {}
+          
           if filename:
               path = hf_hub_download(repo_id=repo, filename=filename, cache_dir=cache_dir, token=token)
-              checkpoint_val = f'{repo}:{filename}'
+              checkpoints['main'] = f'{repo}:{filename}'
               model_name = f'user.{filename.replace(\"/\", \"-\")}'
+              # Try to download mmproj if it is a Qwen/Vision model and we can guess it
+              if 'Qwen3.5-9B-GGUF' in repo:
+                  try:
+                      hf_hub_download(repo_id=repo, filename='mmproj-F16.gguf', cache_dir=cache_dir, token=token)
+                      checkpoints['mmproj'] = f'{repo}:mmproj-F16.gguf'
+                  except Exception:
+                      pass
           else:
               path = snapshot_download(repo_id=repo, cache_dir=cache_dir, token=token)
-              # If we download the whole snapshot, try to find a .gguf or .sollama file
+              # Scan cache_dir for files
               gguf_files = []
               for root, dirs, files in os.walk(cache_dir):
                   for f in files:
                       if f.endswith('.gguf') or f.endswith('.sollama'):
-                          rel_path = os.path.relpath(os.path.join(root, f), cache_dir)
-                          gguf_files.append(rel_path)
+                          gguf_files.append(f)
               
-              if gguf_files:
-                  checkpoint_val = f'{repo}:{gguf_files[0]}'
-                  model_name = f'user.{os.path.basename(gguf_files[0]).replace(\"/\", \"-\")}'
+              # Find mmproj and main files
+              main_file = None
+              mmproj_file = None
+              for f in gguf_files:
+                  if 'mmproj' in f.lower():
+                      mmproj_file = f
+                  else:
+                      if main_file is None or 'Q4_K_M' in f or os.path.getsize(os.path.join(cache_dir, f)) > os.path.getsize(os.path.join(cache_dir, main_file)):
+                          main_file = f
+              
+              if main_file:
+                  checkpoints['main'] = f'{repo}:{main_file}'
+                  model_name = f'user.{main_file.replace(\"/\", \"-\")}'
               else:
-                  checkpoint_val = f'{repo}:model'
+                  checkpoints['main'] = f'{repo}:model'
                   model_name = f'user.{repo.replace(\"/\", \"-\")}'
+              
+              if mmproj_file:
+                  checkpoints['mmproj'] = f'{repo}:{mmproj_file}'
           
           # Create model_override.json to register this model in lemonade-server
           override_path = os.path.join(os.getcwd(), 'model-cache', 'model_override.json')
           override_data = {
               'model_name': model_name,
-              'checkpoints': {
-                  'main': checkpoint_val
-              },
-              'labels': ['vision', 'tool-calling'],
+              'checkpoints': checkpoints,
+              'labels': ['vision', 'tool-calling'] if 'mmproj' in checkpoints else ['tool-calling'],
               'recipe': 'llamacpp',
               'recipe_options': {
                   'ctx_size': 32768
               },
-              'size': 5.0
+              'size': 5.68 if '9B' in repo or '9b' in repo else 5.0
           }
           with open(override_path, 'w') as f:
               json.dump(override_data, f, indent=2)
