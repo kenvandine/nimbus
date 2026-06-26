@@ -32,9 +32,9 @@ on:
         default: ''
         type: string
       hf_model_repo:
-        description: 'HuggingFace model repository to sideload (default: kenvandine/Qwen3.5-9B-GGUF)'
+        description: 'HuggingFace model repository to sideload (default: unsloth/Qwen3.5-9B-GGUF)'
         required: false
-        default: 'kenvandine/Qwen3.5-9B-GGUF'
+        default: 'unsloth/Qwen3.5-9B-GGUF'
         type: string
       hf_model_file:
         description: 'HuggingFace model filename to download (default: Qwen3.5-9B-Q4_K_M.gguf)'
@@ -254,7 +254,7 @@ jobs:
       - name: Download HuggingFace Model to Sideload
         env:
           # Fall back to Qwen3.5-9B defaults when running on schedule (inputs are empty)
-          HF_REPO: ${{ github.event.inputs.hf_model_repo || 'kenvandine/Qwen3.5-9B-GGUF' }}
+          HF_REPO: ${{ github.event.inputs.hf_model_repo || 'unsloth/Qwen3.5-9B-GGUF' }}
           HF_FILE: ${{ github.event.inputs.hf_model_file || 'Qwen3.5-9B-Q4_K_M.gguf' }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
