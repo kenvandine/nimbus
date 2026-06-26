@@ -340,9 +340,82 @@ class LxdManager:
             except Exception as exc:
                 logger.warning("Could not re-establish LXD NAT rules for %s: %s", bridge, exc)
 
+    def _is_nosuid(self, path: str) -> bool:
+        try:
+            from pathlib import Path
+            target = Path(path).resolve()
+            best_match = None
+            best_len = -1
+            with open("/proc/mounts", "r") as f:
+                for line in f:
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        mnt_point = Path(parts[1]).resolve()
+                        try:
+                            target.relative_to(mnt_point)
+                            mnt_len = len(str(mnt_point))
+                            if mnt_len > best_len:
+                                best_len = mnt_len
+                                best_match = parts[3]
+                        except ValueError:
+                            continue
+            if best_match:
+                opts = best_match.split(",")
+                return "nosuid" in opts
+        except Exception as exc:
+            logger.warning("Could not determine if path %s is nosuid: %s", path, exc)
+        return False
+
     def ensure_initialized(self) -> None:
         client = self.client()
+        lxd_dir = os.getenv("LXD_DIR", "/var/snap/lxd/common/lxd")
+        driver = "dir"
+        if self._is_nosuid(lxd_dir):
+            try:
+                env = client.api.get().json().get("metadata", {}).get("environment", {})
+                supported = [d["name"] for d in env.get("storage_supported_drivers", [])]
+                if "btrfs" in supported:
+                    driver = "btrfs"
+                    logger.info("Host LXD directory has nosuid mount option. Selecting 'btrfs' storage driver for container SUID compatibility.")
+                else:
+                    logger.warning("Host LXD directory has nosuid mount option but 'btrfs' is not supported by LXD daemon environment.")
+            except Exception as exc:
+                logger.warning("Failed to check server environment for supported storage drivers: %s", exc)
+
         storage_pools = client.storage_pools.all()
+        recreate_pool = False
+        if storage_pools:
+            for pool in storage_pools:
+                if pool.name == DEFAULT_LXD_STORAGE_POOL:
+                    if pool.driver != driver:
+                        logger.info(
+                            "LXD storage pool '%s' is using driver '%s' but '%s' is required. Recreating pool.",
+                            pool.name, pool.driver, driver
+                        )
+                        recreate_pool = True
+                    break
+            else:
+                recreate_pool = True
+
+        if recreate_pool:
+            if client.instances.exists(settings.lxd_container_name):
+                try:
+                    instance = client.instances.get(settings.lxd_container_name)
+                    if instance.status.lower() == "running":
+                        logger.info("Stopping container '%s' before recreating storage pool", settings.lxd_container_name)
+                        instance.stop(wait=True)
+                    logger.info("Deleting container '%s' before recreating storage pool", settings.lxd_container_name)
+                    instance.delete(wait=True)
+                except Exception as exc:
+                    logger.warning("Could not stop/delete container during pool recreation: %s", exc)
+            try:
+                pool = client.storage_pools.get(DEFAULT_LXD_STORAGE_POOL)
+                logger.info("Deleting storage pool '%s' to allow recreation", DEFAULT_LXD_STORAGE_POOL)
+                pool.delete(wait=True)
+            except Exception as exc:
+                logger.warning("Could not delete storage pool '%s': %s", DEFAULT_LXD_STORAGE_POOL, exc)
+            storage_pools = []
+
         if storage_pools:
             return
 
@@ -360,7 +433,7 @@ class LxdManager:
             client,
             {
                 "name": DEFAULT_LXD_STORAGE_POOL,
-                "driver": "dir",
+                "driver": driver,
                 "config": {},
             },
             wait=True,
