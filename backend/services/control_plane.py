@@ -464,6 +464,15 @@ class LxdControlPlane(ControlPlaneBase):
     async def initialize(self) -> None:
         if settings.lxd_auto_bootstrap and self._bootstrap_task is None:
             self._bootstrap_task = asyncio.create_task(self._bootstrap_when_online())
+        asyncio.create_task(self._unmanage_loop())
+
+    async def _unmanage_loop(self) -> None:
+        while True:
+            try:
+                await asyncio.to_thread(self.manager._unmanage_lxd_devices_via_dbus)
+            except Exception as exc:
+                logger.debug("Error in NM unmanage loop: %s", exc)
+            await asyncio.sleep(30)
 
     async def _bootstrap_when_online(self) -> None:
         from services.network import is_online

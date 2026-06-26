@@ -283,7 +283,40 @@ class LxdManager:
                 except (FileNotFoundError, subprocess.TimeoutExpired, PermissionError):
                     pass
 
+        # Also dynamically unmanage any existing LXD/veth devices via D-Bus
+        self._unmanage_lxd_devices_via_dbus()
+
         return wrote
+
+    def _unmanage_lxd_devices_via_dbus(self) -> None:
+        """Use the NetworkManager D-Bus API to dynamically set all lxdbr* and veth*
+        interfaces to unmanaged.
+        """
+        try:
+            import dbus
+            bus = dbus.SystemBus()
+            nm_obj = bus.get_object("org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager")
+            nm_iface = dbus.Interface(nm_obj, "org.freedesktop.NetworkManager")
+            devices = nm_iface.GetDevices()
+            for dev_path in devices:
+                dev_obj = bus.get_object("org.freedesktop.NetworkManager", dev_path)
+                props_iface = dbus.Interface(dev_obj, "org.freedesktop.DBus.Properties")
+                try:
+                    iface_name = str(props_iface.Get("org.freedesktop.NetworkManager.Device", "Interface"))
+                except Exception:
+                    continue
+                if iface_name.startswith("lxdbr") or iface_name.startswith("veth"):
+                    try:
+                        is_managed = bool(props_iface.Get("org.freedesktop.NetworkManager.Device", "Managed"))
+                    except Exception:
+                        is_managed = True
+                    if is_managed:
+                        logger.info("Setting interface %s (%s) to unmanaged via D-Bus", iface_name, dev_path)
+                        device_iface = dbus.Interface(dev_obj, "org.freedesktop.NetworkManager.Device")
+                        device_iface.SetManaged(0, 0)
+        except Exception as exc:
+            logger.warning("Could not set LXD devices to unmanaged via D-Bus: %s", exc)
+
 
     def _ensure_lxd_nat_rules(self) -> None:
         """Re-establish LXD's MASQUERADE and FORWARD rules via the LXD API.
@@ -722,6 +755,7 @@ class LxdManager:
     def _wait_for_container_dns(self, instance, timeout: int = 120) -> None:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
+            self._unmanage_lxd_devices_via_dbus()
             code, _, _ = self._run(
                 instance, ["getent", "hosts", "github.com"], acceptable={0, 1, 2}
             )
