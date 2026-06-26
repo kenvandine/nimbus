@@ -374,11 +374,14 @@ class LxdManager:
             try:
                 env = client.api.get().json().get("metadata", {}).get("environment", {})
                 supported = [d["name"] for d in env.get("storage_supported_drivers", [])]
-                if "btrfs" in supported:
+                if "zfs" in supported:
+                    driver = "zfs"
+                    logger.info("Host LXD directory has nosuid mount option. Selecting 'zfs' storage driver for container SUID compatibility.")
+                elif "btrfs" in supported:
                     driver = "btrfs"
                     logger.info("Host LXD directory has nosuid mount option. Selecting 'btrfs' storage driver for container SUID compatibility.")
                 else:
-                    logger.warning("Host LXD directory has nosuid mount option but 'btrfs' is not supported by LXD daemon environment.")
+                    logger.warning("Host LXD directory has nosuid mount option but neither 'zfs' nor 'btrfs' is supported by LXD daemon environment.")
             except Exception as exc:
                 logger.warning("Failed to check server environment for supported storage drivers: %s", exc)
 
