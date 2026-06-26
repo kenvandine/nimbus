@@ -400,11 +400,12 @@ class LxdManager:
         default_profile.devices = profile_devices
         default_profile.save(wait=True)
 
-    def ensure_profile(self) -> None:
+    def ensure_profile(self) -> bool:
         client = self.client()
         description = "Nimbus nested-container hosting profile"
         config = {
             "security.nesting": "true",
+            "security.privileged": "true",
             "security.syscalls.intercept.mknod": "true",
             "security.syscalls.intercept.setxattr": "true",
         }
@@ -423,7 +424,7 @@ class LxdManager:
             )
             if create_response.status_code not in {200, 201, 202}:
                 raise RuntimeError(f"Could not create LXD profile: {create_response.text}")
-            return
+            return False
 
         if response.status_code != 200:
             raise RuntimeError(f"Could not inspect LXD profile: {response.text}")
@@ -433,6 +434,8 @@ class LxdManager:
             update_response = client.api.profiles[settings.lxd_profile_name].put(json=payload)
             if update_response.status_code not in {200, 202}:
                 raise RuntimeError(f"Could not update LXD profile: {update_response.text}")
+            return True
+        return False
 
     def get_instance(self):
         client = self.client()
@@ -1079,11 +1082,14 @@ class LxdManager:
                 if nm_restarted:
                     self._ensure_lxd_nat_rules()
                 self._set_bootstrap_state("ensuring-profile")
-                self.ensure_profile()
+                profile_updated = self.ensure_profile()
                 self._set_bootstrap_state("importing-image")
                 self._import_seeded_image()
                 self._set_bootstrap_state("ensuring-container")
                 instance = self.ensure_started()
+                if profile_updated:
+                    logger.info("LXD profile updated, restarting container to apply new settings")
+                    instance.restart(wait=True)
                 if self._has_bootstrap_marker(instance):
                     self._set_bootstrap_state("starting-agent")
                     self._wait_for_docker(instance)
