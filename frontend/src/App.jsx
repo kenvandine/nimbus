@@ -163,6 +163,22 @@ export default function App() {
   const idleTimerRef = useRef(null)
   const authStatusRef = useRef(null)
 
+  useEffect(() => {
+    let link = document.querySelector('link[rel="manifest"]')
+    if (oobeComplete) {
+      if (!link) {
+        link = document.createElement('link')
+        link.rel = 'manifest'
+        link.href = '/manifest.json'
+        document.head.appendChild(link)
+      }
+    } else {
+      if (link) {
+        link.remove()
+      }
+    }
+  }, [oobeComplete])
+
   async function checkAuth() {
     try {
       const status = await getAuthStatus()
@@ -187,7 +203,11 @@ export default function App() {
       setStats(statsData)
       setActiveInstalls(active)
       setError(null)
-      if (statsData.oobe_complete === false && !oobeCompletedRef.current) setOobeComplete(false)
+      if (statsData.oobe_complete === true) {
+        setOobeComplete(true)
+      } else if (statsData.oobe_complete === false && !oobeCompletedRef.current) {
+        setOobeComplete(false)
+      }
     } catch (e) {
       // A 401 means the session expired — re-check auth status.
       if (e.message.startsWith('401:')) {
@@ -214,7 +234,11 @@ export default function App() {
           setError(null)
           setLoading(false)
           sseBackoffRef.current = 1000
-          if (statsData.oobe_complete === false && !oobeCompletedRef.current) setOobeComplete(false)
+          if (statsData.oobe_complete === true) {
+            setOobeComplete(true)
+          } else if (statsData.oobe_complete === false && !oobeCompletedRef.current) {
+            setOobeComplete(false)
+          }
         }
       } catch {}
     }
@@ -416,7 +440,7 @@ export default function App() {
   }
 
   return (
-    <div style={{ ...styles.desktop, background: `linear-gradient(145deg, hsl(${hue},75%,${light}%) 0%, hsl(${hue + 10},60%,${light + 8}%) 60%, hsl(200,55%,${light + 22}%) 100%)` }}>
+    <div className="desktop-container" style={{ ...styles.desktop, background: `linear-gradient(145deg, hsl(${hue},75%,${light}%) 0%, hsl(${hue + 10},60%,${light + 8}%) 60%, hsl(200,55%,${light + 22}%) 100%)` }}>
       {locked && (
         <ScreenLock
           deviceName={stats?.host_ip ? `Nimbus @ ${stats.host_ip}` : 'Nimbus'}
@@ -628,6 +652,11 @@ export default function App() {
         @keyframes spin { to { transform: rotate(360deg); } }
         * { box-sizing: border-box; }
         body { margin: 0; overflow: hidden; }
+        .desktop-container {
+          height: 100vh;
+          height: 100dvh;
+          padding-bottom: env(safe-area-inset-bottom, 0px);
+        }
         input::placeholder { color: rgba(255,255,255,0.3); }
         input:focus { border-color: rgba(79,195,247,0.5) !important; box-shadow: 0 0 0 3px rgba(79,195,247,0.15); }
         button:hover:not(:disabled) { filter: brightness(1.12); }

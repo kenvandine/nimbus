@@ -29,6 +29,7 @@ function NetworkStep({ online, onNext, reconnect }) {
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [error, setError] = useState(null)
+  const [transitioningSsid, setTransitioningSsid] = useState(null)
 
   useEffect(() => {
     getWifiStatus().then(setWifiStatus).catch(() => {})
@@ -60,7 +61,11 @@ function NetworkStep({ online, onNext, reconnect }) {
     try {
       // connectWifi resolves only once NetworkManager reports the connection
       // fully activated (associated + DHCP lease), so status is ready now.
-      await connectWifi(ssid, pwd || null)
+      const res = await connectWifi(ssid, pwd || null)
+      if (res?.status === 'transitioning') {
+        setTransitioningSsid(ssid)
+        return
+      }
       setExpandedSsid(null)
       setPassword('')
       await refreshWifiStatus()
@@ -84,6 +89,28 @@ function NetworkStep({ online, onNext, reconnect }) {
   // even when Wi-Fi is associated and has a DHCP lease. Treat a local Wi-Fi
   // association with an IP address as good enough to proceed through onboarding.
   const connected = online || !!(wifiStatus?.connected && wifiStatus?.ip_address)
+
+  if (transitioningSsid) {
+    return (
+      <div style={s.transitionContainer}>
+        <h1 style={s.heading}>Connecting to Wi-Fi</h1>
+        <p style={s.subheading}>
+          Nimbus is connecting to <strong>{transitioningSsid}</strong> and disabling the onboarding hotspot.
+        </p>
+        <div style={s.transitionCard}>
+          <div style={s.spinnerContainer}>
+            <div style={s.spinner} />
+          </div>
+          <div style={s.instructionStep}>
+            <strong>Step 1:</strong> Connect your phone, laptop, or desktop to the Wi-Fi network <strong>{transitioningSsid}</strong>.
+          </div>
+          <div style={s.instructionStep}>
+            <strong>Step 2:</strong> Open your browser and go to <a href="http://nimbus.local" style={s.link}>http://nimbus.local</a> to complete the setup.
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <>
@@ -143,7 +170,7 @@ function NetworkStep({ online, onNext, reconnect }) {
               </div>
               {expandedSsid === net.ssid && (
                 <div style={s.pwRow}>
-                  <div style={{ position: 'relative', flex: 1 }}>
+                  <div style={{ position: 'relative', width: '100%' }}>
                     <input
                       type={showPw ? 'text' : 'password'}
                       placeholder="Wi-Fi password"
@@ -157,14 +184,16 @@ function NetworkStep({ online, onNext, reconnect }) {
                       {showPw ? '🙈' : '👁'}
                     </button>
                   </div>
-                  <button
-                    style={{ ...s.btnSm, ...(!password || connecting === net.ssid ? s.btnSmDisabled : {}) }}
-                    onClick={() => handleConnect(net.ssid, password)}
-                    disabled={!password || connecting === net.ssid}
-                  >
-                    {connecting === net.ssid ? 'Connecting…' : 'Connect'}
-                  </button>
-                  <button style={s.btnCancel} onClick={() => setExpandedSsid(null)}>Cancel</button>
+                  <div style={{ display: 'flex', gap: '8px', width: '100%', justifyContent: 'flex-end', marginTop: '4px' }}>
+                    <button style={s.btnCancel} onClick={() => setExpandedSsid(null)}>Cancel</button>
+                    <button
+                      style={{ ...s.btnSm, ...(!password || connecting === net.ssid ? s.btnSmDisabled : {}) }}
+                      onClick={() => handleConnect(net.ssid, password)}
+                      disabled={!password || connecting === net.ssid}
+                    >
+                      {connecting === net.ssid ? 'Connecting…' : 'Connect'}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -365,7 +394,7 @@ export default function Oobe({ online, onComplete, networkOnly }) {
 
   return (
     <div style={s.overlay}>
-      <div style={s.card}>
+      <div className="oobe-card" style={s.card}>
         <div style={s.logoRow}>
           <span style={s.logoIcon}>☁</span>
           <span style={s.logoText}>Nimbus</span>
@@ -381,7 +410,17 @@ export default function Oobe({ online, onComplete, networkOnly }) {
             ? <AccountStep onNext={() => setStep('pin')} />
             : <PinStep onComplete={onComplete} />}
       </div>
-      <style>{`@keyframes fadeIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}`}</style>
+      <style>{`
+        @keyframes fadeIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @media (max-width: 480px) {
+          .oobe-card {
+            padding: 24px 20px 20px !important;
+            border-radius: 20px !important;
+          }
+          .net-row { flex-direction: column !important; align-items: stretch !important; gap: 8px !important; }
+        }
+      `}</style>
     </div>
   )
 }
@@ -434,7 +473,7 @@ const s = {
   netNameActive: { color: 'rgba(129,212,250,0.9)' },
   connTag: { marginLeft: '6px', fontSize: '11px', color: 'rgba(129,199,132,0.9)' },
   pwRow: {
-    display: 'flex', alignItems: 'center', gap: '8px',
+    display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: '8px',
     padding: '8px 14px 11px', background: 'rgba(255,255,255,0.02)',
     borderBottom: '1px solid rgba(255,255,255,0.05)',
   },
@@ -479,5 +518,27 @@ const s = {
     fontSize: '13px', cursor: 'pointer', padding: '4px 0',
     textDecoration: 'underline', textDecorationColor: 'rgba(255,255,255,0.15)',
     width: '100%', textAlign: 'center',
+  },
+  transitionContainer: {
+    display: 'flex', flexDirection: 'column', gap: '8px', animation: 'fadeIn 0.4s ease',
+  },
+  transitionCard: {
+    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)',
+    borderRadius: '14px', padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: '16px',
+    marginTop: '10px',
+  },
+  spinnerContainer: {
+    display: 'flex', justifyContent: 'center', margin: '8px 0 12px',
+  },
+  spinner: {
+    width: '32px', height: '32px', border: '3px solid rgba(79,195,247,0.15)',
+    borderTop: '3px solid rgba(79,195,247,0.9)', borderRadius: '50%',
+    animation: 'spin 1s linear infinite',
+  },
+  instructionStep: {
+    fontSize: '13px', color: 'rgba(255,255,255,0.7)', lineHeight: 1.5,
+  },
+  link: {
+    color: 'rgba(79,195,247,0.95)', textDecoration: 'underline', fontWeight: 600,
   },
 }

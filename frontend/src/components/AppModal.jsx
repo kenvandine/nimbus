@@ -71,8 +71,8 @@ export default function AppModal({ app, onClose, onRefresh, isInstalling = false
     : { running: 'Running', installed: 'Installed', installing: 'Installing…', available: 'Available' }[status]
 
   return (
-    <div style={styles.overlay} onClick={onClose}>
-      <div style={styles.panel} onClick={e => e.stopPropagation()}>
+    <div className="modal-overlay" style={styles.overlay} onClick={onClose}>
+      <div className="modal-panel" style={styles.panel} onClick={e => e.stopPropagation()}>
         {/* Close */}
         <button style={styles.closeBtn} onClick={onClose}>✕</button>
 
@@ -186,6 +186,20 @@ export default function AppModal({ app, onClose, onRefresh, isInstalling = false
           </div>
         )}
       </div>
+      <style>{`
+        @media (max-width: 640px) {
+          .modal-overlay {
+            padding: 8px !important;
+            padding-top: calc(8px + env(safe-area-inset-top, 0px)) !important;
+            padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)) !important;
+          }
+          .modal-panel {
+            max-height: 100% !important;
+            padding: 20px !important;
+            border-radius: 12px !important;
+          }
+        }
+      `}</style>
     </div>
   )
 }

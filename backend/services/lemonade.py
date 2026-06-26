@@ -167,7 +167,8 @@ def _build_pull_payload(spec: dict) -> dict:
 _GiB = 1 << 30
 
 # Path where the user's model preference is persisted across restarts.
-_MODEL_OVERRIDE_PATH = Path("/var/lib/nimbus/model_override.json")
+_override_dir = os.getenv("SNAP_COMMON", "/var/lib/nimbus")
+_MODEL_OVERRIDE_PATH = Path(_override_dir) / "model_override.json"
 
 _model_override: dict | None = None
 

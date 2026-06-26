@@ -28,3 +28,7 @@ lxc-seed/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Local model build system-user assertions
+model/user.json
+model/user.assert

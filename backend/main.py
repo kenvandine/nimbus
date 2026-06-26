@@ -153,10 +153,26 @@ async def _run_http_redirect(http_port: int, https_port: int) -> None:
             if host in _LOCALHOST_HOSTS:
                 await _proxy_localhost(raw, reader, writer)
                 return
-            port_suffix = f":{https_port}" if https_port != 443 else ""
-            location = f"https://{host}{port_suffix}{path}"
+
+            local_ip = "10.42.0.1"
+            try:
+                sockname = writer.get_extra_info('sockname')
+                if sockname:
+                    local_ip = sockname[0]
+            except Exception:
+                pass
+
+            local_hosts = {"nimbus.local", local_ip}
+            if host in local_hosts:
+                port_suffix = f":{https_port}" if https_port != 443 else ""
+                location = f"https://{host}{port_suffix}{path}"
+                status_line = "HTTP/1.1 301 Moved Permanently"
+            else:
+                location = f"http://{local_ip}/"
+                status_line = "HTTP/1.1 302 Found"
+
             writer.write(
-                f"HTTP/1.1 301 Moved Permanently\r\n"
+                f"{status_line}\r\n"
                 f"Location: {location}\r\n"
                 f"Content-Length: 0\r\n"
                 f"Connection: close\r\n\r\n".encode()
@@ -181,6 +197,7 @@ async def _run_http_redirect(http_port: int, https_port: int) -> None:
 async def lifespan(app: FastAPI):
     store_task = None
     redirect_task = None
+    ap_task = None
     if settings.tls_enabled:
         redirect_task = asyncio.create_task(
             _run_http_redirect(settings.http_redirect_port, int(os.environ.get("NIMBUS_PORT", "443")))
@@ -192,9 +209,21 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.warning("Store refresh failed (continuing anyway): %s", exc)
         store_task = asyncio.create_task(ensure_store())
+
+    if settings.control_mode == "lxd":
+        from services import wifi as wifi_service
+        logger.info("Scheduling startup AP management task...")
+        ap_task = asyncio.create_task(wifi_service.check_and_manage_ap_on_startup())
+
     await get_control_plane().initialize()
     openclaw_service.start()
     yield
+    if ap_task and not ap_task.done():
+        ap_task.cancel()
+        try:
+            await ap_task
+        except asyncio.CancelledError:
+            pass
     if redirect_task and not redirect_task.done():
         redirect_task.cancel()
         try:

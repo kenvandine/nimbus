@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Optional
@@ -157,9 +158,11 @@ def get_wifi_status() -> WifiStatus:
         dev = bus.get_object(NM_SERVICE, wifi_path)
         active_ap = dbus.Interface(dev, DBUS_PROPS_IFACE).Get(NM_WIRELESS_IFACE, "ActiveAccessPoint")
 
+        ap_active = is_ap_active(bus)
+
         ssid = None
         ip_address = _ipv4_address_for_device(bus, dev)
-        if str(active_ap) != "/":
+        if str(active_ap) != "/" and not ap_active:
             ap = bus.get_object(NM_SERVICE, active_ap)
             ssid_bytes = dbus.Interface(ap, DBUS_PROPS_IFACE).Get(NM_AP_IFACE, "Ssid")
             ssid = bytes(ssid_bytes).decode("utf-8", errors="replace")
@@ -176,7 +179,11 @@ def get_wifi_status() -> WifiStatus:
         return WifiStatus(available=False, enabled=False, connected=False, error=str(exc))
 
 
+_cached_networks: list[AccessPoint] = []
+
+
 def scan_networks() -> list[AccessPoint]:
+    global _cached_networks
     try:
         import dbus
         bus = _bus()
@@ -222,10 +229,20 @@ def scan_networks() -> list[AccessPoint]:
                 logger.debug("Skipping AP at %s: %s", ap_path, exc)
 
         results.sort(key=lambda a: (-a.in_use, -a.strength))
-        return results
+
+        # Filter out the onboarding hotspot from results
+        real_results = [r for r in results if r.ssid != "nimbus"]
+
+        if real_results:
+            _cached_networks = real_results
+            return real_results
+
+        # If we only found 'nimbus' (or nothing) because we are in AP mode,
+        # return the cached results so the user can see available networks.
+        return _cached_networks
     except Exception as exc:
         logger.warning("WiFi scan error: %s", exc)
-        return []
+        return _cached_networks
 
 
 def _device_failure_reason(bus, wifi_path) -> str | None:
@@ -320,6 +337,7 @@ def _connect_network(ssid: str, password: str | None) -> None:
         "connection": dbus.Dictionary({
             "id": dbus.String(ssid),
             "type": dbus.String("802-11-wireless"),
+            "mdns": dbus.Int32(2),
         }, signature="sv"),
         "802-11-wireless": dbus.Dictionary({
             "ssid": dbus.Array([dbus.Byte(c) for c in ssid.encode("utf-8")], signature="y"),
@@ -363,3 +381,383 @@ def disconnect_network() -> None:
 
     dev = bus.get_object(NM_SERVICE, wifi_path)
     dbus.Interface(dev, NM_DEVICE_IFACE).Disconnect()
+
+
+def is_ap_active(bus=None) -> bool:
+    import dbus
+    if bus is None:
+        try:
+            bus = _bus()
+        except Exception:
+            return False
+    try:
+        nm = bus.get_object(NM_SERVICE, NM_PATH)
+        active_connections = dbus.Interface(nm, DBUS_PROPS_IFACE).Get(NM_IFACE, "ActiveConnections")
+        for conn_path in active_connections:
+            try:
+                conn_obj = bus.get_object(NM_SERVICE, conn_path)
+                props = dbus.Interface(conn_obj, DBUS_PROPS_IFACE)
+                settings_path = props.Get(NM_ACTIVE_CONN_IFACE, "Connection")
+                settings_obj = bus.get_object(NM_SERVICE, settings_path)
+                settings = dbus.Interface(settings_obj, NM_CONN_IFACE).GetSettings()
+                conn_id = str(settings.get("connection", {}).get("id", ""))
+                conn_type = str(settings.get("connection", {}).get("type", ""))
+                mode = str(settings.get("802-11-wireless", {}).get("mode", ""))
+                if conn_id == "nimbus" and conn_type == "802-11-wireless" and mode == "ap":
+                    return True
+            except Exception:
+                continue
+    except Exception as exc:
+        logger.debug("Error checking if AP is active: %s", exc)
+    return False
+
+
+def _delete_existing_ap_profiles(bus) -> None:
+    import dbus
+    try:
+        settings_obj = bus.get_object(NM_SERVICE, NM_SETTINGS_PATH)
+        settings_iface = dbus.Interface(settings_obj, NM_SETTINGS_IFACE)
+        for conn_path in settings_iface.ListConnections():
+            try:
+                conn_obj = bus.get_object(NM_SERVICE, conn_path)
+                conn_iface = dbus.Interface(conn_obj, NM_CONN_IFACE)
+                s = conn_iface.GetSettings()
+                conn_id = str(s.get("connection", {}).get("id", ""))
+                conn_type = str(s.get("connection", {}).get("type", ""))
+                mode = str(s.get("802-11-wireless", {}).get("mode", ""))
+                if conn_id == "nimbus" and conn_type == "802-11-wireless" and mode == "ap":
+                    logger.info("Deleting existing AP connection profile: %s", conn_path)
+                    conn_iface.Delete()
+            except Exception:
+                continue
+    except Exception as exc:
+        logger.debug("Error while deleting old AP profiles: %s", exc)
+
+
+def start_ap() -> None:
+    import dbus
+    try:
+        bus = _bus()
+    except Exception as exc:
+        logger.error("D-Bus connection failed, cannot start AP: %s", exc)
+        return
+
+    if is_ap_active(bus):
+        logger.info("Nimbus AP is already active")
+        return
+
+    wifi_path = _find_wifi_device(bus)
+    if not wifi_path:
+        logger.warning("No WiFi adapter found, cannot start AP")
+        return
+
+    logger.info("Starting Nimbus hostap Access Point...")
+
+    # Delete any existing AP connection profiles to keep things clean.
+    _delete_existing_ap_profiles(bus)
+
+    # Define connection settings for AP mode.
+    # We use "shared" method for IPv4 to activate dnsmasq/DHCP on the interface.
+    conn = {
+        "connection": dbus.Dictionary({
+            "id": dbus.String("nimbus"),
+            "type": dbus.String("802-11-wireless"),
+            "autoconnect": dbus.Boolean(False),
+            "mdns": dbus.Int32(2),
+        }, signature="sv"),
+        "802-11-wireless": dbus.Dictionary({
+            "ssid": dbus.Array([dbus.Byte(c) for c in b"nimbus"], signature="y"),
+            "mode": dbus.String("ap"),
+            "band": dbus.String("bg"),
+        }, signature="sv"),
+        "ipv4": dbus.Dictionary({
+            "method": dbus.String("shared"),
+        }, signature="sv"),
+        "ipv6": dbus.Dictionary({
+            "method": dbus.String("ignore"),
+        }, signature="sv"),
+    }
+
+    try:
+        nm = bus.get_object(NM_SERVICE, NM_PATH)
+        nm_iface = dbus.Interface(nm, NM_IFACE)
+        conn_path, active_path = nm_iface.AddAndActivateConnection(
+            dbus.Dictionary(conn, signature="sa{sv}"),
+            dbus.ObjectPath(wifi_path),
+            dbus.ObjectPath("/"),
+        )
+        logger.info("Nimbus AP connection created and activation initiated (AP connection: %s)", active_path)
+    except Exception as exc:
+        logger.error("Failed to start AP: %s", exc)
+
+
+def stop_ap() -> None:
+    import dbus
+    try:
+        bus = _bus()
+    except Exception as exc:
+        logger.error("D-Bus connection failed, cannot stop AP: %s", exc)
+        return
+
+    logger.info("Stopping Nimbus hostap Access Point...")
+    
+    try:
+        nm = bus.get_object(NM_SERVICE, NM_PATH)
+        active_connections = dbus.Interface(nm, DBUS_PROPS_IFACE).Get(NM_IFACE, "ActiveConnections")
+        for conn_path in active_connections:
+            try:
+                conn_obj = bus.get_object(NM_SERVICE, conn_path)
+                props = dbus.Interface(conn_obj, DBUS_PROPS_IFACE)
+                settings_path = props.Get(NM_ACTIVE_CONN_IFACE, "Connection")
+                settings_obj = bus.get_object(NM_SERVICE, settings_path)
+                settings_val = dbus.Interface(settings_obj, NM_CONN_IFACE).GetSettings()
+                conn_id = str(settings_val.get("connection", {}).get("id", ""))
+                conn_type = str(settings_val.get("connection", {}).get("type", ""))
+                mode = str(settings_val.get("802-11-wireless", {}).get("mode", ""))
+                if conn_id == "nimbus" and conn_type == "802-11-wireless" and mode == "ap":
+                    logger.info("Deactivating active AP connection: %s", conn_path)
+                    dbus.Interface(nm, NM_IFACE).DeactivateConnection(conn_path)
+            except Exception:
+                continue
+    except Exception as exc:
+        logger.debug("Error while deactivating AP connection: %s", exc)
+
+    # Clean up settings connection profiles
+    _delete_existing_ap_profiles(bus)
+
+
+class CaptiveDNSProtocol(asyncio.DatagramProtocol):
+    def __init__(self, target_ip: str):
+        self.target_ip = target_ip
+
+    def connection_made(self, transport):
+        self.transport = transport
+
+    def datagram_received(self, data, addr):
+        try:
+            reply = self.build_reply(data)
+            self.transport.sendto(reply, addr)
+        except Exception as exc:
+            logger.debug("Error building DNS reply: %s", exc)
+
+    def build_reply(self, data):
+        if len(data) < 12:
+            raise ValueError("Data too short")
+
+        transaction_id = data[:2]
+        flags = b"\x81\x80"
+        qdcount = data[4:6]
+        nscount = b"\x00\x00"
+        arcount = b"\x00\x00"
+        
+        end = 12
+        while end < len(data):
+            length = data[end]
+            if length == 0:
+                end += 1
+                break
+            if length & 0xC0 == 0xC0:
+                end += 2
+                break
+            end += 1 + length
+        
+        if end + 4 > len(data):
+            raise ValueError("Truncated question section")
+
+        question = data[12:end+4]
+        qtype = data[end : end+2]
+        
+        # We only answer A queries (type 1) with our IPv4 address.
+        # For other queries (like AAAA or HTTPS), we return NODATA (success with 0 answers)
+        # so the client falls back to IPv4 A queries.
+        if qtype == b"\x00\x01":
+            ancount = b"\x00\x01"
+            answer_name = b"\xc0\x0c"
+            answer_type = b"\x00\x01"
+            answer_class = b"\x00\x01"
+            answer_ttl = b"\x00\x00\x00\x3c"
+            answer_rdlength = b"\x00\x04"
+            ip_bytes = bytes(int(x) for x in self.target_ip.split("."))
+            answers = answer_name + answer_type + answer_class + answer_ttl + answer_rdlength + ip_bytes
+        else:
+            ancount = b"\x00\x00"
+            answers = b""
+            
+        return transaction_id + flags + qdcount + ancount + nscount + arcount + question + answers
+
+
+_dns_server_transport = None
+
+async def start_dns_server(ip: str) -> None:
+    global _dns_server_transport
+    if _dns_server_transport:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+        transport, protocol = await loop.create_datagram_endpoint(
+            lambda: CaptiveDNSProtocol(ip),
+            local_addr=("0.0.0.0", 5300)
+        )
+        _dns_server_transport = transport
+        logger.info("Captive portal DNS server started on 0.0.0.0:5300")
+    except Exception as exc:
+        logger.error("Failed to start captive portal DNS server: %s", exc)
+
+
+async def stop_dns_server() -> None:
+    global _dns_server_transport
+    if _dns_server_transport:
+        try:
+            _dns_server_transport.close()
+            logger.info("Captive portal DNS server stopped")
+        except Exception as exc:
+            logger.debug("Error stopping DNS server: %s", exc)
+        _dns_server_transport = None
+
+
+def _manage_dns_redirect(iface: str, ip: str, add: bool) -> None:
+    import os
+    import subprocess
+    
+    snap_dir = os.environ.get("SNAP")
+    iptables_path = ""
+    env = os.environ.copy()
+    
+    if snap_dir:
+        for candidate in ["/usr/sbin/iptables-nft", "/usr/sbin/iptables", "/sbin/iptables"]:
+            path = os.path.join(snap_dir, candidate.lstrip("/"))
+            if os.path.exists(path):
+                iptables_path = path
+                break
+        
+        for libdir_rel in [
+            "usr/lib/x86_64-linux-gnu/xtables",
+            "usr/lib/aarch64-linux-gnu/xtables",
+            "usr/lib/arm-linux-gnueabihf/xtables",
+            "usr/lib/xtables",
+        ]:
+            libdir = os.path.join(snap_dir, libdir_rel)
+            if os.path.exists(libdir):
+                env["XTABLES_LIBDIR"] = libdir
+                break
+
+    if not iptables_path:
+        iptables_path = "/sbin/iptables"
+        if not os.path.exists(iptables_path):
+            if os.path.exists("/usr/sbin/iptables"):
+                iptables_path = "/usr/sbin/iptables"
+            else:
+                iptables_path = "iptables"
+
+    action = "-I" if add else "-D"
+    cmd = [
+        iptables_path, "-t", "nat", action, "PREROUTING",
+        "-i", iface, "-p", "udp", "--dport", "53",
+        "-j", "DNAT", "--to-destination", f"{ip}:5300"
+    ]
+    try:
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True, check=True)
+        logger.info("Successfully %s DNS redirect rule on %s for %s", "added" if add else "removed", iface, ip)
+    except Exception as exc:
+        stderr = getattr(exc, "stderr", "") or str(exc)
+        logger.error("Failed to %s DNS redirect rule on %s: %s", "add" if add else "remove", iface, stderr)
+
+
+async def async_start_ap() -> None:
+    await asyncio.to_thread(start_ap)
+    import dbus
+    try:
+        bus = _bus()
+        wifi_path = _find_wifi_device(bus)
+        if wifi_path:
+            dev = bus.get_object(NM_SERVICE, wifi_path)
+            iface_name = str(dbus.Interface(dev, DBUS_PROPS_IFACE).Get(NM_DEVICE_IFACE, "Interface"))
+            
+            # Wait up to 5 seconds for local IP assignment (default shared is 10.42.0.1)
+            ip = "10.42.0.1"
+            for _ in range(5):
+                temp_ip = _ipv4_address_for_device(bus, dev)
+                if temp_ip:
+                    ip = temp_ip
+                    break
+                await asyncio.sleep(1.0)
+                
+            await start_dns_server(ip)
+            await asyncio.to_thread(_manage_dns_redirect, iface_name, ip, True)
+    except Exception as exc:
+        logger.error("Failed to set up captive portal DNS redirect: %s", exc)
+
+
+async def async_stop_ap() -> None:
+    import dbus
+    try:
+        bus = _bus()
+        wifi_path = _find_wifi_device(bus)
+        if wifi_path:
+            dev = bus.get_object(NM_SERVICE, wifi_path)
+            iface_name = str(dbus.Interface(dev, DBUS_PROPS_IFACE).Get(NM_DEVICE_IFACE, "Interface"))
+            
+            ip = _ipv4_address_for_device(bus, dev) or "10.42.0.1"
+            await asyncio.to_thread(_manage_dns_redirect, iface_name, ip, False)
+    except Exception as exc:
+        logger.debug("Failed to remove captive portal DNS redirect: %s", exc)
+
+    await stop_dns_server()
+    await asyncio.to_thread(stop_ap)
+
+
+async def handover_ap_to_wifi(ssid: str, password: str | None) -> None:
+    logger.info("Handing over AP to client Wi-Fi: %s", ssid)
+    # 1. Sleep for 2 seconds to let the response reach the client browser.
+    await asyncio.sleep(2.0)
+    
+    # 2. Stop the AP
+    try:
+        await async_stop_ap()
+    except Exception as exc:
+        logger.error("Failed to stop AP during handover: %s", exc)
+        
+    # 3. Connect to the new Wi-Fi
+    try:
+        await asyncio.to_thread(connect_network, ssid, password)
+        logger.info("Successfully transitioned to client Wi-Fi: %s", ssid)
+    except Exception as exc:
+        logger.warning("Handover connect failed: %s. Re-activating AP...", exc)
+        # 4. Fallback: Re-activate AP since connection failed
+        try:
+            await async_start_ap()
+        except Exception as start_ap_exc:
+            logger.error("Failed to re-activate AP after connection failure: %s", start_ap_exc)
+
+
+async def check_and_manage_ap_on_startup() -> None:
+    # Wait for NetworkManager to settle (e.g. 10 seconds).
+    await asyncio.sleep(10.0)
+    
+    from services.device import is_oobe_complete
+    if is_oobe_complete():
+        logger.info("OOBE is complete, skipping startup AP check")
+        return
+        
+    from services.network import is_online
+    if is_online():
+        logger.info("Device is online on startup, skipping AP check")
+        return
+        
+    import dbus
+    try:
+        bus = _bus()
+        if is_ap_active(bus):
+            logger.info("Nimbus AP is already active on startup")
+            return
+            
+        wifi_path = _find_wifi_device(bus)
+        if wifi_path:
+            logger.info("Device is offline, OOBE is incomplete. Scanning networks before starting AP...")
+            await asyncio.to_thread(scan_networks)
+            logger.info("Starting AP...")
+            await async_start_ap()
+        else:
+            logger.warning("No WiFi adapter found on startup, cannot start AP")
+    except Exception as exc:
+        logger.error("Error during startup AP check: %s", exc)

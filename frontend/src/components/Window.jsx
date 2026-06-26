@@ -13,8 +13,8 @@ export default function Window({ title, onClose, children, noPad = false }) {
   }, [onClose])
 
   return (
-    <div style={styles.overlay} onClick={onClose}>
-      <div style={styles.window} onClick={event => event.stopPropagation()}>
+    <div className="window-overlay" style={styles.overlay} onClick={onClose}>
+      <div className="window-container" style={styles.window} onClick={event => event.stopPropagation()}>
         <div style={styles.titleBar}>
           <span style={styles.titleText}>{title}</span>
           <button style={styles.closeBtn} onClick={onClose} title="Close">
@@ -26,6 +26,20 @@ export default function Window({ title, onClose, children, noPad = false }) {
         </div>
         <div style={{ ...styles.content, ...(noPad ? styles.contentNoPad : {}) }}>{children}</div>
       </div>
+      <style>{`
+        @media (max-width: 640px) {
+          .window-overlay {
+            padding: 8px !important;
+            padding-top: calc(8px + env(safe-area-inset-top, 0px)) !important;
+            padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)) !important;
+          }
+          .window-container {
+            height: 100% !important;
+            max-height: 100% !important;
+            border-radius: 12px !important;
+          }
+        }
+      `}</style>
     </div>
   )
 }

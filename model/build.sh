@@ -74,6 +74,14 @@ inject_nm_lxd_unmanaged() {
 unmanaged-devices=interface-name:lxdbr0;interface-name:veth*
 EOF
 
+    nm_dnsmasq_relpath=var/snap/network-manager/common/etc/NetworkManager/dnsmasq-shared.d/nimbus-captive-portal.conf
+    mkdir -p "$workdir/$(dirname "$nm_dnsmasq_relpath")"
+    cat > "$workdir/$nm_dnsmasq_relpath" <<'EOF'
+# Redirect all DNS queries to the gateway IP for the captive portal flow
+address=/#/10.42.0.1
+EOF
+
+
     # ── System performance fixes (applied to all models) ──────────────────────
 
     # 1. Mask ttyS0 getty — no serial console hardware; agetty respawns every
@@ -123,7 +131,23 @@ Wants=snapd.seeded.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/sh -c 'snap connect nimbus:network-control; snap connect nimbus:network-observe; snap connect nimbus:system-observe; snap set system hostname=nimbus'
+ExecStart=/bin/sh -c ' \
+snap connect nimbus:firewall-control; \
+snap connect nimbus:network-control; \
+snap connect nimbus:network-observe; \
+snap connect nimbus:system-observe; \
+snap set system hostname=nimbus; \
+hostnamectl set-hostname --transient nimbus || true; \
+snap set system service.systemd-resolved.multicast-dns=yes; \
+systemctl restart systemd-resolved || true; \
+if [ -d /var/snap/nimbus/common/sideload/huggingface/hub ]; then \
+  mkdir -p /var/snap/lemonade-server/common/.cache/huggingface/hub; \
+  mv /var/snap/nimbus/common/sideload/huggingface/hub/* /var/snap/lemonade-server/common/.cache/huggingface/hub/ 2>/dev/null || true; \
+  rm -rf /var/snap/nimbus/common/sideload/huggingface/hub; \
+fi; \
+if [ -f /var/snap/nimbus/common/sideload/model_override.json ]; then \
+  mv /var/snap/nimbus/common/sideload/model_override.json /var/snap/nimbus/common/model_override.json 2>/dev/null || true; \
+fi'
 RemainAfterExit=yes
 Restart=on-failure
 RestartSec=5s
@@ -307,6 +331,51 @@ for i, p in enumerate(data.get("partitiontable", {}).get("partitions", []), 1):
     echo "    LXC seed injected ($(du -sh "$seed_tgz" | cut -f1)) at system-data/var/snap/nimbus/common/lxc-seed/"
 }
 
+inject_sideload_models() {
+    img=$1
+    cache_dir=$2
+    loop_dev=
+    mnt=
+
+    echo "==> Injecting sideloaded models into ubuntu-data..."
+
+    # Map the GPT partition name "ubuntu-data" to its partition number.
+    data_partnum=$(sfdisk --json "$img" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+for i, p in enumerate(data.get("partitiontable", {}).get("partitions", []), 1):
+    if p.get("name") == "ubuntu-data":
+        print(i)
+        break
+')
+    if [ -z "$data_partnum" ]; then
+        echo "    Warning: ubuntu-data partition not found — skipping model injection" >&2
+        return 0
+    fi
+
+    mnt=$(mktemp -d "${TMPDIR%/}/nimbus-data-mnt.XXXXXX")
+    loop_dev=$(sudo losetup --find --show --partscan "$img")
+
+    if ! sudo mount "${loop_dev}p${data_partnum}" "$mnt"; then
+        echo "    Warning: could not mount ubuntu-data — skipping model injection" >&2
+        sudo losetup -d "$loop_dev"
+        rmdir "$mnt"
+        return 0
+    fi
+
+    # $SNAP_COMMON for the nimbus snap lives here on Ubuntu Core.
+    dest="$mnt/system-data/var/snap/nimbus/common/sideload"
+    sudo mkdir -p "$dest"
+    sudo cp -a "$cache_dir/." "$dest/"
+    sudo chown -R 0:0 "$dest"
+
+    sudo umount "$mnt"
+    sudo losetup -d "$loop_dev"
+    rmdir "$mnt"
+
+    echo "    Models injected from $cache_dir"
+}
+
 [ "$#" -ge 1 ] || usage
 TARGET_MODEL=$1
 shift
@@ -369,20 +438,14 @@ fi
 
 snap sign -k my-key "$MODEL_JSON" > "$MODEL_ASSERTION"
 
-if [ -f ./kenvandine.json ]; then
-    snap sign -k my-key ./kenvandine.json > ./kenvandine.assert
-fi
-
-if [ -f ./krishna.json ]; then
-    snap sign -k my-key ./krishna.json > ./krishna.assert
+if [ -f ./user.json ]; then
+    snap sign -k my-key ./user.json > ./user.assert
 fi
 
 USER_ASSERTIONS=
-for assertion in ./kenvandine.assert ./krishna.assert; do
-    if [ -f "$assertion" ]; then
-        USER_ASSERTIONS="$USER_ASSERTIONS --assertion $assertion"
-    fi
-done
+if [ -f ./user.assert ]; then
+    USER_ASSERTIONS="--assertion ./user.assert"
+fi
 
 if [ -z "$USER_ASSERTIONS" ]; then
     echo "WARNING: no system-user assertions found, proceeding without custom users" >&2
@@ -424,6 +487,16 @@ if [ -n "$EXTRA_SNAP" ]; then
     EXTRA_SNAP_FLAG="--snap $EXTRA_SNAP"
 fi
 
+BASE_IMAGE_SIZE_GB=22
+MODEL_CACHE_DIR="$(pwd)/model-cache"
+IMAGE_SIZE="${BASE_IMAGE_SIZE_GB}G"
+if [ -d "$MODEL_CACHE_DIR" ]; then
+    cache_size_kb=$(du -sk "$MODEL_CACHE_DIR" | cut -f1)
+    cache_size_gb=$(( (cache_size_kb + 1024 * 1024 - 1) / (1024 * 1024) ))
+    IMAGE_SIZE="$(( BASE_IMAGE_SIZE_GB + cache_size_gb ))G"
+    echo "Sideload model-cache detected: scaling image size to $IMAGE_SIZE"
+fi
+
 set -- sudo env -u SUDO_UID -u SUDO_GID -u SUDO_USER
 if [ "$PRESEED" -eq 1 ]; then
     set -- "$@" "SNAP_GNUPG_HOME=$ROOT_GNUPG_HOME"
@@ -435,12 +508,10 @@ set -- "$@" ubuntu-image snap "$MODEL_ASSERTION" --snap "$GADGET_SNAP"
 if [ -n "$EXTRA_SNAP_FLAG" ]; then
     set -- "$@" $EXTRA_SNAP_FLAG
 fi
-set -- "$@" --image-size=22G --workdir "$BUILD_WORKDIR" --debug
-for assertion in ./kenvandine.assert ./krishna.assert; do
-    if [ -f "$assertion" ]; then
-        set -- "$@" --assertion "$assertion"
-    fi
-done
+set -- "$@" --image-size="$IMAGE_SIZE" --workdir "$BUILD_WORKDIR" --debug
+if [ -f ./user.assert ]; then
+    set -- "$@" --assertion ./user.assert
+fi
 if [ -n "$RESUME_FLAG" ]; then
     set -- "$@" "$RESUME_FLAG"
 fi
@@ -482,6 +553,12 @@ elif [ -e "$PC_IMG_PATH" ]; then
     echo "==> No nimbus-lxc-seed.tar.gz found — skipping LXC seed injection"
     echo "    Run scripts/build-lxc-seed.sh first to enable offline first-boot bootstrap."
 fi
+
+MODEL_CACHE_DIR="$(pwd)/model-cache"
+if [ -d "$MODEL_CACHE_DIR" ] && [ -e "$PC_IMG_PATH" ]; then
+    inject_sideload_models "$PC_IMG_PATH" "$MODEL_CACHE_DIR"
+fi
+
 
 if [ ! -e "$PC_IMG_PATH" ]; then
     echo "pc.img is missing after injection step" >&2
