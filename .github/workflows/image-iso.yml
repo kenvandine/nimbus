@@ -248,7 +248,9 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           pip install huggingface_hub
-          mkdir -p model-cache/huggingface/hub
+          # model-cache must live inside nimbus/model/ because build.sh resolves
+          # MODEL_CACHE_DIR relative to its working directory (nimbus/model/).
+          mkdir -p nimbus/model/model-cache/huggingface/hub
           python3 -c "
           import os, json
           from huggingface_hub import hf_hub_download, snapshot_download
@@ -257,7 +259,7 @@ jobs:
           filename = os.environ.get('HF_FILE')
           token = os.environ.get('HF_TOKEN') or None
           
-          cache_dir = os.path.join(os.getcwd(), 'model-cache', 'huggingface', 'hub')
+          cache_dir = os.path.join(os.getcwd(), 'nimbus', 'model', 'model-cache', 'huggingface', 'hub')
           print(f'Downloading {repo} (file: {filename or \"all\"}) into {cache_dir}...')
           
           checkpoints = {}
@@ -303,7 +305,7 @@ jobs:
                   checkpoints['mmproj'] = f'{repo}:{mmproj_file}'
           
           # Create model_override.json to register this model in lemonade-server
-          override_path = os.path.join(os.getcwd(), 'model-cache', 'model_override.json')
+          override_path = os.path.join(os.getcwd(), 'nimbus', 'model', 'model-cache', 'model_override.json')
           override_data = {
               'model_name': model_name,
               'checkpoints': checkpoints,
