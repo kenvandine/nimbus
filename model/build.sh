@@ -377,20 +377,14 @@ fi
 
 snap sign -k my-key "$MODEL_JSON" > "$MODEL_ASSERTION"
 
-if [ -f ./kenvandine.json ]; then
-    snap sign -k my-key ./kenvandine.json > ./kenvandine.assert
-fi
-
-if [ -f ./krishna.json ]; then
-    snap sign -k my-key ./krishna.json > ./krishna.assert
+if [ -f ./user.json ]; then
+    snap sign -k my-key ./user.json > ./user.assert
 fi
 
 USER_ASSERTIONS=
-for assertion in ./kenvandine.assert ./krishna.assert; do
-    if [ -f "$assertion" ]; then
-        USER_ASSERTIONS="$USER_ASSERTIONS --assertion $assertion"
-    fi
-done
+if [ -f ./user.assert ]; then
+    USER_ASSERTIONS="--assertion ./user.assert"
+fi
 
 if [ -z "$USER_ASSERTIONS" ]; then
     echo "WARNING: no system-user assertions found, proceeding without custom users" >&2
@@ -444,11 +438,9 @@ if [ -n "$EXTRA_SNAP_FLAG" ]; then
     set -- "$@" $EXTRA_SNAP_FLAG
 fi
 set -- "$@" --image-size=22G --workdir "$BUILD_WORKDIR" --debug
-for assertion in ./kenvandine.assert ./krishna.assert; do
-    if [ -f "$assertion" ]; then
-        set -- "$@" --assertion "$assertion"
-    fi
-done
+if [ -f ./user.assert ]; then
+    set -- "$@" --assertion ./user.assert
+fi
 if [ -n "$RESUME_FLAG" ]; then
     set -- "$@" "$RESUME_FLAG"
 fi

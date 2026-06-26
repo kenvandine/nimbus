@@ -26,6 +26,11 @@ on:
         required: true
         default: false
         type: boolean
+      ssh_key:
+        description: 'Optional SSH public key to embed in the system-user assertion'
+        required: false
+        default: ''
+        type: string
   schedule:
     # Run once a day at midnight UTC
     - cron: '0 0 * * *'
@@ -190,6 +195,33 @@ jobs:
         run: |
           cd pc-amd64-gadget
           sg lxd -c "snapcraft"
+
+      - name: Generate system-user assertion JSON
+        if: ${{ github.event.inputs.ssh_key != '' }}
+        env:
+          SSH_KEY: ${{ github.event.inputs.ssh_key }}
+        run: |
+          python3 -c "
+          import os, json
+          ssh_key = os.environ.get('SSH_KEY', '').strip()
+          if ssh_key:
+              user_data = {
+                  'type': 'system-user',
+                  'authority-id': 'EH9A6Xg1QtCjYt4v3QlBVTPLAHDvEIn6',
+                  'brand-id': 'EH9A6Xg1QtCjYt4v3QlBVTPLAHDvEIn6',
+                  'email': 'dev@localhost',
+                  'models': ['nimbus-lemonade', 'nimbus-gemma4'],
+                  'name': 'Ubuntu',
+                  'username': 'ubuntu',
+                  'ssh-keys': [ssh_key],
+                  'series': ['16'],
+                  'since': '2026-01-01T00:00:00+00:00',
+                  'until': '2028-01-01T00:00:00+00:00'
+              }
+              with open('nimbus/model/user.json', 'w') as f:
+                  json.dump(user_data, f, indent=4)
+                  f.write('\n')
+          "
 
       - name: Build Appliance Image
         run: |
