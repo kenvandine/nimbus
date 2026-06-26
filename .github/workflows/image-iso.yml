@@ -262,76 +262,82 @@ jobs:
           # model-cache must live inside nimbus/model/ because build.sh resolves
           # MODEL_CACHE_DIR relative to its working directory (nimbus/model/).
           mkdir -p nimbus/model/model-cache/huggingface/hub
-          python3 -c "
-          import os, json
+
+          # Write the download script to a file to avoid inline quoting issues
+          cat > /tmp/hf_download.py << 'PYEOF'
+          import os, sys, json
           from huggingface_hub import hf_hub_download, snapshot_download
-          
-          repo = os.environ.get('HF_REPO')
-          filename = os.environ.get('HF_FILE')
-          token = os.environ.get('HF_TOKEN') or None
-          
+
+          repo     = os.environ['HF_REPO']
+          filename = os.environ.get('HF_FILE', '')
+          token    = os.environ.get('HF_TOKEN') or None
+
           cache_dir = os.path.join(os.getcwd(), 'nimbus', 'model', 'model-cache', 'huggingface', 'hub')
-          print(f'Downloading {repo} (file: {filename or \"all\"}) into {cache_dir}...')
-          
+          print(f'Downloading {repo} (file: {filename or "all"}) into {cache_dir}...')
+          sys.stdout.flush()
+
           checkpoints = {}
-          
+
           if filename:
               path = hf_hub_download(repo_id=repo, filename=filename, cache_dir=cache_dir, token=token)
+              print(f'Downloaded main model to: {path}')
+              print(f'File size: {os.path.getsize(path):,} bytes')
+              if os.path.getsize(path) == 0:
+                  raise RuntimeError(f'Downloaded file is empty: {path}')
               checkpoints['main'] = f'{repo}:{filename}'
-              model_name = f'user.{filename.replace(\"/\", \"-\")}'
-              # Try to download mmproj if it is a Qwen/Vision model and we can guess it
+              model_name = f'user.{filename.replace("/", "-")}'
+              # Try to download mmproj for vision models
               if 'Qwen3.5-9B-GGUF' in repo:
                   try:
-                      hf_hub_download(repo_id=repo, filename='mmproj-F16.gguf', cache_dir=cache_dir, token=token)
+                      mmp = hf_hub_download(repo_id=repo, filename='mmproj-F16.gguf', cache_dir=cache_dir, token=token)
+                      print(f'Downloaded mmproj to: {mmp}')
                       checkpoints['mmproj'] = f'{repo}:mmproj-F16.gguf'
-                  except Exception:
-                      pass
+                  except Exception as e:
+                      print(f'mmproj not found (non-fatal): {e}')
           else:
               path = snapshot_download(repo_id=repo, cache_dir=cache_dir, token=token)
-              # Scan cache_dir for files
               gguf_files = []
               for root, dirs, files in os.walk(cache_dir):
                   for f in files:
                       if f.endswith('.gguf') or f.endswith('.sollama'):
                           gguf_files.append(f)
-              
-              # Find mmproj and main files
               main_file = None
               mmproj_file = None
               for f in gguf_files:
                   if 'mmproj' in f.lower():
                       mmproj_file = f
                   else:
-                      if main_file is None or 'Q4_K_M' in f or os.path.getsize(os.path.join(cache_dir, f)) > os.path.getsize(os.path.join(cache_dir, main_file)):
+                      fpath = os.path.join(cache_dir, f)
+                      if main_file is None or 'Q4_K_M' in f or os.path.getsize(fpath) > os.path.getsize(os.path.join(cache_dir, main_file)):
                           main_file = f
-              
               if main_file:
                   checkpoints['main'] = f'{repo}:{main_file}'
-                  model_name = f'user.{main_file.replace(\"/\", \"-\")}'
+                  model_name = f'user.{main_file.replace("/", "-")}'
               else:
                   checkpoints['main'] = f'{repo}:model'
-                  model_name = f'user.{repo.replace(\"/\", \"-\")}'
-              
+                  model_name = f'user.{repo.replace("/", "-")}'
               if mmproj_file:
                   checkpoints['mmproj'] = f'{repo}:{mmproj_file}'
-          
-          # Create model_override.json to register this model in lemonade-server
+
           override_path = os.path.join(os.getcwd(), 'nimbus', 'model', 'model-cache', 'model_override.json')
           override_data = {
               'model_name': model_name,
               'checkpoints': checkpoints,
               'labels': ['vision', 'tool-calling'] if 'mmproj' in checkpoints else ['tool-calling'],
               'recipe': 'llamacpp',
-              'recipe_options': {
-                  'ctx_size': 32768
-              },
-              'size': 5.68 if '9B' in repo or '9b' in repo else 5.0
+              'recipe_options': {'ctx_size': 32768},
+              'size': 5.68 if '9B' in repo or '9b' in repo else 5.0,
           }
           with open(override_path, 'w') as f:
               json.dump(override_data, f, indent=2)
           print(f'Created model override at {override_path}:')
           print(json.dumps(override_data, indent=2))
-          "
+          PYEOF
+
+          python3 /tmp/hf_download.py
+          echo "==> model-cache contents:"
+          find nimbus/model/model-cache -type f | sort
+          du -sh nimbus/model/model-cache
 
       - name: Build Appliance Image
         run: |
