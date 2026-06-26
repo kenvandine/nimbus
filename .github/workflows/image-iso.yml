@@ -41,6 +41,11 @@ on:
         required: false
         default: 'Qwen3.5-9B-Q4_K_M.gguf'
         type: string
+      download:
+        description: 'Download and sideload the model in the image. If unchecked, only the model spec is saved and the model is pulled from lemonade during OOBE when online.'
+        required: true
+        default: true
+        type: boolean
   schedule:
     # Run once a day at midnight UTC
     - cron: '0 0 * * *'
@@ -220,17 +225,24 @@ jobs:
           sudo iptables -P FORWARD ACCEPT
 
       - name: Add custom sideload partition to gadget config
+        env:
+          # When sideloading model files use 8000M; when only storing the model
+          # spec (model_override.json) a tiny partition is sufficient.
+          SIDELOAD_SIZE: ${{ github.event.inputs.download == 'false' && '64M' || '8000M' }}
         run: |
           python3 -c "
+          import os
           path = 'pc-amd64-gadget/gadget/gadget-amd64.yaml'
+          size = os.environ['SIDELOAD_SIZE']
           with open(path, 'r') as f:
               content = f.read()
           
-          partition_def = '      - name: nimbus-sideload\n        filesystem: ext4\n        type: 0FC63DAF-8483-4772-8E79-3D69D8477DE4\n        size: 8000M\n'
+          partition_def = f'      - name: nimbus-sideload\n        filesystem: ext4\n        type: 0FC63DAF-8483-4772-8E79-3D69D8477DE4\n        size: {size}\n'
           if 'nimbus-sideload' not in content:
               content = content.replace('      - name: ubuntu-data', partition_def + '      - name: ubuntu-data')
               with open(path, 'w') as f:
                   f.write(content)
+          print(f'nimbus-sideload partition size: {size}')
           "
 
       - name: Build Gadget Snap
@@ -266,6 +278,7 @@ jobs:
           "
 
       - name: Download HuggingFace Model to Sideload
+        if: ${{ github.event.inputs.download != 'false' }}
         env:
           # Fall back to Qwen3.5-9B defaults when running on schedule (inputs are empty)
           HF_REPO: ${{ github.event.inputs.hf_model_repo || 'unsloth/Qwen3.5-9B-GGUF' }}
@@ -352,6 +365,57 @@ jobs:
           echo "==> model-cache contents:"
           find nimbus/model/model-cache -type f | sort
           du -sh nimbus/model/model-cache
+
+      - name: Write Default Model Configuration
+        if: ${{ github.event.inputs.download == 'false' }}
+        env:
+          HF_REPO: ${{ github.event.inputs.hf_model_repo || 'unsloth/Qwen3.5-9B-GGUF' }}
+          HF_FILE: ${{ github.event.inputs.hf_model_file || 'Qwen3.5-9B-Q4_K_M.gguf' }}
+        run: |
+          mkdir -p nimbus/model/model-cache
+
+          python3 - << 'PYEOF'
+          import os, json
+
+          repo     = os.environ['HF_REPO']
+          filename = os.environ.get('HF_FILE', '')
+
+          checkpoints = {}
+          if filename:
+              checkpoints['main'] = f'{repo}:{filename}'
+              model_name = f'user.{filename.replace("/", "-")}'
+          else:
+              checkpoints['main'] = f'{repo}:model'
+              model_name = f'user.{repo.replace("/", "-")}'
+
+          # Include mmproj for known vision model repos
+          if 'Qwen3.5-9B-GGUF' in repo:
+              checkpoints['mmproj'] = f'{repo}:mmproj-F16.gguf'
+
+          labels = ['vision', 'tool-calling'] if 'mmproj' in checkpoints else ['tool-calling']
+          size = (
+              5.68 if ('9B' in repo or '9b' in repo) else
+              22.7 if ('35B' in repo or '35b' in repo) else
+              5.0
+          )
+
+          override_data = {
+              'model_name':     model_name,
+              'checkpoints':    checkpoints,
+              'labels':         labels,
+              'recipe':         'llamacpp',
+              'recipe_options': {'ctx_size': 32768},
+              'size':           size,
+          }
+
+          override_path = os.path.join(
+              os.getcwd(), 'nimbus', 'model', 'model-cache', 'model_override.json'
+          )
+          with open(override_path, 'w') as f:
+              json.dump(override_data, f, indent=2)
+          print(f'Created model override at {override_path}:')
+          print(json.dumps(override_data, indent=2))
+          PYEOF
 
       - name: Build Appliance Image
         run: |
