@@ -616,10 +616,19 @@ async def stop_dns_server() -> None:
 
 
 def _manage_dns_redirect(iface: str, ip: str, add: bool) -> None:
+    import os
     import subprocess
+    
+    iptables_path = "/sbin/iptables"
+    if not os.path.exists(iptables_path):
+        if os.path.exists("/usr/sbin/iptables"):
+            iptables_path = "/usr/sbin/iptables"
+        else:
+            iptables_path = "iptables"
+
     action = "-I" if add else "-D"
     cmd = [
-        "iptables", "-t", "nat", action, "PREROUTING",
+        iptables_path, "-t", "nat", action, "PREROUTING",
         "-i", iface, "-p", "udp", "--dport", "53",
         "-j", "DNAT", "--to-destination", f"{ip}:5300"
     ]
