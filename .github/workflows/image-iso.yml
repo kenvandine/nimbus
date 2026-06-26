@@ -101,9 +101,10 @@ jobs:
 
       - name: Install System Dependencies
         run: |
-          # Remove broken mirrors from all apt config locations
-          sudo find /etc/apt -type f \( -name "*.list" -o -name "*.txt" \) \
-            -exec sudo sed -i '/enzu/d' {} \; 2>/dev/null || true
+          # Overwrite the apt mirrorlist with only the known-good Azure mirror,
+          # removing any broken third-party mirrors (e.g. mirror.enzu.com).
+          printf 'http://azure.archive.ubuntu.com/ubuntu\n' \
+            | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
           sudo apt-get update
           sudo apt-get install -y mtools fdisk xz-utils python3-venv python3-pip xorriso squashfs-tools wget
 
