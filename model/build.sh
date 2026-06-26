@@ -140,13 +140,20 @@ snap set system hostname=nimbus; \
 hostnamectl set-hostname --transient nimbus || true; \
 snap set system service.systemd-resolved.multicast-dns=yes; \
 systemctl restart systemd-resolved || true; \
-if [ -d /var/snap/nimbus/common/sideload/huggingface/hub ]; then \
-  mkdir -p /var/snap/lemonade-server/common/.cache/huggingface/hub; \
-  mv /var/snap/nimbus/common/sideload/huggingface/hub/* /var/snap/lemonade-server/common/.cache/huggingface/hub/ 2>/dev/null || true; \
-  rm -rf /var/snap/nimbus/common/sideload/huggingface/hub; \
-fi; \
-if [ -f /var/snap/nimbus/common/sideload/model_override.json ]; then \
-  mv /var/snap/nimbus/common/sideload/model_override.json /var/snap/nimbus/common/model_override.json 2>/dev/null || true; \
+mkdir -p /var/snap/nimbus/common/sideload; \
+if mount -o ro /dev/disk/by-partlabel/nimbus-sideload /var/snap/nimbus/common/sideload; then \
+  if [ -d /var/snap/nimbus/common/sideload/huggingface/hub ]; then \
+    mkdir -p /var/snap/lemonade-server/common/.cache/huggingface/hub; \
+    mv /var/snap/nimbus/common/sideload/huggingface/hub/* /var/snap/lemonade-server/common/.cache/huggingface/hub/ 2>/dev/null || true; \
+  fi; \
+  if [ -f /var/snap/nimbus/common/sideload/model_override.json ]; then \
+    mv /var/snap/nimbus/common/sideload/model_override.json /var/snap/nimbus/common/model_override.json 2>/dev/null || true; \
+  fi; \
+  if [ -f /var/snap/nimbus/common/sideload/lxc-seed/nimbus-lxc-seed.tar.gz ]; then \
+    mkdir -p /var/snap/nimbus/common/lxc-seed; \
+    mv /var/snap/nimbus/common/sideload/lxc-seed/nimbus-lxc-seed.tar.gz /var/snap/nimbus/common/lxc-seed/ 2>/dev/null || true; \
+  fi; \
+  umount /var/snap/nimbus/common/sideload || true; \
 fi'
 RemainAfterExit=yes
 Restart=on-failure
@@ -292,21 +299,21 @@ inject_lxc_seed_image() {
     loop_dev=
     mnt=
 
-    echo "==> Injecting LXC seed image into ubuntu-data..."
+    echo "==> Injecting LXC seed image into nimbus-sideload partition..."
 
     loop_dev=$(sudo losetup --find --show "$img")
     data_start=$(sudo sfdisk --json "$loop_dev" | python3 -c '
 import json, sys
 data = json.load(sys.stdin)
 for part in data.get("partitiontable", {}).get("partitions", []):
-    if part.get("name") == "ubuntu-data":
+    if part.get("name") == "nimbus-sideload":
         print(part["start"])
         break
 ')
     sudo losetup -d "$loop_dev"
 
     if [ -z "$data_start" ]; then
-        echo "    Warning: ubuntu-data partition not found — skipping LXC seed injection" >&2
+        echo "    Warning: nimbus-sideload partition not found — skipping LXC seed injection" >&2
         echo "    === DEBUG: sfdisk output ===" >&2
         loop_debug=$(sudo losetup --find --show "$img")
         sudo sfdisk --json "$loop_debug" >&2 || true
@@ -316,16 +323,15 @@ for part in data.get("partitiontable", {}).get("partitions", []):
     fi
 
     offset=$((data_start * 512))
-    mnt=$(mktemp -d "${TMPDIR%/}/nimbus-data-mnt.XXXXXX")
+    mnt=$(mktemp -d "${TMPDIR%/}/nimbus-sideload-mnt.XXXXXX")
 
     if ! sudo mount -o loop,offset=$offset "$img" "$mnt"; then
-        echo "    Warning: could not mount ubuntu-data (offset $offset) — skipping LXC seed injection" >&2
+        echo "    Warning: could not mount nimbus-sideload (offset $offset) — skipping LXC seed injection" >&2
         rmdir "$mnt"
         return 0
     fi
 
-    # $SNAP_COMMON for the nimbus snap lives here on Ubuntu Core.
-    dest="$mnt/system-data/var/snap/nimbus/common/lxc-seed"
+    dest="$mnt/lxc-seed"
     sudo mkdir -p "$dest"
     sudo cp "$seed_tgz" "$dest/nimbus-lxc-seed.tar.gz"
     sudo chown -R 0:0 "$dest"
@@ -333,7 +339,7 @@ for part in data.get("partitiontable", {}).get("partitions", []):
     sudo umount "$mnt"
     rmdir "$mnt"
 
-    echo "    LXC seed injected ($(du -sh "$seed_tgz" | cut -f1)) at system-data/var/snap/nimbus/common/lxc-seed/"
+    echo "    LXC seed injected ($(du -sh "$seed_tgz" | cut -f1)) at nimbus-sideload/lxc-seed/"
 }
 
 inject_sideload_models() {
@@ -342,21 +348,21 @@ inject_sideload_models() {
     loop_dev=
     mnt=
 
-    echo "==> Injecting sideloaded models into ubuntu-data..."
+    echo "==> Injecting sideloaded models into nimbus-sideload partition..."
 
     loop_dev=$(sudo losetup --find --show "$img")
     data_start=$(sudo sfdisk --json "$loop_dev" | python3 -c '
 import json, sys
 data = json.load(sys.stdin)
 for part in data.get("partitiontable", {}).get("partitions", []):
-    if part.get("name") == "ubuntu-data":
+    if part.get("name") == "nimbus-sideload":
         print(part["start"])
         break
 ')
     sudo losetup -d "$loop_dev"
 
     if [ -z "$data_start" ]; then
-        echo "    Warning: ubuntu-data partition not found — skipping model injection" >&2
+        echo "    Warning: nimbus-sideload partition not found — skipping model injection" >&2
         echo "    === DEBUG: sfdisk output ===" >&2
         loop_debug=$(sudo losetup --find --show "$img")
         sudo sfdisk --json "$loop_debug" >&2 || true
@@ -366,19 +372,16 @@ for part in data.get("partitiontable", {}).get("partitions", []):
     fi
 
     offset=$((data_start * 512))
-    mnt=$(mktemp -d "${TMPDIR%/}/nimbus-data-mnt.XXXXXX")
+    mnt=$(mktemp -d "${TMPDIR%/}/nimbus-sideload-mnt.XXXXXX")
 
     if ! sudo mount -o loop,offset=$offset "$img" "$mnt"; then
-        echo "    Warning: could not mount ubuntu-data (offset $offset) — skipping model injection" >&2
+        echo "    Warning: could not mount nimbus-sideload (offset $offset) — skipping model injection" >&2
         rmdir "$mnt"
         return 0
     fi
 
-    # $SNAP_COMMON for the nimbus snap lives here on Ubuntu Core.
-    dest="$mnt/system-data/var/snap/nimbus/common/sideload"
-    sudo mkdir -p "$dest"
-    sudo cp -a "$cache_dir/." "$dest/"
-    sudo chown -R 0:0 "$dest"
+    sudo cp -a "$cache_dir/." "$mnt/"
+    sudo chown -R 0:0 "$mnt"
 
     sudo umount "$mnt"
     rmdir "$mnt"
