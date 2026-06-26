@@ -10,11 +10,6 @@ description: |
   future operations.
 grade: stable
 confinement: strict
-
-layout:
-  /usr/sbin/iptables:
-    symlink: $SNAP/usr/sbin/iptables-nft
-
 apps:
   nimbus:
     command: bin/nimbus-launch

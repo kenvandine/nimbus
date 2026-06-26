@@ -619,12 +619,35 @@ def _manage_dns_redirect(iface: str, ip: str, add: bool) -> None:
     import os
     import subprocess
     
-    iptables_path = "/sbin/iptables"
-    if not os.path.exists(iptables_path):
-        if os.path.exists("/usr/sbin/iptables"):
-            iptables_path = "/usr/sbin/iptables"
-        else:
-            iptables_path = "iptables"
+    snap_dir = os.environ.get("SNAP")
+    iptables_path = ""
+    env = os.environ.copy()
+    
+    if snap_dir:
+        for candidate in ["/usr/sbin/iptables-nft", "/usr/sbin/iptables", "/sbin/iptables"]:
+            path = os.path.join(snap_dir, candidate.lstrip("/"))
+            if os.path.exists(path):
+                iptables_path = path
+                break
+        
+        for libdir_rel in [
+            "usr/lib/x86_64-linux-gnu/xtables",
+            "usr/lib/aarch64-linux-gnu/xtables",
+            "usr/lib/arm-linux-gnueabihf/xtables",
+            "usr/lib/xtables",
+        ]:
+            libdir = os.path.join(snap_dir, libdir_rel)
+            if os.path.exists(libdir):
+                env["XTABLES_LIBDIR"] = libdir
+                break
+
+    if not iptables_path:
+        iptables_path = "/sbin/iptables"
+        if not os.path.exists(iptables_path):
+            if os.path.exists("/usr/sbin/iptables"):
+                iptables_path = "/usr/sbin/iptables"
+            else:
+                iptables_path = "iptables"
 
     action = "-I" if add else "-D"
     cmd = [
@@ -633,7 +656,7 @@ def _manage_dns_redirect(iface: str, ip: str, add: bool) -> None:
         "-j", "DNAT", "--to-destination", f"{ip}:5300"
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True, check=True)
         logger.info("Successfully %s DNS redirect rule on %s for %s", "added" if add else "removed", iface, ip)
     except Exception as exc:
         stderr = getattr(exc, "stderr", "") or str(exc)
