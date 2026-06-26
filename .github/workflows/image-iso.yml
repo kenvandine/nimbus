@@ -101,11 +101,22 @@ jobs:
 
       - name: Install System Dependencies
         run: |
-          # Overwrite the apt mirrorlist with only the known-good Azure mirror,
-          # removing any broken third-party mirrors (e.g. mirror.enzu.com).
-          printf 'http://azure.archive.ubuntu.com/ubuntu\n' \
-            | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
-          sudo apt-get update
+          # Ubuntu 24.04 runners use DEB822 format sources. Pin all URIs to the
+          # known-good Azure mirror to avoid transient failures from broken mirrors
+          # (e.g. mirror.enzu.com). Fall back to old sources.list format too.
+          AZURE_MIRROR="http://azure.archive.ubuntu.com/ubuntu"
+          if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+            sudo sed -i "s|URIs:.*|URIs: ${AZURE_MIRROR}|g" /etc/apt/sources.list.d/ubuntu.sources
+          fi
+          if [ -f /etc/apt/sources.list ]; then
+            sudo sed -i "s|http://[^ ]*archive\.ubuntu\.com/ubuntu|${AZURE_MIRROR}|g" /etc/apt/sources.list
+          fi
+          # Retry apt-get update up to 3 times to ride out transient mirror issues
+          for i in 1 2 3; do
+            sudo apt-get update && break
+            echo "apt-get update attempt $i failed, retrying in 15s..."
+            sleep 15
+          done
           sudo apt-get install -y mtools fdisk xz-utils python3-venv python3-pip xorriso squashfs-tools wget
 
       - name: Install snapcraft and ubuntu-image
