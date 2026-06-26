@@ -32,14 +32,14 @@ on:
         default: ''
         type: string
       hf_model_repo:
-        description: 'Optional HuggingFace model repository to sideload (e.g. google/gemma-2-2b-it-sollama)'
+        description: 'HuggingFace model repository to sideload (default: kenvandine/Qwen3.5-9B-GGUF)'
         required: false
-        default: ''
+        default: 'kenvandine/Qwen3.5-9B-GGUF'
         type: string
       hf_model_file:
-        description: 'Optional HuggingFace model filename/pattern to download (e.g. gemma-2-2b-it.sollama)'
+        description: 'HuggingFace model filename to download (default: Qwen3.5-9B-Q4_K_M.gguf)'
         required: false
-        default: ''
+        default: 'Qwen3.5-9B-Q4_K_M.gguf'
         type: string
   schedule:
     # Run once a day at midnight UTC
@@ -252,10 +252,10 @@ jobs:
           "
 
       - name: Download HuggingFace Model to Sideload
-        if: ${{ github.event.inputs.hf_model_repo != '' }}
         env:
-          HF_REPO: ${{ github.event.inputs.hf_model_repo }}
-          HF_FILE: ${{ github.event.inputs.hf_model_file }}
+          # Fall back to Qwen3.5-9B defaults when running on schedule (inputs are empty)
+          HF_REPO: ${{ github.event.inputs.hf_model_repo || 'kenvandine/Qwen3.5-9B-GGUF' }}
+          HF_FILE: ${{ github.event.inputs.hf_model_file || 'Qwen3.5-9B-Q4_K_M.gguf' }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           pip install huggingface_hub
