@@ -487,6 +487,16 @@ if [ -n "$EXTRA_SNAP" ]; then
     EXTRA_SNAP_FLAG="--snap $EXTRA_SNAP"
 fi
 
+BASE_IMAGE_SIZE_GB=22
+MODEL_CACHE_DIR="$(pwd)/model-cache"
+IMAGE_SIZE="${BASE_IMAGE_SIZE_GB}G"
+if [ -d "$MODEL_CACHE_DIR" ]; then
+    cache_size_kb=$(du -sk "$MODEL_CACHE_DIR" | cut -f1)
+    cache_size_gb=$(( (cache_size_kb + 1024 * 1024 - 1) / (1024 * 1024) ))
+    IMAGE_SIZE="$(( BASE_IMAGE_SIZE_GB + cache_size_gb ))G"
+    echo "Sideload model-cache detected: scaling image size to $IMAGE_SIZE"
+fi
+
 set -- sudo env -u SUDO_UID -u SUDO_GID -u SUDO_USER
 if [ "$PRESEED" -eq 1 ]; then
     set -- "$@" "SNAP_GNUPG_HOME=$ROOT_GNUPG_HOME"
@@ -498,7 +508,7 @@ set -- "$@" ubuntu-image snap "$MODEL_ASSERTION" --snap "$GADGET_SNAP"
 if [ -n "$EXTRA_SNAP_FLAG" ]; then
     set -- "$@" $EXTRA_SNAP_FLAG
 fi
-set -- "$@" --image-size=22G --workdir "$BUILD_WORKDIR" --debug
+set -- "$@" --image-size="$IMAGE_SIZE" --workdir "$BUILD_WORKDIR" --debug
 if [ -f ./user.assert ]; then
     set -- "$@" --assertion ./user.assert
 fi
