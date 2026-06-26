@@ -366,6 +366,17 @@ jobs:
           # Run build script
           sg lxd -c "./build.sh $MODEL $PRESEED_FLAG"
           
+      - name: Cleanup space after image build
+        run: |
+          echo "=== Disk space before cleanup ==="
+          df -h
+          echo "Removing model cache..."
+          rm -rf nimbus/model/model-cache
+          echo "Removing build workdirs..."
+          sudo rm -rf build-workdir-*
+          echo "=== Disk space after cleanup ==="
+          df -h
+
       - name: Download Base Ubuntu Server ISO
         run: |
           # Download Ubuntu Server 26.04 LTS (Noble Numbat is 24.04, 26.04 is the next LTS target)
