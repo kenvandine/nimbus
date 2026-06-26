@@ -226,7 +226,7 @@ jobs:
           with open(path, 'r') as f:
               content = f.read()
           
-          partition_def = '      - name: nimbus-sideload\n        filesystem: ext4\n        size: 8000M\n'
+          partition_def = '      - name: nimbus-sideload\n        filesystem: ext4\n        type: 0FC63DAF-8483-4772-8E79-3D69D8477DE4\n        size: 8000M\n'
           if 'nimbus-sideload' not in content:
               content = content.replace('      - name: ubuntu-data', partition_def + '      - name: ubuntu-data')
               with open(path, 'w') as f:
