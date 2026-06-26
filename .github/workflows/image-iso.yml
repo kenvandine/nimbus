@@ -101,6 +101,8 @@ jobs:
 
       - name: Install System Dependencies
         run: |
+          # Remove broken mirrors that may cause apt-get update to fail
+          sudo sed -i '/mirror\.enzu\.com/d' /etc/apt/apt-mirrors.txt 2>/dev/null || true
           sudo apt-get update
           sudo apt-get install -y mtools fdisk xz-utils python3-venv python3-pip xorriso squashfs-tools wget
 
