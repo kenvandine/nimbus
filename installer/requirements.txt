@@ -1,3 +1,4 @@
 git+https://github.com/mwhudson/livefs-editor.git
 PyYAML
 python-debian
+huggingface-hub
