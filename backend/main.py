@@ -139,45 +139,15 @@ async def _run_http_redirect(http_port: int, https_port: int) -> None:
     async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
             raw = await asyncio.wait_for(reader.read(4096), timeout=5.0)
-            path = "/"
-            host = "localhost"
-            lines = raw.split(b"\r\n")
-            if lines:
-                parts = lines[0].split()
-                if len(parts) >= 2:
-                    path = parts[1].decode(errors="replace")
-            for line in lines[1:]:
-                if line.lower().startswith(b"host:"):
-                    host = line[5:].decode(errors="replace").strip().split(":")[0]
-                    break
-            if host in _LOCALHOST_HOSTS:
-                await _proxy_localhost(raw, reader, writer)
-                return
-
-            local_ip = "10.42.0.1"
-            try:
-                sockname = writer.get_extra_info('sockname')
-                if sockname:
-                    local_ip = sockname[0]
-            except Exception:
-                pass
-
-            local_hosts = {"nimbus.local", local_ip}
-            if host in local_hosts:
-                port_suffix = f":{https_port}" if https_port != 443 else ""
-                location = f"https://{host}{port_suffix}{path}"
-                status_line = "HTTP/1.1 301 Moved Permanently"
-            else:
-                location = f"http://{local_ip}/"
-                status_line = "HTTP/1.1 302 Found"
-
-            writer.write(
-                f"{status_line}\r\n"
-                f"Location: {location}\r\n"
-                f"Content-Length: 0\r\n"
-                f"Connection: close\r\n\r\n".encode()
-            )
-            await writer.drain()
+            # Proxy all HTTP traffic straight through to the local HTTPS backend.
+            # This enables the captive portal: when a phone on the nimbus AP
+            # browses to any http:// URL, DNS (dnsmasq address=/#/10.42.0.1)
+            # delivers the request here and we serve the OOBE over plain HTTP —
+            # no certificate error, no redirect chain. Android/iOS captive-portal
+            # probes get the OOBE HTML (not a 204/specific body), which triggers
+            # the "Sign in to network" notification. http://nimbus.local also
+            # benefits: no browser cert warning on the home network.
+            await _proxy_localhost(raw, reader, writer)
         except Exception:
             pass
         finally:
@@ -188,7 +158,7 @@ async def _run_http_redirect(http_port: int, https_port: int) -> None:
                 pass
 
     server = await asyncio.start_server(_handle, "0.0.0.0", http_port)
-    logger.info("HTTP→HTTPS redirect listening on port %d (localhost proxied)", http_port)
+    logger.info("HTTP captive-portal proxy listening on port %d → HTTPS %d", http_port, https_port)
     async with server:
         await server.serve_forever()
 
