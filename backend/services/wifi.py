@@ -664,45 +664,13 @@ def _manage_dns_redirect(iface: str, ip: str, add: bool) -> None:
 
 
 async def async_start_ap() -> None:
+    # DNS captive-portal redirect is handled by NM's own dnsmasq via
+    # address=/#/<gw-ip> written to dnsmasq-shared.d by nimbus-connect.service.
+    # No separate DNS server or iptables rule is needed.
     await asyncio.to_thread(start_ap)
-    import dbus
-    try:
-        bus = _bus()
-        wifi_path = _find_wifi_device(bus)
-        if wifi_path:
-            dev = bus.get_object(NM_SERVICE, wifi_path)
-            iface_name = str(dbus.Interface(dev, DBUS_PROPS_IFACE).Get(NM_DEVICE_IFACE, "Interface"))
-            
-            # Wait up to 5 seconds for local IP assignment (default shared is 10.42.0.1)
-            ip = "10.42.0.1"
-            for _ in range(5):
-                temp_ip = _ipv4_address_for_device(bus, dev)
-                if temp_ip:
-                    ip = temp_ip
-                    break
-                await asyncio.sleep(1.0)
-                
-            await start_dns_server(ip)
-            await asyncio.to_thread(_manage_dns_redirect, iface_name, ip, True)
-    except Exception as exc:
-        logger.error("Failed to set up captive portal DNS redirect: %s", exc)
 
 
 async def async_stop_ap() -> None:
-    import dbus
-    try:
-        bus = _bus()
-        wifi_path = _find_wifi_device(bus)
-        if wifi_path:
-            dev = bus.get_object(NM_SERVICE, wifi_path)
-            iface_name = str(dbus.Interface(dev, DBUS_PROPS_IFACE).Get(NM_DEVICE_IFACE, "Interface"))
-            
-            ip = _ipv4_address_for_device(bus, dev) or "10.42.0.1"
-            await asyncio.to_thread(_manage_dns_redirect, iface_name, ip, False)
-    except Exception as exc:
-        logger.debug("Failed to remove captive portal DNS redirect: %s", exc)
-
-    await stop_dns_server()
     await asyncio.to_thread(stop_ap)
 
 
@@ -731,33 +699,55 @@ async def handover_ap_to_wifi(ssid: str, password: str | None) -> None:
 
 
 async def check_and_manage_ap_on_startup() -> None:
-    # Wait for NetworkManager to settle (e.g. 10 seconds).
+    # Wait for NetworkManager to settle.
     await asyncio.sleep(10.0)
-    
+
     from services.device import is_oobe_complete
     if is_oobe_complete():
         logger.info("OOBE is complete, skipping startup AP check")
         return
-        
+
     from services.network import is_online
     if is_online():
         logger.info("Device is online on startup, skipping AP check")
         return
-        
-    import dbus
+
     try:
         bus = _bus()
         if is_ap_active(bus):
             logger.info("Nimbus AP is already active on startup")
-            return
-            
-        wifi_path = _find_wifi_device(bus)
-        if wifi_path:
-            logger.info("Device is offline, OOBE is incomplete. Scanning networks before starting AP...")
-            await asyncio.to_thread(scan_networks)
-            logger.info("Starting AP...")
-            await async_start_ap()
         else:
-            logger.warning("No WiFi adapter found on startup, cannot start AP")
+            wifi_path = _find_wifi_device(bus)
+            if wifi_path:
+                logger.info("Device is offline and OOBE is incomplete; scanning then starting AP...")
+                await asyncio.to_thread(scan_networks)
+                await async_start_ap()
+            else:
+                logger.warning("No WiFi adapter found on startup, cannot start AP")
+                return
     except Exception as exc:
         logger.error("Error during startup AP check: %s", exc)
+        return
+
+    # Monitor the AP while OOBE is pending and restart it if it goes down.
+    # On first boot, nimbus-connect.service restarts NetworkManager to apply the
+    # captive-portal dnsmasq config (address=/#/<gw>) to dnsmasq-shared.d, which
+    # tears down our AP. Detect the downtime and restart; the new NM instance will
+    # pick up the dnsmasq captive-portal config automatically.
+    logger.info("AP monitor started — will restart AP if it goes down before OOBE completes")
+    for _ in range(120):  # monitor for up to 10 minutes (120 × 5 s)
+        await asyncio.sleep(5.0)
+        from services.device import is_oobe_complete
+        from services.network import is_online
+        if is_oobe_complete() or is_online():
+            logger.info("OOBE complete or device online — stopping AP monitor")
+            return
+        try:
+            if not is_ap_active():
+                logger.info("AP went down during OOBE; waiting for NM to settle before restarting...")
+                await asyncio.sleep(10.0)  # give NM time to fully restart (~10 s observed)
+                if not is_ap_active():
+                    logger.info("Restarting AP after NM restart...")
+                    await async_start_ap()
+        except Exception as exc:
+            logger.debug("AP monitor error (NM may still be restarting): %s", exc)
