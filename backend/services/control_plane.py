@@ -131,34 +131,26 @@ def _ensure_openclaw_workspace_link() -> None:
         logger.warning("Could not set up openclaw-workspace link: %s", exc)
 
 
-async def _maybe_ensure_model_provider(cp: "ControlPlane") -> None:
+async def _maybe_ensure_model_provider(_cp: "ControlPlane") -> None:
     """Fire the configured model-provider's prep task at startup.
 
-    For lemonade: always fires unconditionally.  ``ensure_model()`` is a fast
-    no-op when the model is already installed, so this is safe on every boot.
-    It ensures the default model is pulled as early as possible — covering:
+    Always fires unconditionally for any configured provider.
+
+    For lemonade: ``ensure_model()`` is a fast no-op when the model is already
+    installed, so this is safe on every boot.  It ensures the default model is
+    pulled as early as possible — covering:
       - Fresh OOBE on a ``download=false`` image: model starts pulling
         immediately while the user is still setting up apps.
       - Reboots where the model was never fully downloaded: pull resumes.
       - Normal boots where the model is present: quick check, no download.
 
-    For gemma4: only fires if openclaw is already installed (existing behaviour
-    — gemma4 prep just waits for the snap to be reachable, no download needed).
+    For gemma4: ``wait_until_ready_task()`` polls until the snap is reachable;
+    harmless no-op if gemma4 isn't configured.
+
+    We do NOT gate on any specific app (e.g. openclaw) being installed — the
+    model provider should always be ready regardless of which apps are present.
     """
-    from config import MODEL_PROVIDER_GEMMA4
-    if settings.model_provider != MODEL_PROVIDER_GEMMA4:
-        model_provider.ensure_ready_task()
-        return
-    # gemma4: only spin up the readiness poller if openclaw is present
-    try:
-        apps = await cp.list_apps()
-    except Exception as exc:
-        logger.debug("Skipping model-provider ensure: %s", exc)
-        return
-    for app in apps:
-        if app.id == "openclaw" and getattr(app, "installed", False):
-            model_provider.ensure_ready_task()
-            return
+    model_provider.ensure_ready_task()
 
 
 async def _maybe_install_preseed_apps(cp: "ControlPlane") -> None:
@@ -697,13 +689,13 @@ class LxdControlPlane(ControlPlaneBase):
         return any(hint in msg for hint in cls._NETWORK_ERROR_HINTS)
 
     async def _do_install(self, app_id: str) -> None:
+        # Legacy docker/umbrel-store path — never called in nimbus mode.
+        if settings.app_store_type == "nimbus":
+            logger.warning("_do_install called in nimbus mode for %s — skipping", app_id)
+            return
         self._installing.add(app_id)
         logger.info("Starting install for %s", app_id)
         try:
-            if app_id == "openclaw":
-                # Kick off model pull now so it runs concurrently with the
-                # docker image download; if already in progress this is a no-op.
-                model_provider.ensure_ready_task()
             for attempt in range(1, 4):
                 try:
                     await asyncio.to_thread(self.manager.install_app, app_id)
@@ -725,6 +717,10 @@ class LxdControlPlane(ControlPlaneBase):
             self._installing.discard(app_id)
 
     async def _do_update(self, app_id: str) -> None:
+        # Legacy docker/umbrel-store path — never called in nimbus mode.
+        if settings.app_store_type == "nimbus":
+            logger.warning("_do_update called in nimbus mode for %s — skipping", app_id)
+            return
         self._updating.add(app_id)
         logger.info("Starting update for %s", app_id)
         try:
