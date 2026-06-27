@@ -417,17 +417,24 @@ async def _systemctl_user(action: str, service_name: str = "") -> dict:
 
 
 async def _run_snap_cmd(cmd: str, args: list[str]) -> dict:
-    """Run a snap command (e.g. nullclaw.lemonade) as the nimbus user.
+    """Run a snap command (e.g. picoclaw.lemonade) with the nimbus user environment.
 
     The command name is looked up under /snap/bin/.  Only commands whose name
     matches a simple identifier pattern (letters, digits, hyphens, dots) are
-    accepted to prevent shell injection.  Classic snaps are installed system-
-    wide but all user-session state (config, D-Bus, XDG dirs) should belong
-    to nimbus rather than root.
+    accepted to prevent shell injection.
+
+    Runs as root (not via runuser) because the LXD privileged-container rootfs
+    is mounted MS_NOSUID, which prevents snap-confine from gaining
+    cap_dac_override via its setuid bit for non-root users.  Root already holds
+    all capabilities so snap-confine succeeds.  Classic snaps (the only kind
+    Nimbus installs) preserve HOME from the calling environment, so setting
+    HOME=/home/nimbus ensures config files land in the nimbus user's directories.
+    After the command we chown any newly-root-owned files in /home/nimbus back
+    to nimbus so the running service (uid 1000) can read and write them.
 
     ``y\\n`` is piped to stdin so that any interactive confirmation prompts
-    (e.g. "Configure OpenClaw to use Lemonade now? [Y/n]") are auto-accepted
-    without requiring the command to support a --yes / --auto flag.
+    (e.g. "Configure now? [Y/n]") are auto-accepted without requiring the
+    command to support a --yes / --auto flag.
     """
     import re
     import os
@@ -436,14 +443,9 @@ async def _run_snap_cmd(cmd: str, args: list[str]) -> dict:
     snap_bin = f"/snap/bin/{cmd}"
     if not os.path.exists(snap_bin):
         return {"ok": False, "stdout": "", "stderr": f"not found: {snap_bin}"}
-    uid = _nimbus_uid()
-    if uid is not None:
-        full_cmd = _runuser_prefix(uid) + [snap_bin] + [str(a) for a in args]
-    else:
-        full_cmd = [snap_bin] + [str(a) for a in args]
     env = _user_env()
     proc = await asyncio.create_subprocess_exec(
-        *full_cmd,
+        snap_bin, *[str(a) for a in args],
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -454,6 +456,18 @@ async def _run_snap_cmd(cmd: str, args: list[str]) -> dict:
     except asyncio.TimeoutError:
         proc.kill()
         return {"ok": False, "stdout": "", "stderr": "command timed out after 120s"}
+    # Fix ownership of any files the snap created in /home/nimbus as root.
+    uid = _nimbus_uid()
+    if uid is not None and os.path.isdir("/home/nimbus"):
+        try:
+            fix = await asyncio.create_subprocess_exec(
+                "chown", "-R", "nimbus:nimbus", "/home/nimbus",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await asyncio.wait_for(fix.communicate(), timeout=15)
+        except Exception:
+            pass
     return {
         "ok": proc.returncode == 0,
         "stdout": stdout.decode(),
