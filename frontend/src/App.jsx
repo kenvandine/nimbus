@@ -655,7 +655,7 @@ export default function App() {
         .desktop-container {
           height: 100vh;
           height: 100dvh;
-          padding-bottom: env(safe-area-inset-bottom, 0px);
+          height: var(--vh, 100dvh);
         }
         input::placeholder { color: rgba(255,255,255,0.3); }
         input:focus { border-color: rgba(79,195,247,0.5) !important; box-shadow: 0 0 0 3px rgba(79,195,247,0.15); }
@@ -693,7 +693,7 @@ function DesktopIcon({ app, onClick, onContextMenu }) {
 const styles = {
   desktop: {
     width: '100vw',
-    height: '100vh',
+    height: '100%',
     display: 'flex',
     flexDirection: 'column',
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
