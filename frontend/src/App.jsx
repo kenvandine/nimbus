@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { getActiveInstalls, listApps, getStats, powerOffSystem, restartSystem, uninstallApp, getAuthStatus, logout, refreshSession } from './api.js'
+import { getActiveInstalls, listApps, getStats, powerOffSystem, restartSystem, uninstallApp, startApp, stopApp, restartApp, getAuthStatus, logout, refreshSession } from './api.js'
 import { openApp, setKioskFallback, isLocalAccess } from './utils.js'
 import Dock from './components/Dock.jsx'
 import Window from './components/Window.jsx'
@@ -358,6 +358,18 @@ export default function App() {
     }
   }
 
+  async function handleServiceAction(app, action) {
+    setContextMenu(null)
+    try {
+      if (action === 'start') await startApp(app.id)
+      else if (action === 'stop') await stopApp(app.id)
+      else if (action === 'restart') await restartApp(app.id)
+      fetchAll()
+    } catch (e) {
+      // ignore — errors surfaced in app card
+    }
+  }
+
   async function handlePowerAction(action) {
     setPowerMenuOpen(false)
     setPowerBusy(action)
@@ -614,6 +626,26 @@ export default function App() {
             <button style={styles.ctxItem} onClick={() => { setLogApp(contextMenu.app); setContextMenu(null) }}>
               View Logs
             </button>
+          )}
+          {contextMenu.app.has_service && (
+            <>
+              <div style={styles.ctxDivider} />
+              {contextMenu.app.running && (
+                <>
+                  <button style={styles.ctxItem} onClick={() => handleServiceAction(contextMenu.app, 'restart')}>
+                    Restart Service
+                  </button>
+                  <button style={styles.ctxItem} onClick={() => handleServiceAction(contextMenu.app, 'stop')}>
+                    Stop Service
+                  </button>
+                </>
+              )}
+              {!contextMenu.app.running && (
+                <button style={styles.ctxItem} onClick={() => handleServiceAction(contextMenu.app, 'start')}>
+                  Start Service
+                </button>
+              )}
+            </>
           )}
           {!contextMenu.app.is_system && (
             <>

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 
 from auth import require_api_token
@@ -51,6 +51,37 @@ async def refresh_catalog() -> dict:
     from services import nimbus_store
     await nimbus_store.get_catalog(force=True)
     return {"status": "refreshed"}
+
+
+async def _nimbus_service_action(app_id: str, action: str) -> dict:
+    from services import nimbus_store, container_snaps
+    catalog = await nimbus_store.get_catalog()
+    snap = nimbus_store.get_snap(catalog, app_id)
+    if snap is None:
+        raise HTTPException(status_code=404, detail=f"App '{app_id}' not found")
+    service_name = nimbus_store.get_service_name(snap)
+    if not service_name:
+        raise HTTPException(status_code=400, detail=f"App '{app_id}' has no managed service")
+    result = await container_snaps.service_action(service_name, action)
+    if not result.get("ok"):
+        stderr = (result.get("stderr") or "").strip()
+        raise HTTPException(status_code=500, detail=stderr or f"{action} failed")
+    return {"status": action}
+
+
+@router.post("/{app_id}/start")
+async def start_app(app_id: str) -> dict:
+    return await _nimbus_service_action(app_id, "start")
+
+
+@router.post("/{app_id}/stop")
+async def stop_app(app_id: str) -> dict:
+    return await _nimbus_service_action(app_id, "stop")
+
+
+@router.post("/{app_id}/restart")
+async def restart_app(app_id: str) -> dict:
+    return await _nimbus_service_action(app_id, "restart")
 
 
 @router.post("/check-updates")

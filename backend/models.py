@@ -38,6 +38,8 @@ class AppStatus(BaseModel):
 class AppDetail(AppMeta, AppStatus):
     # True for built-in system apps (e.g. Lemonade) that cannot be uninstalled
     is_system: bool = False
+    # True if this app has a managed systemd service (start/stop/restart supported)
+    has_service: bool = False
 
 
 class SnapshotInfo(BaseModel):

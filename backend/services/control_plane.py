@@ -607,7 +607,8 @@ class LxdControlPlane(ControlPlaneBase):
     async def _list_nimbus_apps(self, host_ip: str | None) -> list[AppDetail]:
         from services import nimbus_store, container_snaps
         try:
-            metas, installed_snaps = await asyncio.gather(
+            catalog, metas, installed_snaps = await asyncio.gather(
+                nimbus_store.get_catalog(),
                 nimbus_store.get_app_metas(),
                 container_snaps.list_container_snaps(),
             )
@@ -616,25 +617,47 @@ class LxdControlPlane(ControlPlaneBase):
             return []
         installed_map = {s["name"]: s for s in installed_snaps}
         openclaw_token = await _get_openclaw_token()
+
+        async def _service_status(meta_id: str) -> tuple[bool, bool]:
+            """Returns (has_service, is_running)."""
+            snap = nimbus_store.get_snap(catalog, meta_id)
+            if snap is None:
+                return False, True
+            service_name = nimbus_store.get_service_name(snap)
+            if not service_name:
+                return False, True
+            running = await container_snaps.check_service_active(service_name)
+            return True, running
+
+        installed_ids = [meta.id for meta in metas if meta.id in installed_map]
+        svc_results = await asyncio.gather(
+            *[_service_status(mid) for mid in installed_ids],
+            return_exceptions=True,
+        )
+        svc_map: dict[str, tuple[bool, bool]] = {}
+        for mid, res in zip(installed_ids, svc_results):
+            svc_map[mid] = res if not isinstance(res, Exception) else (False, True)
+
         result: list[AppDetail] = []
         for meta in metas:
             snap_info = installed_map.get(meta.id)
             if snap_info:
+                has_service, running = svc_map.get(meta.id, (False, True))
                 installed_ver = snap_info.get("version", "")
                 update_available = bool(
                     meta.version and installed_ver and installed_ver != meta.version
                 )
                 port = meta.ports[0] if meta.ports else SNAP_UI_PORTS.get(meta.id)
-                open_url = network.build_open_url(host_ip, port) if port and host_ip else None
+                open_url = network.build_open_url(host_ip, port) if port and host_ip and running else None
                 if open_url and meta.id == "openclaw" and openclaw_token:
                     open_url = f"{open_url}?token={openclaw_token}"
                 status = AppStatus(
-                    installed=True, running=True, port=port,
+                    installed=True, running=running, port=port,
                     open_url=open_url, update_available=update_available,
                 )
+                result.append(AppDetail(**{**meta.model_dump(), **status.model_dump(), "has_service": has_service}))
             else:
-                status = AppStatus(installed=False)
-            result.append(AppDetail(**{**meta.model_dump(), **status.model_dump()}))
+                result.append(AppDetail(**{**meta.model_dump(), **AppStatus().model_dump()}))
         return result
 
     async def get_app(self, app_id: str) -> AppDetail:

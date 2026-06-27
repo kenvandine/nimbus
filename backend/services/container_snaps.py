@@ -98,6 +98,15 @@ async def service_action(service_name: str, action: str) -> dict[str, Any]:
         return resp.json()
 
 
+async def check_service_active(service_name: str) -> bool:
+    """Return True if the named systemd user service is active in the container."""
+    try:
+        result = await service_action(service_name, "is-active")
+        return bool(result.get("ok"))
+    except Exception:
+        return False
+
+
 async def reload_user_daemon() -> dict[str, Any]:
     """Run `systemctl --user daemon-reload` in the LXD container.
 

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { installApp, uninstallApp, updateApp } from '../api.js'
+import { installApp, uninstallApp, updateApp, startApp, stopApp, restartApp } from '../api.js'
 import { openApp } from '../utils.js'
 
 const STATUS_COLORS = {
@@ -7,6 +7,9 @@ const STATUS_COLORS = {
   installed: '#ff9800',
   installing: '#2196f3',
   uninstalling: '#ff5722',
+  stopping: '#ff5722',
+  starting: '#2196f3',
+  restarting: '#ff9800',
   available: 'rgba(255,255,255,0.25)',
 }
 
@@ -20,6 +23,9 @@ export default function AppCard({ app, onRefresh, onOpenDetail, isInstalling = f
   const statusLabel = action === 'installing' ? 'Installing…'
     : action === 'uninstalling' ? 'Uninstalling…'
     : action === 'updating' ? 'Updating…'
+    : action === 'starting' ? 'Starting…'
+    : action === 'stopping' ? 'Stopping…'
+    : action === 'restarting' ? 'Restarting…'
     : { running: 'Running', installed: 'Installed', installing: 'Installing…', available: 'Available' }[status]
 
   const dotColor = action ? STATUS_COLORS[action] : STATUS_COLORS[status]
@@ -58,6 +64,48 @@ export default function AppCard({ app, onRefresh, onOpenDetail, isInstalling = f
     setError(null)
     try {
       await updateApp(app.id)
+      onRefresh()
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setAction(null)
+    }
+  }
+
+  async function handleStart(e) {
+    e.stopPropagation()
+    setAction('starting')
+    setError(null)
+    try {
+      await startApp(app.id)
+      onRefresh()
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setAction(null)
+    }
+  }
+
+  async function handleStop(e) {
+    e.stopPropagation()
+    setAction('stopping')
+    setError(null)
+    try {
+      await stopApp(app.id)
+      onRefresh()
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setAction(null)
+    }
+  }
+
+  async function handleRestart(e) {
+    e.stopPropagation()
+    setAction('restarting')
+    setError(null)
+    try {
+      await restartApp(app.id)
       onRefresh()
     } catch (e) {
       setError(e.message)
@@ -117,6 +165,21 @@ export default function AppCard({ app, onRefresh, onOpenDetail, isInstalling = f
             <span style={styles.spinner} /> Updating…
           </button>
         )}
+        {action === 'starting' && (
+          <button style={styles.btnDisabled} disabled>
+            <span style={styles.spinner} /> Starting…
+          </button>
+        )}
+        {action === 'stopping' && (
+          <button style={styles.btnDisabled} disabled>
+            <span style={styles.spinner} /> Stopping…
+          </button>
+        )}
+        {action === 'restarting' && (
+          <button style={styles.btnDisabled} disabled>
+            <span style={styles.spinner} /> Restarting…
+          </button>
+        )}
         {app.update_available && !busy && (
           <button style={styles.btnUpdate} onClick={handleUpdate}>⬆ Update</button>
         )}
@@ -126,11 +189,22 @@ export default function AppCard({ app, onRefresh, onOpenDetail, isInstalling = f
               <button style={styles.btnOpen}
                 onClick={e => { e.stopPropagation(); openApp(app.open_url, { name: app.name, id: app.id }) }}>Open ↗</button>
             )}
+            {app.has_service && (
+              <>
+                <button style={styles.btnSecondary} onClick={handleRestart}>Restart</button>
+                <button style={styles.btnSecondary} onClick={handleStop}>Stop</button>
+              </>
+            )}
             <button style={styles.btnDanger} onClick={handleUninstall}>Uninstall</button>
           </>
         )}
         {status === 'installed' && !busy && (
-          <button style={styles.btnDanger} onClick={handleUninstall}>Uninstall</button>
+          <>
+            {app.has_service && (
+              <button style={styles.btnPrimary} onClick={handleStart}>Start</button>
+            )}
+            <button style={styles.btnDanger} onClick={handleUninstall}>Uninstall</button>
+          </>
         )}
       </div>
     </div>
@@ -230,6 +304,11 @@ const styles = {
     background: 'rgba(76,175,80,0.8)', color: 'white', border: 'none',
     borderRadius: '8px', padding: '7px 18px', fontSize: '13px', fontWeight: 600,
     cursor: 'pointer', textDecoration: 'none', display: 'inline-block',
+  },
+  btnSecondary: {
+    background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.85)',
+    border: '1px solid rgba(255,255,255,0.2)', borderRadius: '8px',
+    padding: '7px 18px', fontSize: '13px', fontWeight: 600, cursor: 'pointer',
   },
   btnDanger: {
     background: 'rgba(255,255,255,0.1)', color: 'rgba(255,100,100,0.9)',
