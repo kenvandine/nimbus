@@ -651,7 +651,8 @@ export default function App() {
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
         * { box-sizing: border-box; }
-        body { margin: 0; overflow: hidden; }
+        html { height: 100%; }
+        body { margin: 0; overflow: hidden; height: 100%; }
         .desktop-container {
           height: 100vh;
           height: 100dvh;
