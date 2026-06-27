@@ -41,7 +41,7 @@ _DEVICE_STATE_REASONS = {
 }
 
 # How long to wait for a connection to fully activate (association + DHCP).
-ACTIVATION_TIMEOUT_S = 25.0
+ACTIVATION_TIMEOUT_S = 40.0
 
 
 @dataclass
@@ -492,6 +492,7 @@ def start_ap() -> None:
 
 
 def stop_ap() -> None:
+    import time
     import dbus
     try:
         bus = _bus()
@@ -500,7 +501,7 @@ def stop_ap() -> None:
         return
 
     logger.info("Stopping Nimbus hostap Access Point...")
-    
+
     try:
         nm = bus.get_object(NM_SERVICE, NM_PATH)
         active_connections = dbus.Interface(nm, DBUS_PROPS_IFACE).Get(NM_IFACE, "ActiveConnections")
@@ -521,6 +522,18 @@ def stop_ap() -> None:
                 continue
     except Exception as exc:
         logger.debug("Error while deactivating AP connection: %s", exc)
+
+    # DeactivateConnection returns immediately; the actual interface teardown is
+    # async. Wait up to 8 s for the AP to go away so connect_network() doesn't
+    # race against an interface still in AP mode.
+    deadline = time.monotonic() + 8.0
+    while time.monotonic() < deadline:
+        if not is_ap_active(bus):
+            logger.info("AP interface released")
+            break
+        time.sleep(0.5)
+    else:
+        logger.warning("AP did not fully deactivate within 8 s, proceeding anyway")
 
     # Clean up settings connection profiles
     _delete_existing_ap_profiles(bus)
