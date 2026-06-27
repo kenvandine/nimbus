@@ -347,66 +347,27 @@ class LxdManager:
             except Exception as exc:
                 logger.warning("Could not re-establish LXD NAT rules for %s: %s", bridge, exc)
 
-    def _is_nosuid(self, path: str) -> bool:
-        try:
-            from pathlib import Path
-            target = Path(path).resolve()
-            best_match = None
-            best_len = -1
-            with open("/proc/mounts", "r") as f:
-                for line in f:
-                    parts = line.split()
-                    if len(parts) >= 4:
-                        mnt_point = Path(parts[1]).resolve()
-                        try:
-                            target.relative_to(mnt_point)
-                            mnt_len = len(str(mnt_point))
-                            if mnt_len > best_len:
-                                best_len = mnt_len
-                                best_match = parts[3]
-                        except ValueError:
-                            continue
-            if best_match:
-                opts = best_match.split(",")
-                return "nosuid" in opts
-        except Exception as exc:
-            logger.warning("Could not determine if path %s is nosuid: %s", path, exc)
-        return False
 
     def ensure_initialized(self) -> None:
         client = self.client()
-        lxd_dir = os.getenv("LXD_DIR", "/var/snap/lxd/common/lxd")
-        # ZFS and btrfs create their own loopback filesystems and are not
-        # subject to the host path's mount flags (e.g. MS_NOSUID).  The 'dir'
-        # driver bind-mounts a host directory, which inherits MS_NOSUID when
-        # the host path is on a nosuid mount (common on Ubuntu Core).  In a
-        # privileged container, inherited MS_NOSUID blocks setuid binaries for
-        # non-root users, breaking snap-confine and sudo.  Always prefer ZFS
-        # then btrfs to avoid this, regardless of whether nosuid is detected.
-        driver = "dir"
-        try:
-            env = client.api.get().json().get("metadata", {}).get("environment", {})
-            supported = [d["name"] for d in env.get("storage_supported_drivers", [])]
-            if "zfs" in supported:
-                driver = "zfs"
-                logger.info("Selecting 'zfs' storage driver for container suid compatibility.")
-            elif "btrfs" in supported:
-                driver = "btrfs"
-                logger.info("Selecting 'btrfs' storage driver for container suid compatibility.")
-            else:
-                logger.warning("Neither 'zfs' nor 'btrfs' storage drivers are available; falling back to 'dir'. setuid binaries may not work for non-root users inside the container.")
-        except Exception as exc:
-            logger.warning("Failed to check LXD supported storage drivers: %s", exc)
+        # ZFS and btrfs create loopback-backed filesystems that are not subject
+        # to MS_NOSUID inherited from the host path (common on Ubuntu Core).
+        # The 'dir' driver bind-mounts a host directory and inherits nosuid,
+        # which breaks snap-confine and sudo for non-root users in a privileged
+        # container.  Prefer zfs > btrfs > dir; detect availability by
+        # attempting creation rather than querying the API (the
+        # storage_supported_drivers field is not reliable across LXD versions).
+        _PREFERRED_DRIVERS = ["zfs", "btrfs", "dir"]
 
         storage_pools = client.storage_pools.all()
         recreate_pool = False
         if storage_pools:
             for pool in storage_pools:
                 if pool.name == DEFAULT_LXD_STORAGE_POOL:
-                    if pool.driver != driver:
+                    if pool.driver not in ("zfs", "btrfs"):
                         logger.info(
-                            "LXD storage pool '%s' is using driver '%s' but '%s' is required. Recreating pool.",
-                            pool.name, pool.driver, driver
+                            "LXD storage pool '%s' uses driver '%s'; recreating as zfs or btrfs for suid compatibility.",
+                            pool.name, pool.driver,
                         )
                         recreate_pool = True
                     break
@@ -471,15 +432,25 @@ class LxdManager:
             "pool": DEFAULT_LXD_STORAGE_POOL,
         }
 
-        StoragePool.create(
-            client,
-            {
-                "name": DEFAULT_LXD_STORAGE_POOL,
-                "driver": driver,
-                "config": {},
-            },
-            wait=True,
-        )
+        for driver in _PREFERRED_DRIVERS:
+            try:
+                StoragePool.create(
+                    client,
+                    {
+                        "name": DEFAULT_LXD_STORAGE_POOL,
+                        "driver": driver,
+                        "config": {},
+                    },
+                    wait=True,
+                )
+                logger.info("Created LXD storage pool '%s' with '%s' driver.", DEFAULT_LXD_STORAGE_POOL, driver)
+                break
+            except Exception as exc:
+                if driver == "dir":
+                    raise
+                logger.info(
+                    "Storage driver '%s' unavailable (%s); trying next driver.", driver, exc
+                )
 
         managed_networks = self._managed_networks()
         if not managed_networks and not self._profile_has_nic(profile_devices):
