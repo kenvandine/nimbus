@@ -98,6 +98,7 @@ export const setResourceLimits = (cpu_cores, memory_mb) =>
 
 // App update check
 export const checkForUpdates = () => request('/apps/check-updates', { method: 'POST' })
+export const refreshCatalog = () => request('/apps/refresh-catalog', { method: 'POST' })
 
 // AI Models
 export const getModelStatus = () => request('/models/status')

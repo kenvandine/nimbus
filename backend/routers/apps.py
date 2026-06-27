@@ -46,6 +46,13 @@ async def active_installs() -> list[str]:
     return await get_control_plane().active_installs()
 
 
+@router.post("/refresh-catalog")
+async def refresh_catalog() -> dict:
+    from services import nimbus_store
+    await nimbus_store.get_catalog(force=True)
+    return {"status": "refreshed"}
+
+
 @router.post("/check-updates")
 async def check_updates() -> dict:
     asyncio.create_task(cp_module._run_update_check(get_control_plane()))

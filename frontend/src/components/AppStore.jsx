@@ -1,14 +1,26 @@
 import { useState } from 'react'
 import AppCard from './AppCard.jsx'
 import AppModal from './AppModal.jsx'
+import { refreshCatalog } from '../api.js'
 
 export default function AppStore({ apps, onRefresh, onOpenDetail, activeInstalls = [] }) {
   const [search, setSearch] = useState('')
   const [showUpdatesOnly, setShowUpdatesOnly] = useState(false)
   const [showUnsupported, setShowUnsupported] = useState(false)
   const [selectedApp, setSelectedApp] = useState(null)
+  const [refreshing, setRefreshing] = useState(false)
 
   const updatableCount = apps.filter(a => a.update_available).length
+
+  async function handleRefreshCatalog() {
+    setRefreshing(true)
+    try {
+      await refreshCatalog()
+      onRefresh()
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   function handleOpenDetail(app) {
     if (onOpenDetail) onOpenDetail(app)
@@ -50,6 +62,14 @@ export default function AppStore({ apps, onRefresh, onOpenDetail, activeInstalls
           title="Show untested apps"
         >
           Advanced
+        </button>
+        <button
+          style={{ ...styles.filterBtn, ...(refreshing ? styles.filterBtnDisabled : {}) }}
+          onClick={handleRefreshCatalog}
+          disabled={refreshing}
+          title="Refresh app catalog"
+        >
+          {refreshing ? <><span style={styles.spinner} /> Refreshing…</> : '↻ Refresh'}
         </button>
         <span style={styles.count}>{filtered.length} app{filtered.length !== 1 ? 's' : ''}</span>
       </div>
@@ -148,6 +168,16 @@ const styles = {
     background: 'rgba(156,39,176,0.18)',
     border: '1px solid rgba(156,39,176,0.45)',
     color: '#ce93d8',
+  },
+  filterBtnDisabled: {
+    opacity: 0.5,
+    cursor: 'not-allowed',
+  },
+  spinner: {
+    display: 'inline-block', width: '10px', height: '10px',
+    border: '2px solid rgba(255,255,255,0.3)', borderTopColor: 'white',
+    borderRadius: '50%', animation: 'spin 0.7s linear infinite',
+    marginRight: '4px',
   },
   advancedNotice: {
     color: 'rgba(206,147,216,0.8)',
