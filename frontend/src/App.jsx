@@ -653,6 +653,7 @@ export default function App() {
         * { box-sizing: border-box; }
         html { height: 100%; }
         body { margin: 0; overflow: hidden; height: 100%; }
+        #root { height: 100%; }
         .desktop-container {
           height: 100vh;
           height: 100dvh;
@@ -694,7 +695,6 @@ function DesktopIcon({ app, onClick, onContextMenu }) {
 const styles = {
   desktop: {
     width: '100vw',
-    height: '100%',
     display: 'flex',
     flexDirection: 'column',
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
