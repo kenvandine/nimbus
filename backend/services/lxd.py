@@ -424,12 +424,38 @@ class LxdManager:
                     instance.delete(wait=True)
                 except Exception as exc:
                     logger.warning("Could not stop/delete container during pool recreation: %s", exc)
+            # LXD refuses to delete a pool that is referenced by any profile.
+            # Temporarily remove root-disk devices that point at this pool from
+            # all profiles so the deletion can proceed.
+            pool_profiles: list[tuple[object, dict]] = []
+            try:
+                for profile in client.profiles.all():
+                    devices = dict(getattr(profile, "devices", {}) or {})
+                    root_dev = devices.get("root") or {}
+                    if root_dev.get("pool") == DEFAULT_LXD_STORAGE_POOL:
+                        pool_profiles.append((profile, dict(root_dev)))
+                        devices.pop("root")
+                        profile.devices = devices
+                        profile.save(wait=True)
+                        logger.info("Temporarily removed root device from profile '%s' to allow pool deletion", profile.name)
+            except Exception as exc:
+                logger.warning("Could not detach pool from profiles before deletion: %s", exc)
             try:
                 pool = client.storage_pools.get(DEFAULT_LXD_STORAGE_POOL)
                 logger.info("Deleting storage pool '%s' to allow recreation", DEFAULT_LXD_STORAGE_POOL)
                 pool.delete(wait=True)
             except Exception as exc:
                 logger.warning("Could not delete storage pool '%s': %s", DEFAULT_LXD_STORAGE_POOL, exc)
+                # Restore root devices on profiles since deletion failed.
+                for profile, root_dev in pool_profiles:
+                    try:
+                        devices = dict(getattr(profile, "devices", {}) or {})
+                        devices["root"] = root_dev
+                        profile.devices = devices
+                        profile.save(wait=True)
+                    except Exception:
+                        pass
+                pool_profiles = []
             storage_pools = []
 
         if storage_pools:
@@ -856,6 +882,28 @@ class LxdManager:
         ok = acceptable if acceptable is not None else {0, 1, 2, 3, 4, 5, 127, 255}
         return self._run(instance, command, acceptable=ok, environment=environment, cwd=cwd)
 
+    def _remount_rootfs_suid(self, instance) -> None:
+        """Remount the container's rootfs to clear any inherited MS_NOSUID flag.
+
+        When using the 'dir' LXD storage driver on a host path that carries
+        MS_NOSUID (common on Ubuntu Core), privileged containers inherit that
+        flag.  Root inside a privileged container has CAP_SYS_ADMIN in the
+        initial user namespace, so it can remount the rootfs with 'suid' to
+        clear the flag.  This allows setuid binaries (snap-confine, sudo) to
+        work for non-root users (e.g. nimbus) inside the container.
+        """
+        code, _, stderr = self._run(
+            instance, ["mount", "-o", "remount,rw,suid,dev,exec", "/"],
+            acceptable={0, 1, 32},
+        )
+        if code == 0:
+            logger.info("Remounted container rootfs with suid; snap-confine available to non-root users.")
+        else:
+            logger.warning(
+                "rootfs suid remount failed (exit %d): %s — snap-confine may not work for non-root users",
+                code, (stderr or "").strip(),
+            )
+
     def _wait_for_container_dns(self, instance, timeout: int = 120) -> None:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -1191,6 +1239,7 @@ class LxdManager:
                 if profile_updated:
                     logger.info("LXD profile updated, restarting container to apply new settings")
                     instance.restart(wait=True)
+                self._remount_rootfs_suid(instance)
                 if self._has_bootstrap_marker(instance):
                     self._set_bootstrap_state("starting-agent")
                     self._wait_for_docker(instance)
