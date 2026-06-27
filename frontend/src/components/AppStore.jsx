@@ -5,6 +5,7 @@ import AppModal from './AppModal.jsx'
 export default function AppStore({ apps, onRefresh, onOpenDetail, activeInstalls = [] }) {
   const [search, setSearch] = useState('')
   const [showUpdatesOnly, setShowUpdatesOnly] = useState(false)
+  const [showUnsupported, setShowUnsupported] = useState(false)
   const [selectedApp, setSelectedApp] = useState(null)
 
   const updatableCount = apps.filter(a => a.update_available).length
@@ -15,6 +16,7 @@ export default function AppStore({ apps, onRefresh, onOpenDetail, activeInstalls
   }
 
   const filtered = apps.filter(app => {
+    if (!showUnsupported && !app.supported) return false
     if (showUpdatesOnly && !app.update_available) return false
     const q = search.toLowerCase()
     return (
@@ -42,16 +44,29 @@ export default function AppStore({ apps, onRefresh, onOpenDetail, activeInstalls
         >
           ⬆ Updates{updatableCount > 0 && <span style={styles.filterBadge}>{updatableCount}</span>}
         </button>
+        <button
+          style={{ ...styles.filterBtn, ...(showUnsupported ? styles.filterBtnAdvanced : {}) }}
+          onClick={() => setShowUnsupported(v => !v)}
+          title="Show untested apps"
+        >
+          Advanced
+        </button>
         <span style={styles.count}>{filtered.length} app{filtered.length !== 1 ? 's' : ''}</span>
       </div>
+
+      {showUnsupported && filtered.length > 0 && (
+        <p style={styles.advancedNotice}>
+          Advanced mode — these apps are untested on this appliance and may not work correctly.
+        </p>
+      )}
 
       {filtered.length === 0 ? (
         <p style={styles.empty}>
           {showUpdatesOnly ? 'All installed apps are up to date.' : `No apps match "${search}"`}
         </p>
       ) : (
-          <div style={styles.grid}>
-            {filtered.map(app => (
+        <div style={styles.grid}>
+          {filtered.map(app => (
             <AppCard
               key={app.id}
               app={app}
@@ -129,4 +144,18 @@ const styles = {
   count: { color: 'rgba(255,255,255,0.35)', fontSize: '13px', whiteSpace: 'nowrap' },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '14px' },
   empty: { color: 'rgba(255,255,255,0.4)', textAlign: 'center', marginTop: '40px' },
+  filterBtnAdvanced: {
+    background: 'rgba(156,39,176,0.18)',
+    border: '1px solid rgba(156,39,176,0.45)',
+    color: '#ce93d8',
+  },
+  advancedNotice: {
+    color: 'rgba(206,147,216,0.8)',
+    fontSize: '13px',
+    margin: 0,
+    padding: '8px 14px',
+    background: 'rgba(156,39,176,0.08)',
+    border: '1px solid rgba(156,39,176,0.2)',
+    borderRadius: '10px',
+  },
 }

@@ -59,6 +59,7 @@ def _snap_to_meta(snap: dict[str, Any]) -> AppMeta:
         confinement="classic",
         ports=snap.get("ports", []),
         post_install_script=snap.get("post_install_script"),
+        supported=snap.get("supported", False),
     )
 
 
