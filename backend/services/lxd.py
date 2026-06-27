@@ -488,7 +488,6 @@ class LxdManager:
         description = "Nimbus nested-container hosting profile"
         config = {
             "security.nesting": "true",
-            "security.privileged": "true",
             "security.syscalls.intercept.mknod": "true",
             "security.syscalls.intercept.setxattr": "true",
         }
