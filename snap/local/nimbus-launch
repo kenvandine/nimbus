@@ -46,6 +46,10 @@ if command -v snapctl >/dev/null 2>&1; then
   if [ -n "$app_store_type" ]; then
     export NIMBUS_APP_STORE_TYPE="$app_store_type"
   fi
+  store_url="$(snapctl get store-url 2>/dev/null || true)"
+  if [ -n "$store_url" ]; then
+    export NIMBUS_STORE_URL="$store_url"
+  fi
   provisioning_url="$(snapctl get provisioning-url 2>/dev/null || true)"
   if [ -n "$provisioning_url" ]; then
     export NIMBUS_PROVISIONING_URL="$provisioning_url"
