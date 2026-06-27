@@ -424,9 +424,22 @@ async def ensure_default_model() -> None:
     await ensure_model(get_active_model_spec())
 
 
+_active_pull_task: asyncio.Task | None = None
+
+
 def ensure_default_model_task() -> asyncio.Task:
-    """Fire-and-forget: schedule the pre-pull on the running event loop."""
-    return asyncio.create_task(ensure_default_model())
+    """Schedule the default-model pull on the running event loop.
+
+    If a pull task is already in flight, returns it rather than starting a
+    second concurrent pull.  This lets callers safely call this multiple times
+    (e.g. at startup and again at install time) and the install-time
+    ``wait_for(task)`` will correctly await the already-running download.
+    """
+    global _active_pull_task
+    if _active_pull_task is not None and not _active_pull_task.done():
+        return _active_pull_task
+    _active_pull_task = asyncio.create_task(ensure_default_model())
+    return _active_pull_task
 
 
 async def wait_until_ready(timeout: float = 1800.0) -> bool:

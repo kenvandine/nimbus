@@ -132,7 +132,24 @@ def _ensure_openclaw_workspace_link() -> None:
 
 
 async def _maybe_ensure_model_provider(cp: "ControlPlane") -> None:
-    """If openclaw is installed, fire the configured model-provider's prep task."""
+    """Fire the configured model-provider's prep task at startup.
+
+    For lemonade: always fires unconditionally.  ``ensure_model()`` is a fast
+    no-op when the model is already installed, so this is safe on every boot.
+    It ensures the default model is pulled as early as possible — covering:
+      - Fresh OOBE on a ``download=false`` image: model starts pulling
+        immediately while the user is still setting up apps.
+      - Reboots where the model was never fully downloaded: pull resumes.
+      - Normal boots where the model is present: quick check, no download.
+
+    For gemma4: only fires if openclaw is already installed (existing behaviour
+    — gemma4 prep just waits for the snap to be reachable, no download needed).
+    """
+    from config import MODEL_PROVIDER_GEMMA4
+    if settings.model_provider != MODEL_PROVIDER_GEMMA4:
+        model_provider.ensure_ready_task()
+        return
+    # gemma4: only spin up the readiness poller if openclaw is present
     try:
         apps = await cp.list_apps()
     except Exception as exc:
@@ -297,9 +314,11 @@ class LocalControlPlane(ControlPlaneBase):
     async def _do_install(self, app_id: str) -> None:
         self._installing.add(app_id)
         try:
-            await docker.install_app(app_id)
             if app_id == "openclaw":
+                # Start model pull now so it runs concurrently with the docker
+                # image download; if already in progress this is a no-op.
                 model_provider.ensure_ready_task()
+            await docker.install_app(app_id)
         except Exception as exc:
             logger.error("Install failed for %s: %s", app_id, exc)
         finally:
@@ -681,12 +700,14 @@ class LxdControlPlane(ControlPlaneBase):
         self._installing.add(app_id)
         logger.info("Starting install for %s", app_id)
         try:
+            if app_id == "openclaw":
+                # Kick off model pull now so it runs concurrently with the
+                # docker image download; if already in progress this is a no-op.
+                model_provider.ensure_ready_task()
             for attempt in range(1, 4):
                 try:
                     await asyncio.to_thread(self.manager.install_app, app_id)
                     logger.info("Install completed for %s", app_id)
-                    if app_id == "openclaw":
-                        model_provider.ensure_ready_task()
                     return
                 except Exception as exc:
                     if attempt < 3 and self._is_network_error(exc):
@@ -754,13 +775,15 @@ class LxdControlPlane(ControlPlaneBase):
             if not url or not filename:
                 raise RuntimeError(f"No download URL for '{snap_name}' on this architecture")
             flags = nimbus_store.get_install_flags(snap)
+            if snap_name == "openclaw":
+                # Start model pull now so it runs concurrently with the snap
+                # download; if already in progress from startup this is a no-op.
+                model_provider.ensure_ready_task()
             logger.info("Sideloading %s from %s", snap_name, url)
             result = await container_snaps.sideload_container_snap(url, filename, flags)
             if not result.get("ok"):
                 raise RuntimeError(f"Sideload failed: {result.get('stderr', '')}")
             logger.info("Sideload completed for %s", snap_name)
-            if snap_name == "openclaw":
-                model_provider.ensure_ready_task()
             ports = snap.get("ports", []) or (
                 [SNAP_UI_PORTS[snap_name]] if snap_name in SNAP_UI_PORTS else []
             )
