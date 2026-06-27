@@ -843,7 +843,40 @@ class LxdControlPlane(ControlPlaneBase):
                         "Could not start service %s for %s (non-fatal): %s",
                         service_name, snap_name, exc,
                     )
+
+            # Run post-install script if defined in the catalog
+            post_install = snap.get("post_install_script")
+            if post_install:
+                try:
+                    base_url = catalog.get("base_url", "").rstrip("/")
+                    script_url = f"{base_url}/{post_install.lstrip('/')}"
+                    logger.info("Downloading post-install script for %s from %s", snap_name, script_url)
+                    async with httpx.AsyncClient(timeout=30) as client:
+                        resp = await client.get(script_url)
+                        resp.raise_for_status()
+                        script_content = resp.text
+
+                    tmp_path = f"/home/nimbus/nimbus-post-install-{snap_name}.sh"
+
+                    ok = await container_snaps.write_container_file(tmp_path, script_content)
+                    if ok:
+                        logger.info("Executing post-install script for %s", snap_name)
+                        await asyncio.to_thread(self.manager.exec_in_container, ["chmod", "+x", tmp_path])
+                        exit_code, stdout, stderr = await asyncio.to_thread(
+                            self.manager.exec_in_container,
+                            ["runuser", "-u", "nimbus", "--", "bash", tmp_path]
+                        )
+                        logger.info(
+                            "Post-install script for %s completed with exit code %d | stdout: %s | stderr: %s",
+                            snap_name, exit_code, stdout.strip(), stderr.strip()
+                        )
+                        await asyncio.to_thread(self.manager.exec_in_container, ["rm", "-f", tmp_path])
+                    else:
+                        logger.warning("Could not write post-install script to container for %s", snap_name)
+                except Exception as exc:
+                    logger.warning("Post-install script failed for %s (non-fatal): %s", snap_name, exc)
         except Exception as exc:
+
             logger.error("Sideload failed for %s: %s", snap_name, exc)
         finally:
             self._installing.discard(snap_name)

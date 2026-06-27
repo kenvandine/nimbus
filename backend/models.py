@@ -22,6 +22,8 @@ class AppMeta(BaseModel):
     app_type: str = "docker"          # "docker" | "snap"
     confinement: Optional[str] = None  # "strict" | "classic" | "devmode"
     ports: list[int] = []              # catalog-declared ports for snap apps
+    post_install_script: Optional[str] = None
+
 
 
 class AppStatus(BaseModel):

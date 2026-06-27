@@ -58,7 +58,13 @@ def _snap_to_meta(snap: dict[str, Any]) -> AppMeta:
         app_type="snap",
         confinement="classic",
         ports=snap.get("ports", []),
+        post_install_script=snap.get("post_install_script"),
     )
+
+
+def get_post_install_script(snap: dict) -> str | None:
+    return snap.get("post_install_script") or None
+
 
 
 def get_snaps(catalog: dict) -> list[dict]:
