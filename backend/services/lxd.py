@@ -376,21 +376,27 @@ class LxdManager:
     def ensure_initialized(self) -> None:
         client = self.client()
         lxd_dir = os.getenv("LXD_DIR", "/var/snap/lxd/common/lxd")
+        # ZFS and btrfs create their own loopback filesystems and are not
+        # subject to the host path's mount flags (e.g. MS_NOSUID).  The 'dir'
+        # driver bind-mounts a host directory, which inherits MS_NOSUID when
+        # the host path is on a nosuid mount (common on Ubuntu Core).  In a
+        # privileged container, inherited MS_NOSUID blocks setuid binaries for
+        # non-root users, breaking snap-confine and sudo.  Always prefer ZFS
+        # then btrfs to avoid this, regardless of whether nosuid is detected.
         driver = "dir"
-        if self._is_nosuid(lxd_dir):
-            try:
-                env = client.api.get().json().get("metadata", {}).get("environment", {})
-                supported = [d["name"] for d in env.get("storage_supported_drivers", [])]
-                if "zfs" in supported:
-                    driver = "zfs"
-                    logger.info("Host LXD directory has nosuid mount option. Selecting 'zfs' storage driver for container SUID compatibility.")
-                elif "btrfs" in supported:
-                    driver = "btrfs"
-                    logger.info("Host LXD directory has nosuid mount option. Selecting 'btrfs' storage driver for container SUID compatibility.")
-                else:
-                    logger.warning("Host LXD directory has nosuid mount option but neither 'zfs' nor 'btrfs' is supported by LXD daemon environment.")
-            except Exception as exc:
-                logger.warning("Failed to check server environment for supported storage drivers: %s", exc)
+        try:
+            env = client.api.get().json().get("metadata", {}).get("environment", {})
+            supported = [d["name"] for d in env.get("storage_supported_drivers", [])]
+            if "zfs" in supported:
+                driver = "zfs"
+                logger.info("Selecting 'zfs' storage driver for container suid compatibility.")
+            elif "btrfs" in supported:
+                driver = "btrfs"
+                logger.info("Selecting 'btrfs' storage driver for container suid compatibility.")
+            else:
+                logger.warning("Neither 'zfs' nor 'btrfs' storage drivers are available; falling back to 'dir'. setuid binaries may not work for non-root users inside the container.")
+        except Exception as exc:
+            logger.warning("Failed to check LXD supported storage drivers: %s", exc)
 
         storage_pools = client.storage_pools.all()
         recreate_pool = False
@@ -488,6 +494,7 @@ class LxdManager:
         description = "Nimbus nested-container hosting profile"
         config = {
             "security.nesting": "true",
+            "security.privileged": "true",
             "security.syscalls.intercept.mknod": "true",
             "security.syscalls.intercept.setxattr": "true",
         }
