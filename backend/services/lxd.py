@@ -754,6 +754,18 @@ class LxdManager:
         if changed:
             self._save_instance_devices(instance, devices)
 
+    def ensure_provider_proxy(self) -> None:
+        """Ensure the LXD provider proxy device is set up on the container.
+
+        Idempotent — a no-op if the correct device already exists.
+        Must be called before any snap onboard command that needs to reach
+        the host-loopback model service (lemonade) at 127.0.0.1:<port>.
+        """
+        instance = self.get_instance()
+        if instance is None:
+            return
+        self._configure_provider_proxy(instance)
+
     def teardown_snap_port_proxies(self, snap_name: str, ports: list[int]) -> None:
         """Remove LXD proxy devices that were set up for the snap's ports."""
         instance = self.get_instance()

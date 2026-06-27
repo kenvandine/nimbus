@@ -788,6 +788,12 @@ class LxdControlPlane(ControlPlaneBase):
             onboard = nimbus_store.get_onboard_cmd(snap)
             if onboard:
                 await asyncio.sleep(3)
+                # Ensure the LXD proxy device bridging the host model service
+                # (lemonade) into the container is in place before the onboard
+                # command runs — without it the snap can't reach 127.0.0.1:PORT
+                # inside the container and will fail silently, leaving the
+                # service unit uninstalled.
+                await asyncio.to_thread(self.manager.ensure_provider_proxy)
                 logger.info("Ensuring model provider ready before onboard for %s", snap_name)
                 task = model_provider.ensure_ready_task()
                 if task is not None:
