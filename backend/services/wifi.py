@@ -744,10 +744,22 @@ async def check_and_manage_ap_on_startup() -> None:
             return
         try:
             if not is_ap_active():
-                logger.info("AP went down during OOBE; waiting for NM to settle before restarting...")
-                await asyncio.sleep(10.0)  # give NM time to fully restart (~10 s observed)
-                if not is_ap_active():
-                    logger.info("Restarting AP after NM restart...")
-                    await async_start_ap()
+                logger.info("AP went down during OOBE; waiting to see if it's a handover or NM restart...")
+                # Poll for up to 20 s: if device goes online the AP was intentionally
+                # stopped by handover_ap_to_wifi — don't fight it.
+                for _ in range(20):
+                    await asyncio.sleep(1.0)
+                    from services.device import is_oobe_complete
+                    from services.network import is_online
+                    if is_oobe_complete() or is_online():
+                        logger.info("Online after AP downtime — handover succeeded, stopping monitor")
+                        return
+                    if is_ap_active():
+                        break  # came back on its own
+                else:
+                    # Still down and still offline after 20 s — this was an NM restart
+                    if not is_ap_active():
+                        logger.info("Restarting AP after NM restart...")
+                        await async_start_ap()
         except Exception as exc:
             logger.debug("AP monitor error (NM may still be restarting): %s", exc)

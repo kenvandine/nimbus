@@ -64,6 +64,22 @@ function NetworkStep({ online, onNext, reconnect }) {
       const res = await connectWifi(ssid, pwd || null)
       if (res?.status === 'transitioning') {
         setTransitioningSsid(ssid)
+        // The onboarding hotspot is stopping and the device is connecting to
+        // WiFi in the background. Poll until the connection is confirmed so the
+        // kiosk display can advance without user intervention.
+        for (let i = 0; i < 30; i++) {
+          await new Promise(r => setTimeout(r, 2000))
+          try {
+            const st = await getWifiStatus()
+            if (st?.connected) {
+              setTransitioningSsid(null)
+              setWifiStatus(st)
+              setExpandedSsid(null)
+              setPassword('')
+              return
+            }
+          } catch { /* backend may be briefly unreachable while NM reconnects */ }
+        }
         return
       }
       setExpandedSsid(null)
@@ -102,10 +118,10 @@ function NetworkStep({ online, onNext, reconnect }) {
             <div style={s.spinner} />
           </div>
           <div style={s.instructionStep}>
-            <strong>Step 1:</strong> Connect your phone, laptop, or desktop to the Wi-Fi network <strong>{transitioningSsid}</strong>.
+            This screen will update automatically once the connection is established.
           </div>
           <div style={s.instructionStep}>
-            <strong>Step 2:</strong> Open your browser and go to <a href="http://nimbus.local" style={s.link}>http://nimbus.local</a> to complete the setup.
+            If you're on a phone or laptop connected to the Nimbus hotspot, reconnect to <strong>{transitioningSsid}</strong> and open <a href="http://nimbus.local" style={s.link}>http://nimbus.local</a> to finish setup.
           </div>
         </div>
       </div>
