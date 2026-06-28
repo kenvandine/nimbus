@@ -460,12 +460,6 @@ jobs:
           # Run build-iso.sh using sudo (required by livefs-edit)
           sudo ./nimbus/installer/build-iso.sh ubuntu-server.iso "${{ env.ISO_FILENAME }}" "$IMAGE_PATH"
 
-      - name: Upload Image Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: nimbus-appliance-image-${{ github.event.inputs.model || 'nimbus-lemonade' }}
-          path: nimbus/model/${{ github.event.inputs.model || 'nimbus-lemonade' }}/pc.img.xz
-
       - name: Upload Installer ISO Artifact
         uses: actions/upload-artifact@v4
         with:
