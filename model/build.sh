@@ -150,6 +150,7 @@ if [ ! -f "$NM_DROPIN" ] || [ "$(cat $NM_DROPIN)" != "$(printf "$NM_CONTENT")" ]
 fi; \
 for NM_DNSMASQ in \
   /var/snap/network-manager/current/dnsmasq-shared.d/nimbus-captive-portal.conf \
+  /var/snap/network-manager/current/conf/dnsmasq-shared.d/nimbus-captive-portal.conf \
   /var/snap/network-manager/current/etc/NetworkManager/dnsmasq-shared.d/nimbus-captive-portal.conf; do \
   mkdir -p "$(dirname $NM_DNSMASQ)" || true; \
   if [ ! -f "$NM_DNSMASQ" ] || [ "$(cat $NM_DNSMASQ)" != "$(printf "$NM_DNSMASQ_CONTENT")" ]; then \
