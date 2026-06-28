@@ -27,7 +27,7 @@ on:
         default: false
         type: boolean
       ssh_key:
-        description: 'Optional SSH public key to embed in the system-user assertion'
+        description: 'Optional SSH public key(s) to embed in the system-user assertion. Comma-separate multiple keys.'
         required: false
         default: ''
         type: string
@@ -257,8 +257,11 @@ jobs:
         run: |
           python3 -c "
           import os, json
-          ssh_key = os.environ.get('SSH_KEY', '').strip()
-          if ssh_key:
+          # Accept one key, or several comma-separated keys. SSH public keys
+          # never contain commas, so splitting on ',' is safe.
+          raw = os.environ.get('SSH_KEY', '')
+          ssh_keys = [k.strip() for k in raw.split(',') if k.strip()]
+          if ssh_keys:
               user_data = {
                   'type': 'system-user',
                   'authority-id': 'EH9A6Xg1QtCjYt4v3QlBVTPLAHDvEIn6',
@@ -267,7 +270,7 @@ jobs:
                   'models': ['nimbus-lemonade', 'nimbus-gemma4'],
                   'name': 'Ubuntu',
                   'username': 'ubuntu',
-                  'ssh-keys': [ssh_key],
+                  'ssh-keys': ssh_keys,
                   'series': ['16'],
                   'since': '2026-01-01T00:00:00+00:00',
                   'until': '2028-01-01T00:00:00+00:00'
@@ -275,6 +278,7 @@ jobs:
               with open('nimbus/model/user.json', 'w') as f:
                   json.dump(user_data, f, indent=4)
                   f.write('\n')
+              print(f'Wrote system-user assertion with {len(ssh_keys)} SSH key(s)')
           "
 
       - name: Download HuggingFace Model to Sideload
