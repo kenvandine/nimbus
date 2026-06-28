@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { getWifiStatus, scanWifiNetworks, connectWifi, completeOobe, setupAccount } from '../api.js'
+import { isLocalAccess } from '../utils.js'
 
 const STATUS_IP_RETRY_DELAY_MS = 1500
 
@@ -25,11 +26,18 @@ function NetworkStep({ online, onNext, reconnect }) {
   const [networks, setNetworks] = useState(null)
   const [scanning, setScanning] = useState(false)
   const [connecting, setConnecting] = useState(null)
-  const [expandedSsid, setExpandedSsid] = useState(null)
+  const [passwordSsid, setPasswordSsid] = useState(null)
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [error, setError] = useState(null)
   const [transitioningSsid, setTransitioningSsid] = useState(null)
+  // When the OOBE is being served over the onboarding hotspot (this device's
+  // own AP), connecting to Wi-Fi tears that hotspot down — which closes the
+  // phone's captive-portal sign-in window. Show the "where to go next"
+  // instructions and require acknowledgement *before* starting the handover,
+  // since the post-connect screen would vanish with the window.
+  const [pendingHandover, setPendingHandover] = useState(null) // { ssid, password }
+  const pwInputRef = useRef(null)
 
   useEffect(() => {
     getWifiStatus().then(setWifiStatus).catch(() => {})
@@ -55,7 +63,21 @@ function NetworkStep({ online, onNext, reconnect }) {
     finally { setScanning(false) }
   }
 
+  // Decide how to act on a "Connect" tap. Secured, unknown networks need a
+  // password first. When the OOBE is served over the onboarding hotspot, the
+  // actual connection is a handover that closes this window, so route through
+  // the acknowledgement screen instead of connecting immediately.
+  function requestConnect(ssid, pwd) {
+    const overHotspot = !isLocalAccess() && wifiStatus?.ap_active
+    if (overHotspot) {
+      setPendingHandover({ ssid, password: pwd || null })
+      return
+    }
+    handleConnect(ssid, pwd)
+  }
+
   async function handleConnect(ssid, pwd) {
+    setPendingHandover(null)
     setConnecting(ssid)
     setError(null)
     try {
@@ -74,7 +96,7 @@ function NetworkStep({ online, onNext, reconnect }) {
             if (st?.connected) {
               setTransitioningSsid(null)
               setWifiStatus(st)
-              setExpandedSsid(null)
+              setPasswordSsid(null)
               setPassword('')
               return
             }
@@ -82,7 +104,7 @@ function NetworkStep({ online, onNext, reconnect }) {
         }
         return
       }
-      setExpandedSsid(null)
+      setPasswordSsid(null)
       setPassword('')
       await refreshWifiStatus()
       try { setNetworks(await scanWifiNetworks()) } catch {}
@@ -90,11 +112,17 @@ function NetworkStep({ online, onNext, reconnect }) {
     finally { setConnecting(null) }
   }
 
-  function toggleExpand(ssid) {
-    setExpandedSsid(p => p === ssid ? null : ssid)
+  function promptForPassword(ssid) {
+    setPasswordSsid(ssid)
     setPassword('')
     setShowPw(false)
     setError(null)
+  }
+
+  function cancelPassword() {
+    setPasswordSsid(null)
+    setPassword('')
+    setShowPw(false)
   }
 
   const wifiAvailable = wifiStatus?.available !== false
@@ -105,6 +133,33 @@ function NetworkStep({ online, onNext, reconnect }) {
   // even when Wi-Fi is associated and has a DHCP lease. Treat a local Wi-Fi
   // association with an IP address as good enough to proceed through onboarding.
   const connected = online || !!(wifiStatus?.connected && wifiStatus?.ip_address)
+
+  if (pendingHandover) {
+    const { ssid, password: pwd } = pendingHandover
+    return (
+      <div style={s.transitionContainer}>
+        <h1 style={s.heading}>Before you connect</h1>
+        <p style={s.subheading}>
+          Nimbus will join <strong>{ssid}</strong> and switch off its setup hotspot.
+          This sign-in window will close — that's expected.
+        </p>
+        <div style={s.transitionCard}>
+          <div style={s.instructionStep}>
+            <strong>1.</strong> Reconnect this phone to <strong>{ssid}</strong> (or any
+            network with internet).
+          </div>
+          <div style={s.instructionStep}>
+            <strong>2.</strong> Open <a href="http://nimbus.local" style={s.link}>http://nimbus.local</a> in
+            your browser to finish setup.
+          </div>
+        </div>
+        <button style={s.btnPrimary} onClick={() => handleConnect(ssid, pwd)}>
+          Connect &amp; turn off hotspot
+        </button>
+        <button style={s.btnGhost} onClick={() => setPendingHandover(null)}>Cancel</button>
+      </div>
+    )
+  }
 
   if (transitioningSsid) {
     return (
@@ -118,11 +173,13 @@ function NetworkStep({ online, onNext, reconnect }) {
             <div style={s.spinner} />
           </div>
           <div style={s.instructionStep}>
-            This screen will update automatically once the connection is established.
+            This screen will continue automatically once Nimbus is online.
           </div>
-          <div style={s.instructionStep}>
-            If you're on a phone or laptop connected to the Nimbus hotspot, reconnect to <strong>{transitioningSsid}</strong> and open <a href="http://nimbus.local" style={s.link}>http://nimbus.local</a> to finish setup.
-          </div>
+          {!isLocalAccess() && (
+            <div style={s.instructionStep}>
+              If this window stays open, reconnect to <strong>{transitioningSsid}</strong> and open <a href="http://nimbus.local" style={s.link}>http://nimbus.local</a> to finish setup.
+            </div>
+          )}
         </div>
       </div>
     )
@@ -149,7 +206,49 @@ function NetworkStep({ online, onNext, reconnect }) {
         <div style={s.connectionMeta}>IP address: {wifiStatus.ip_address}</div>
       )}
 
-      {wifiAvailable && (
+      {wifiAvailable && passwordSsid && (
+        // Dedicated password prompt that replaces the network list. Anchoring it
+        // at the top of the panel (instead of expanding inline mid-list) keeps
+        // the input and buttons fully visible above the on-screen keyboard in
+        // the cramped captive-portal browser, where the list could not scroll.
+        <div style={s.wifiPanel}>
+          <div style={s.wifiHeader}>
+            <span style={s.wifiTitle}>🔒 {passwordSsid}</span>
+          </div>
+          <div style={s.pwPrompt}>
+            <label style={s.label}>Wi-Fi password</label>
+            <div style={{ position: 'relative', width: '100%' }}>
+              <input
+                ref={pwInputRef}
+                type={showPw ? 'text' : 'password'}
+                placeholder="Enter password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && password && requestConnect(passwordSsid, password)}
+                onFocus={() => pwInputRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })}
+                style={s.input}
+                autoFocus
+              />
+              <button style={s.eyeBtn} onClick={() => setShowPw(p => !p)} tabIndex={-1}>
+                {showPw ? '🙈' : '👁'}
+              </button>
+            </div>
+            {error && <div style={{ ...s.netError, padding: '6px 0 0' }}>{error}</div>}
+            <div style={{ display: 'flex', gap: '8px', width: '100%', justifyContent: 'flex-end', marginTop: '10px' }}>
+              <button style={s.btnCancel} onClick={cancelPassword}>Cancel</button>
+              <button
+                style={{ ...s.btnSm, ...(!password || connecting === passwordSsid ? s.btnSmDisabled : {}) }}
+                onClick={() => requestConnect(passwordSsid, password)}
+                disabled={!password || connecting === passwordSsid}
+              >
+                {connecting === passwordSsid ? 'Connecting…' : 'Connect'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {wifiAvailable && !passwordSsid && (
         <div style={s.wifiPanel}>
           <div style={s.wifiHeader}>
             <span style={s.wifiTitle}>📶 Wi-Fi</span>
@@ -177,41 +276,13 @@ function NetworkStep({ online, onNext, reconnect }) {
                 {!net.in_use && (
                   <button
                     style={{ ...s.btnSm, ...(connecting === net.ssid ? s.btnSmDisabled : {}) }}
-                    onClick={() => (!net.secured || net.known) ? handleConnect(net.ssid, null) : toggleExpand(net.ssid)}
+                    onClick={() => (!net.secured || net.known) ? requestConnect(net.ssid, null) : promptForPassword(net.ssid)}
                     disabled={connecting === net.ssid}
                   >
                     {connecting === net.ssid ? 'Connecting…' : 'Connect'}
                   </button>
                 )}
               </div>
-              {expandedSsid === net.ssid && (
-                <div style={s.pwRow}>
-                  <div style={{ position: 'relative', width: '100%' }}>
-                    <input
-                      type={showPw ? 'text' : 'password'}
-                      placeholder="Wi-Fi password"
-                      value={password}
-                      onChange={e => setPassword(e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && password && handleConnect(net.ssid, password)}
-                      style={s.input}
-                      autoFocus
-                    />
-                    <button style={s.eyeBtn} onClick={() => setShowPw(p => !p)} tabIndex={-1}>
-                      {showPw ? '🙈' : '👁'}
-                    </button>
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px', width: '100%', justifyContent: 'flex-end', marginTop: '4px' }}>
-                    <button style={s.btnCancel} onClick={() => setExpandedSsid(null)}>Cancel</button>
-                    <button
-                      style={{ ...s.btnSm, ...(!password || connecting === net.ssid ? s.btnSmDisabled : {}) }}
-                      onClick={() => handleConnect(net.ssid, password)}
-                      disabled={!password || connecting === net.ssid}
-                    >
-                      {connecting === net.ssid ? 'Connecting…' : 'Connect'}
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
           ))}
         </div>
@@ -488,10 +559,9 @@ const s = {
   netName: { fontSize: '13px', color: 'rgba(255,255,255,0.55)' },
   netNameActive: { color: 'rgba(129,212,250,0.9)' },
   connTag: { marginLeft: '6px', fontSize: '11px', color: 'rgba(129,199,132,0.9)' },
-  pwRow: {
-    display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: '8px',
-    padding: '8px 14px 11px', background: 'rgba(255,255,255,0.02)',
-    borderBottom: '1px solid rgba(255,255,255,0.05)',
+  pwPrompt: {
+    display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: '6px',
+    padding: '14px', background: 'rgba(255,255,255,0.02)',
   },
   fieldGroup: { display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '14px' },
   label: { fontSize: '12px', fontWeight: 600, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.02em' },

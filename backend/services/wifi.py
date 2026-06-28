@@ -61,6 +61,7 @@ class WifiStatus:
     ssid: Optional[str] = None
     ip_address: Optional[str] = None
     error: Optional[str] = None
+    ap_active: bool = False
 
 
 def _bus():
@@ -173,6 +174,7 @@ def get_wifi_status() -> WifiStatus:
             connected=ssid is not None,
             ssid=ssid,
             ip_address=ip_address,
+            ap_active=ap_active,
         )
     except Exception as exc:
         logger.warning("WiFi status error: %s", exc)
