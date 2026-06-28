@@ -41,7 +41,7 @@
         {
             "name": "lxd",
             "type": "app",
-            "default-channel": "latest/stable",
+            "default-channel": "5.21/stable",
             "id": "J60k4JY0HppjwOjW8dZdYc8obXKxujRu"
         },
         {
