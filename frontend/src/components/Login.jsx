@@ -1,5 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { login } from '../api.js'
+
+// If a login succeeds server-side but the session never takes effect (e.g. the
+// parent never flips to authenticated because the cookie didn't stick), this
+// component would otherwise hang on "Signing in…" forever. Fall back after a
+// few seconds so the user gets feedback instead of a frozen button.
+const STUCK_SESSION_TIMEOUT_MS = 6000
 
 export default function Login({ onLogin }) {
   const [username, setUsername] = useState('')
@@ -7,6 +13,11 @@ export default function Login({ onLogin }) {
   const [showPw, setShowPw] = useState(false)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
+  const stuckTimer = useRef(null)
+
+  // On a successful login the parent unmounts this component, which clears the
+  // timer below. If we're still mounted when it fires, the session didn't stick.
+  useEffect(() => () => clearTimeout(stuckTimer.current), [])
 
   const canSubmit = username.trim().length > 0 && password.length > 0 && !busy
 
@@ -16,10 +27,22 @@ export default function Login({ onLogin }) {
     setError(null)
     try {
       await login(username.trim(), password)
-      onLogin()
     } catch (e) {
       setError('Invalid username or password')
       setBusy(false)
+      return
+    }
+    // Hand off to the parent, which swaps this view out once it sees an
+    // authenticated session. Arm a guard in case that never happens.
+    clearTimeout(stuckTimer.current)
+    stuckTimer.current = setTimeout(() => {
+      setBusy(false)
+      setError('Signed in, but the session did not persist. Try reloading, or use https:// instead of http://.')
+    }, STUCK_SESSION_TIMEOUT_MS)
+    try {
+      await onLogin()
+    } catch {
+      // Parent will re-render based on auth state; the guard covers a hang.
     }
   }
 

@@ -28,11 +28,19 @@ class ChangePasswordRequest(BaseModel):
 
 
 def _set_session(response: Response, username: str) -> None:
-    from config import settings
     from services.auth import create_session_token, create_refresh_token
     access_token = create_session_token(username)
     refresh_token = create_refresh_token(username)
-    secure = settings.tls_enabled
+    # Do NOT mark the session cookies Secure. The appliance intentionally
+    # serves its UI over plain HTTP: the captive-portal/transparent proxy in
+    # main.py forwards http://nimbus.local straight to the HTTPS backend
+    # without redirecting (so the browser origin stays http://), and OOBE is
+    # served over HTTP for captive-portal probes. Browsers silently drop a
+    # Secure cookie on a non-localhost HTTP origin, which would discard the
+    # session and leave login stuck at "Signing in…". The cookies are still
+    # httponly + samesite=strict. (http://localhost is a secure context, which
+    # is why the local kiosk was unaffected.)
+    secure = False
     response.set_cookie(
         key=SESSION_COOKIE,
         value=access_token,
