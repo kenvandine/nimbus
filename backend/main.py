@@ -221,6 +221,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def captive_portal_middleware(request, call_next):
+    response = await call_next(request)
+    if (
+        response.status_code == 404
+        and request.url.path != "/"
+        and not request.url.path.startswith("/api/")
+        and not request.url.path.startswith("/ws/")
+    ):
+        from fastapi.responses import RedirectResponse
+        host = request.headers.get("host", "").lower()
+        if any(h in host for h in ("localhost", "127.0.0.1", "nimbus.local", "192.168.")):
+            return RedirectResponse(url="/")
+        return RedirectResponse(url="http://10.42.0.1/")
+    return response
+
+
 app.include_router(auth_router)  # no auth dependency — handles login/logout/setup
 app.include_router(apps_router)
 app.include_router(files_router)
