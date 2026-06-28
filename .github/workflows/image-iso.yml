@@ -477,9 +477,9 @@ jobs:
           echo "Creating release for tag $TAG"
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists, uploading assets to it..."
-            gh release upload "$TAG" "${{ env.ISO_FILENAME }}" nimbus/model/$MODEL/pc.img.xz --clobber
+            gh release upload "$TAG" "${{ env.ISO_FILENAME }}" --clobber
           else
-            gh release create "$TAG" "${{ env.ISO_FILENAME }}" nimbus/model/$MODEL/pc.img.xz \
+            gh release create "$TAG" "${{ env.ISO_FILENAME }}" \
               --title "Nimbus Appliance $TAG" \
               --notes "Automated release of Nimbus Appliance ($MODEL) with Nimbus Snap $TAG"
           fi
