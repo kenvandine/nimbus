@@ -140,6 +140,15 @@ snap set system hostname=nimbus; \
 hostnamectl set-hostname --transient nimbus || true; \
 snap set system service.systemd-resolved.multicast-dns=yes; \
 systemctl restart systemd-resolved || true; \
+AVAHI_CONF=/var/snap/avahi/common/etc/avahi/avahi-daemon.conf; \
+if [ -f "$AVAHI_CONF" ] && ! grep -q "^deny-interfaces=" "$AVAHI_CONF"; then \
+  if grep -q "^#deny-interfaces=" "$AVAHI_CONF"; then \
+    sed -i "s/^#deny-interfaces=.*/deny-interfaces=lxdbr0,docker0/" "$AVAHI_CONF"; \
+  else \
+    sed -i "/^\[server\]/a deny-interfaces=lxdbr0,docker0" "$AVAHI_CONF"; \
+  fi; \
+  snap restart avahi || true; \
+fi; \
 NM_DROPIN=/var/snap/network-manager/current/conf.d/90-lxd-unmanaged.conf; \
 NM_CONTENT="[keyfile]\nunmanaged-devices=interface-name:lxdbr*;interface-name:veth*\n"; \
 NM_DNSMASQ_CONTENT="# Redirect all DNS queries to the gateway IP for the captive portal flow\naddress=/#/10.42.0.1\n"; \
