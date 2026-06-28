@@ -885,9 +885,25 @@ class LxdControlPlane(ControlPlaneBase):
                     if ok:
                         logger.info("Executing post-install script for %s", snap_name)
                         await asyncio.to_thread(self.manager.exec_in_container, ["chmod", "+x", tmp_path])
+
+                        # Resolve the nimbus user UID inside the container dynamically.
+                        _, uid_out, _ = await asyncio.to_thread(
+                            self.manager.exec_in_container,
+                            ["id", "-u", "nimbus"]
+                        )
+                        uid = uid_out.strip() or "1001"
+
                         exit_code, stdout, stderr = await asyncio.to_thread(
                             self.manager.exec_in_container,
-                            ["runuser", "-u", "nimbus", "--", "bash", tmp_path]
+                            [
+                                "runuser", "-u", "nimbus", "--",
+                                "env",
+                                "HOME=/home/nimbus",
+                                f"XDG_RUNTIME_DIR=/run/user/{uid}",
+                                f"DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/{uid}/bus",
+                                "PATH=/snap/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                                "bash", tmp_path
+                            ]
                         )
                         logger.info(
                             "Post-install script for %s completed with exit code %d | stdout: %s | stderr: %s",
