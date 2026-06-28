@@ -225,7 +225,6 @@ function NetworkStep({ online, onNext, reconnect }) {
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && password && requestConnect(passwordSsid, password)}
-                onFocus={() => pwInputRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })}
                 style={s.input}
                 autoFocus
               />
@@ -514,7 +513,8 @@ export default function Oobe({ online, onComplete, networkOnly }) {
 
 const s = {
   overlay: {
-    position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+    position: 'fixed', inset: 0, display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+    overflowY: 'auto',
     background: 'linear-gradient(145deg,hsl(215,75%,8%) 0%,hsl(220,60%,14%) 60%,hsl(200,55%,28%) 100%)',
     zIndex: 9999, padding: '20px',
     fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
@@ -525,7 +525,6 @@ const s = {
     padding: '36px 32px 28px', boxShadow: '0 32px 80px rgba(0,0,0,0.4)',
     backdropFilter: 'blur(20px)', animation: 'fadeIn 0.4s ease',
     display: 'flex', flexDirection: 'column', gap: '0',
-    maxHeight: '90vh', overflowY: 'auto',
   },
   logoRow: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '22px' },
   logoIcon: { fontSize: '26px' },
