@@ -136,6 +136,7 @@ snap connect nimbus:firewall-control; \
 snap connect nimbus:network-control; \
 snap connect nimbus:network-observe; \
 snap connect nimbus:system-observe; \
+snap connect nimbus:hardware-observe; \
 snap set system hostname=nimbus; \
 hostnamectl set-hostname --transient nimbus || true; \
 snap set system service.systemd-resolved.multicast-dns=yes; \
