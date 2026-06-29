@@ -114,3 +114,6 @@ export const selectModel = (modelName) => json('POST', '/models/select', { model
 export const listApiKeys = () => request('/keys')
 export const setApiKey = (name, value) => json('POST', '/keys', { name, value })
 export const deleteApiKey = (name) => request(`/keys/${encodeURIComponent(name)}`, { method: 'DELETE' })
+
+// Hardware info (static, fetched once)
+export const getHardwareInfo = () => request('/system/hardware')

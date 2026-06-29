@@ -58,6 +58,10 @@ class SystemStats(BaseModel):
     cpu_pct: float
     mem_pct: float
     disk_pct: float
+    disk_used_gb: Optional[float] = None
+    disk_total_gb: Optional[float] = None
+    mem_used_gb: Optional[float] = None
+    mem_total_gb: Optional[float] = None
     app_count: int
     control_mode: str = "local"
     container_name: Optional[str] = None

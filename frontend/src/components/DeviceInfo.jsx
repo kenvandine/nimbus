@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import SystemLogViewer from './SystemLogViewer'
-import { getModelStatus, pullModel, ensureModel, getAvailableModels, selectModel } from '../api.js'
+import { getModelStatus, pullModel, ensureModel, getAvailableModels, selectModel, getHardwareInfo } from '../api.js'
 
 const BASE = import.meta.env.VITE_API_BASE ?? '/api'
 
@@ -13,15 +13,17 @@ async function apiRequest(path, options = {}) {
   return res.json()
 }
 
-function Gauge({ label, value, color }) {
+function Gauge({ label, value, color, subtitle }) {
   return (
     <div style={styles.gaugeWrap}>
       <div style={styles.gaugeHeader}>
         <span style={styles.gaugeLabel}>{label}</span>
-        <span style={styles.gaugeValue}>{Math.round(value)}%</span>
+        <span style={styles.gaugeValue}>
+          {subtitle ? subtitle : `${Math.round(value)}%`}
+        </span>
       </div>
       <div style={styles.track}>
-        <div style={{ ...styles.fill, width: `${value}%`, background: color }} />
+        <div style={{ ...styles.fill, width: `${Math.min(value, 100)}%`, background: color }} />
       </div>
     </div>
   )
@@ -397,6 +399,11 @@ export default function DeviceInfo({ stats, apps }) {
   const containerReady = isLxd && stats?.container_bootstrapped && stats?.container_status === 'running' && stats?.bootstrap_state === 'ready'
   const [logSource, setLogSource] = useState('host')
   const [activeTab, setActiveTab] = useState('overview')
+  const [hardware, setHardware] = useState(null)
+
+  useEffect(() => {
+    getHardwareInfo().then(setHardware).catch(() => {})
+  }, [])
 
   const tabs = [
     { id: 'overview', label: 'Overview' },
@@ -437,13 +444,45 @@ export default function DeviceInfo({ stats, apps }) {
             {stats ? (
               <>
                 <Gauge label="CPU" value={stats.cpu_pct} color="#4fc3f7" />
-                <Gauge label="Memory" value={stats.mem_pct} color="#81d4fa" />
-                <Gauge label="Disk" value={stats.disk_pct} color="#b3e5fc" />
+                <Gauge
+                  label="Memory"
+                  value={stats.mem_pct}
+                  color="#81d4fa"
+                  subtitle={stats.mem_total_gb ? `${stats.mem_used_gb} / ${hardware?.ram_gb ?? stats.mem_total_gb} GB` : undefined}
+                />
+                <Gauge
+                  label="Disk"
+                  value={stats.disk_pct}
+                  color="#b3e5fc"
+                  subtitle={stats.disk_total_gb ? `${stats.disk_used_gb} / ${stats.disk_total_gb} GB` : undefined}
+                />
               </>
             ) : (
               <p style={styles.muted}>Loading…</p>
             )}
           </section>
+
+          {hardware && (
+            <section style={styles.section}>
+              <h3 style={styles.sectionTitle}>Hardware</h3>
+              <div style={styles.infoTable}>
+                {hardware.system_name && <InfoRow label="System" value={hardware.system_name} />}
+                {hardware.chassis_type && <InfoRow label="Form Factor" value={hardware.chassis_type} />}
+                {hardware.cpu_model && (
+                  <InfoRow
+                    label="CPU"
+                    value={
+                      hardware.cpu_cores_physical
+                        ? `${hardware.cpu_model} (${hardware.cpu_cores_physical}C / ${hardware.cpu_cores_logical}T)`
+                        : hardware.cpu_model
+                    }
+                  />
+                )}
+                {hardware.gpu && <InfoRow label="GPU" value={hardware.gpu} />}
+                {hardware.ram_gb && <InfoRow label="RAM" value={`${hardware.ram_gb} GB`} />}
+              </div>
+            </section>
+          )}
 
           <section style={styles.section}>
             <h3 style={styles.sectionTitle}>Apps</h3>

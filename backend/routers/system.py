@@ -154,6 +154,13 @@ async def set_resource_limits(req: ResourceLimitsRequest) -> dict:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@router.get("/hardware")
+async def get_hardware_info() -> dict:
+    from services.hardware import get_hardware_info
+    import asyncio
+    return await asyncio.to_thread(get_hardware_info)
+
+
 @router.get("/ca-cert")
 async def get_ca_cert() -> Response:
     content, media_type, filename = await get_control_plane().get_ca_cert()

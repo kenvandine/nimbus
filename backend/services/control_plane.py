@@ -350,10 +350,18 @@ class LocalControlPlane(ControlPlaneBase):
         return {"status": "uninstalled"}
 
     async def get_stats(self) -> SystemStats:
+        from services.hardware import best_disk_path
+        disk_path = best_disk_path()
+        disk = psutil.disk_usage(disk_path)
+        mem = psutil.virtual_memory()
         return _apply_device_stats(SystemStats(
             cpu_pct=psutil.cpu_percent(interval=0.1),
-            mem_pct=psutil.virtual_memory().percent,
-            disk_pct=psutil.disk_usage("/").percent,
+            mem_pct=mem.percent,
+            mem_used_gb=round(mem.used / (1024 ** 3), 1),
+            mem_total_gb=round(mem.total / (1024 ** 3), 1),
+            disk_pct=disk.percent,
+            disk_used_gb=round(disk.used / (1024 ** 3), 1),
+            disk_total_gb=round(disk.total / (1024 ** 3), 1),
             app_count=len(docker.installed_app_ids()),
             oobe_complete=True, online=True,
             appstore_visible=settings.appstore_visible,
@@ -1098,10 +1106,18 @@ class LxdControlPlane(ControlPlaneBase):
         app_count = len(snapshot.installed) if snapshot else 0
         online = await asyncio.to_thread(is_online)
         bootstrap_state = "waiting-for-network" if self._waiting_for_network else info.bootstrap_state
+        from services.hardware import best_disk_path
+        disk_path = best_disk_path()
+        disk = psutil.disk_usage(disk_path)
+        mem = psutil.virtual_memory()
         return _apply_device_stats(SystemStats(
             cpu_pct=psutil.cpu_percent(interval=0.1),
-            mem_pct=psutil.virtual_memory().percent,
-            disk_pct=psutil.disk_usage("/").percent,
+            mem_pct=mem.percent,
+            mem_used_gb=round(mem.used / (1024 ** 3), 1),
+            mem_total_gb=round(mem.total / (1024 ** 3), 1),
+            disk_pct=disk.percent,
+            disk_used_gb=round(disk.used / (1024 ** 3), 1),
+            disk_total_gb=round(disk.total / (1024 ** 3), 1),
             app_count=app_count, control_mode="lxd",
             container_name=info.name, container_status=info.status,
             container_ip=info.ip_address, container_bootstrapped=info.bootstrapped,
