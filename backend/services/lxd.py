@@ -1289,18 +1289,31 @@ class LxdManager:
         if status == "running":
             bootstrapped = self._has_bootstrap_marker(instance)
 
+        # An already-bootstrapped, running container is ready from the user's
+        # perspective even while ensure_bootstrapped() is still working through
+        # its maintenance sequence (NM check, profile sync, _wait_for_docker,
+        # etc.).  Only surface an intermediate state when there is an explicit
+        # error or the container hasn't come up yet — otherwise the kiosk
+        # shows "Setting up your device" on every reboot even though the
+        # device is fully usable.
+        effective_state = (
+            "ready"
+            if bootstrapped and status == "running" and self._bootstrap_error is None
+            else self._bootstrap_state
+        )
+
         info = ContainerInfo(
             name=settings.lxd_container_name,
             exists=True,
             status=status,
             ip_address=self._container_ip(instance),
             bootstrapped=bootstrapped,
-            bootstrap_state=self._bootstrap_state,
+            bootstrap_state=effective_state,
             bootstrap_error=self._bootstrap_error,
         )
 
         # Cache the last fully-ready info so we can serve it during snapshots.
-        if bootstrapped and status == "running" and self._bootstrap_state == "ready":
+        if bootstrapped and status == "running" and effective_state == "ready":
             self._last_good_container_info = info
 
         return info

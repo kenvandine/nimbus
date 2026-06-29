@@ -141,13 +141,25 @@ hostnamectl set-hostname --transient nimbus || true; \
 snap set system service.systemd-resolved.multicast-dns=yes; \
 systemctl restart systemd-resolved || true; \
 AVAHI_CONF=/var/snap/avahi/common/etc/avahi/avahi-daemon.conf; \
-if [ -f "$AVAHI_CONF" ] && ! grep -q "^deny-interfaces=" "$AVAHI_CONF"; then \
-  if grep -q "^#deny-interfaces=" "$AVAHI_CONF"; then \
-    sed -i "s/^#deny-interfaces=.*/deny-interfaces=lxdbr0,docker0/" "$AVAHI_CONF"; \
-  else \
-    sed -i "/^\[server\]/a deny-interfaces=lxdbr0,docker0" "$AVAHI_CONF"; \
+if [ -f "$AVAHI_CONF" ]; then \
+  AVAHI_CHANGED=0; \
+  if ! grep -q "^deny-interfaces=" "$AVAHI_CONF"; then \
+    if grep -q "^#deny-interfaces=" "$AVAHI_CONF"; then \
+      sed -i "s/^#deny-interfaces=.*/deny-interfaces=lxdbr0,docker0/" "$AVAHI_CONF"; \
+    else \
+      sed -i "/^\[server\]/a deny-interfaces=lxdbr0,docker0" "$AVAHI_CONF"; \
+    fi; \
+    AVAHI_CHANGED=1; \
   fi; \
-  snap restart avahi || true; \
+  if ! grep -q "^host-name=nimbus" "$AVAHI_CONF"; then \
+    if grep -q "^#host-name=" "$AVAHI_CONF"; then \
+      sed -i "s/^#host-name=.*/host-name=nimbus/" "$AVAHI_CONF"; \
+    else \
+      sed -i "/^\[server\]/a host-name=nimbus" "$AVAHI_CONF"; \
+    fi; \
+    AVAHI_CHANGED=1; \
+  fi; \
+  [ "$AVAHI_CHANGED" = "1" ] && snap restart avahi || true; \
 fi; \
 NM_DROPIN=/var/snap/network-manager/current/conf.d/90-lxd-unmanaged.conf; \
 NM_CONTENT="[keyfile]\nunmanaged-devices=interface-name:lxdbr*;interface-name:veth*\n"; \
