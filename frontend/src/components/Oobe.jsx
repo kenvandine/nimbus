@@ -43,6 +43,13 @@ function NetworkStep({ online, onNext, reconnect }) {
     getWifiStatus().then(setWifiStatus).catch(() => {})
   }, [online])
 
+  // The parent `online` prop comes from NetworkManager's global connectivity
+  // state, which only flips to "online" once NM's connectivity check passes —
+  // that can stay stuck at connected-local on networks that block the check,
+  // even when Wi-Fi is associated and has a DHCP lease. Treat a local Wi-Fi
+  // association with an IP address as good enough to proceed through onboarding.
+  const connected = online || !!(wifiStatus?.connected && wifiStatus?.ip_address)
+
   // When the user returns to nimbus.local after the device joined Wi-Fi (AP gone,
   // device already online), skip the network step automatically — they obviously
   // have connectivity or they couldn't have loaded this page.
@@ -135,13 +142,6 @@ function NetworkStep({ online, onNext, reconnect }) {
   }
 
   const wifiAvailable = wifiStatus?.available !== false
-
-  // The parent `online` prop comes from NetworkManager's global connectivity
-  // state, which only flips to "online" once NM's connectivity check passes —
-  // that can stay stuck at connected-local on networks that block the check,
-  // even when Wi-Fi is associated and has a DHCP lease. Treat a local Wi-Fi
-  // association with an IP address as good enough to proceed through onboarding.
-  const connected = online || !!(wifiStatus?.connected && wifiStatus?.ip_address)
 
   if (pendingHandover) {
     const { ssid, password: pwd } = pendingHandover
