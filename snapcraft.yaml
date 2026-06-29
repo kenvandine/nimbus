@@ -16,6 +16,7 @@ apps:
     daemon: simple
     restart-condition: on-failure
     plugs:
+      - hardware-observe
       - network
       - network-bind
       - network-manager
