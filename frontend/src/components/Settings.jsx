@@ -460,7 +460,7 @@ function ChangePasswordPanel() {
 }
 
 // ── Screen Lock PIN ──────────────────────────────────────────────────────────
-const PIN_LENGTH = 6
+const PIN_LENGTH = 4
 
 function PinNumpad({ pin, onDigit, onBackspace, label, error }) {
   return (
@@ -545,7 +545,7 @@ function ScreenLockPanel() {
               <div style={styles.itemLabel}>Screen lock PIN</div>
               <div style={styles.itemSub}>
                 {hasPin
-                  ? 'A 6-digit PIN is required after idle timeout.'
+                  ? 'A 4-digit PIN is required after idle timeout.'
                   : 'No PIN set — screen will not lock on idle.'}
               </div>
             </div>
@@ -571,7 +571,7 @@ function ScreenLockPanel() {
             pin={pin}
             onDigit={handleDigit}
             onBackspace={() => setPin(p => p.slice(0, -1))}
-            label={mode === 'set' ? 'Enter a new 6-digit PIN' : 'Confirm your PIN'}
+            label={mode === 'set' ? 'Enter a new 4-digit PIN' : 'Confirm your PIN'}
             error={error}
           />
           <div style={{ padding: '0 16px 14px', display: 'flex', justifyContent: 'center' }}>

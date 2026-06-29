@@ -43,6 +43,15 @@ function NetworkStep({ online, onNext, reconnect }) {
     getWifiStatus().then(setWifiStatus).catch(() => {})
   }, [online])
 
+  // When the user returns to nimbus.local after the device joined Wi-Fi (AP gone,
+  // device already online), skip the network step automatically — they obviously
+  // have connectivity or they couldn't have loaded this page.
+  useEffect(() => {
+    if (!isLocalAccess() && wifiStatus && !wifiStatus.ap_active && connected) {
+      onNext()
+    }
+  }, [wifiStatus, connected])
+
   async function refreshWifiStatus() {
     try {
       let nextStatus = await getWifiStatus()
@@ -318,7 +327,6 @@ function AccountStep({ onNext }) {
     setError(null)
     try {
       await setupAccount(username.trim(), password)
-      await completeOobe()
       onNext()
     } catch (e) {
       setError(e.message)
@@ -400,7 +408,7 @@ function AccountStep({ onNext }) {
   )
 }
 
-const OOBE_PIN_LENGTH = 6
+const OOBE_PIN_LENGTH = 4
 
 function PinStep({ onComplete }) {
   const [mode, setMode] = useState('set') // set | confirm
@@ -433,14 +441,14 @@ function PinStep({ onComplete }) {
       <div style={s.stepLabel}>Step 3 of 3 — Optional</div>
       <h1 style={s.heading}>Set a screen lock PIN</h1>
       <p style={s.subheading}>
-        Choose a 6-digit PIN to lock the screen after inactivity. You can skip this and set it later in Settings.
+        Choose a 4-digit PIN to lock the screen after inactivity. You can skip this and set it later in Settings.
       </p>
 
       {error && <div style={{ ...s.errorBox, marginBottom: 12 }}>{error}</div>}
 
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, marginBottom: 8 }}>
         <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)' }}>
-          {mode === 'set' ? 'Enter a 6-digit PIN' : 'Confirm your PIN'}
+          {mode === 'set' ? 'Enter a 4-digit PIN' : 'Confirm your PIN'}
         </div>
         <div style={{ display: 'flex', gap: 12 }}>
           {Array.from({ length: OOBE_PIN_LENGTH }, (_, i) => (
@@ -478,8 +486,13 @@ function PinStep({ onComplete }) {
 export default function Oobe({ online, onComplete, networkOnly }) {
   const [step, setStep] = useState('network')
 
+  async function finishOobe() {
+    try { await completeOobe() } catch {}
+    onComplete()
+  }
+
   return (
-    <div style={s.overlay}>
+    <div style={{ ...s.overlay, alignItems: isLocalAccess() ? 'center' : 'flex-start' }}>
       <div className="oobe-card" style={s.card}>
         <div style={s.logoRow}>
           <span style={s.logoIcon}>☁</span>
@@ -494,7 +507,7 @@ export default function Oobe({ online, onComplete, networkOnly }) {
             />
           : step === 'account'
             ? <AccountStep onNext={() => setStep('pin')} />
-            : <PinStep onComplete={onComplete} />}
+            : <PinStep onComplete={finishOobe} />}
       </div>
       <style>{`
         @keyframes fadeIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}

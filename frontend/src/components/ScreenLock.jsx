@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 
-const PIN_LENGTH = 6
+const PIN_LENGTH = 4
 
 export default function ScreenLock({ deviceName, onUnlock, onFail }) {
   const [pin, setPin] = useState('')
