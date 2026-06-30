@@ -125,9 +125,10 @@ The appliance ships with the `tailscale` snap pre-installed. The Nimbus Settings
 
 #### How it works
 
-Two systemd services are injected into the Ubuntu Core image by `model/build.sh`:
+Three systemd services are injected into the Ubuntu Core image by `model/build.sh`:
 
 - **`tailscale-web.service`** — runs `tailscale web --listen=127.0.0.1:8088` (the Tailscale legacy web server, bound to loopback). The Nimbus backend reverse-proxies this at `/api/tailscale/webclient/` so the full management UI is reachable over HTTPS from any browser without extra port exposure.
+- **`tailscale-auth-bridge.service`** — a minimal Python HTTP server on `localhost:8089` that intercepts `GET /api/auth/session/new` — the one auth endpoint that `tailscale web` refuses from non-tailscale sources. It reads the auth URL directly from the tailscale daemon socket and returns `{"authUrl": "..."}` in the format the web client JS expects. This service runs as root (outside snap confinement), which is why the intercept cannot be done from within the Nimbus snap itself.
 - **`nimbus-connect.service`** — also calls `tailscale set --webclient` so that once the device joins a tailnet, peer devices can reach the management UI directly at `<tailscale-ip>:5252`.
 
 Status detection reads the `tailscale0` interface via psutil — no additional snap permissions are required.
