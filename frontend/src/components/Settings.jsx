@@ -10,6 +10,7 @@ import {
   changePassword,
   getResourceLimits, setResourceLimits,
   listApiKeys, setApiKey, deleteApiKey,
+  getTailscaleStatus,
 } from '../api.js'
 
 const STATUS_REFRESH_DELAY_MS = 3000
@@ -722,6 +723,108 @@ function ApiKeysPanel() {
   )
 }
 
+// ── Tailscale ─────────────────────────────────────────────────────────────────
+function TailscalePanel() {
+  const [status, setStatus] = useState(null)
+  const [polling, setPolling] = useState(false)
+
+  async function load() {
+    try { setStatus(await getTailscaleStatus()) } catch { setStatus({ available: false, connected: false }) }
+  }
+
+  useEffect(() => { load() }, [])
+
+  // Poll every 4 s while the panel is open so status updates after tailscale connects
+  useEffect(() => {
+    const id = setInterval(load, 4000)
+    return () => clearInterval(id)
+  }, [])
+
+  function openWebClient() {
+    window.open('/api/tailscale/webclient/', '_blank', 'noopener,noreferrer')
+  }
+
+  function openDirectWebClient() {
+    if (status?.webclient_url) window.open(status.webclient_url, '_blank', 'noopener,noreferrer')
+  }
+
+  const connected = status?.connected
+  const ip = status?.tailscale_ip
+
+  return (
+    <SectionWrap icon="🔗" title="Tailscale">
+      {/* Status row */}
+      <div style={styles.item}>
+        <div>
+          <div style={styles.itemLabel}>
+            {status === null ? 'Loading…' : connected ? 'Connected to tailnet' : 'Not connected'}
+          </div>
+          <div style={styles.itemSub}>
+            {connected && ip
+              ? `Tailscale IP: ${ip}`
+              : 'Join your tailnet to access this device remotely'}
+          </div>
+        </div>
+        <span style={{
+          ...styles.statusPill,
+          ...(connected ? styles.statusPillSuccess : styles.statusPillError),
+        }}>
+          {connected ? 'Connected' : 'Offline'}
+        </span>
+      </div>
+
+      {/* How to connect — shown when not on tailnet */}
+      {!connected && (
+        <div style={{ padding: '10px 16px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+          <div style={{ ...styles.itemSub, marginBottom: 6 }}>
+            To connect this device to your tailnet, open a terminal and run:
+          </div>
+          <div style={{
+            fontFamily: 'ui-monospace, monospace', fontSize: 12,
+            background: 'rgba(0,0,0,0.3)', borderRadius: 6, padding: '6px 10px',
+            color: 'rgba(129,212,250,0.9)', letterSpacing: '0.03em',
+          }}>
+            tailscale up
+          </div>
+          <div style={{ ...styles.itemSub, marginTop: 6 }}>
+            An auth URL will appear — visit it on any device to authenticate.
+          </div>
+        </div>
+      )}
+
+      {/* Tailscale web client — accessible via reverse proxy; works even before connecting */}
+      <div style={styles.item}>
+        <div>
+          <div style={styles.itemLabel}>Tailscale Web Client</div>
+          <div style={styles.itemSub}>
+            Manage tailscale settings, routes, and exit nodes
+          </div>
+        </div>
+        <div style={styles.itemActions}>
+          <button style={styles.btnPrimary} onClick={openWebClient}>
+            Open
+          </button>
+        </div>
+      </div>
+
+      {/* Direct port-5252 link — only useful once on the tailnet */}
+      {connected && ip && (
+        <div style={styles.item}>
+          <div>
+            <div style={styles.itemLabel}>Remote Web Client</div>
+            <div style={styles.itemSub}>
+              Access from any tailnet device at {ip}:5252
+            </div>
+          </div>
+          <button style={styles.btnSecondary} onClick={openDirectWebClient}>
+            Open (port 5252)
+          </button>
+        </div>
+      )}
+    </SectionWrap>
+  )
+}
+
 // ── Main Settings Component ────────────────────────────────────────────────────
 export default function Settings({ stats, onRefresh }) {
   const [busyAction, setBusyAction] = useState(null)
@@ -794,6 +897,7 @@ export default function Settings({ stats, onRefresh }) {
       <NetworkAddressesPanel />
       <WifiPanel />
       <DnsPanel />
+      <TailscalePanel />
       <ChangePasswordPanel />
       <ScreenLockPanel />
       <SshPanel />

@@ -137,6 +137,7 @@ snap connect nimbus:network-control; \
 snap connect nimbus:network-observe; \
 snap connect nimbus:system-observe; \
 snap connect nimbus:hardware-observe; \
+/snap/bin/tailscale set --webclient || true; \
 snap set system hostname=nimbus; \
 hostnamectl set-hostname --transient nimbus || true; \
 snap set system service.systemd-resolved.multicast-dns=yes; \
@@ -227,6 +228,27 @@ UNIT
     ln -sf /etc/systemd/system/nimbus-lxc-restart.service \
         "$svc_dir/multi-user.target.wants/nimbus-lxc-restart.service"
     echo "    Added nimbus-lxc-restart.service to preseed"
+
+    cat > "$svc_dir/tailscale-web.service" <<'UNIT'
+[Unit]
+Description=Tailscale web management UI (local reverse-proxy target)
+After=snap.tailscale.tailscaled.service
+Wants=snap.tailscale.tailscaled.service
+
+[Service]
+Type=simple
+ExecStart=/snap/bin/tailscale web --listen=127.0.0.1:8088
+Restart=on-failure
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    ln -sf /etc/systemd/system/tailscale-web.service \
+        "$svc_dir/multi-user.target.wants/tailscale-web.service"
+    echo "    Added tailscale-web.service to preseed"
 
     if [ "$extra" = "lemonade" ]; then
         cat > "$svc_dir/lemonade-configure.service" <<'UNIT'

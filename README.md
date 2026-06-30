@@ -119,6 +119,43 @@ To ensure a smooth transition from the temporary onboarding hotspot to the targe
 * **NetworkManager D-Bus Bridge Unmanagement:** To prevent NetworkManager on the host from attempting to manage or capture the LXD bridge interface (`lxdbr0`) and causing DNS routing failures, Nimbus uses a dynamic D-Bus unmanagement mechanism. It registers the bridge interface as unmanaged on the fly via D-Bus, ensuring robust container-to-host DNS and internet routing.
 
 
+### Tailscale VPN
+
+The appliance ships with the `tailscale` snap pre-installed. The Nimbus Settings panel includes a **Tailscale** section that shows connection status and provides in-UI access to the Tailscale web client.
+
+#### How it works
+
+Two systemd services are injected into the Ubuntu Core image by `model/build.sh`:
+
+- **`tailscale-web.service`** — runs `tailscale web --listen=127.0.0.1:8088` (the Tailscale legacy web server, bound to loopback). The Nimbus backend reverse-proxies this at `/api/tailscale/webclient/` so the full management UI is reachable over HTTPS from any browser without extra port exposure.
+- **`nimbus-connect.service`** — also calls `tailscale set --webclient` so that once the device joins a tailnet, peer devices can reach the management UI directly at `<tailscale-ip>:5252`.
+
+Status detection reads the `tailscale0` interface via psutil — no additional snap permissions are required.
+
+#### Why `nimbus.local:5252` doesn't work
+
+`tailscale set --webclient` tells `tailscaled` to serve on port 5252 **bound to the Tailscale virtual interface** (`100.x.x.x`) only. `nimbus.local` resolves to the LAN IP via mDNS — there is no listener on that interface. Use `https://nimbus.local/api/tailscale/webclient/` (through the Nimbus proxy) instead, which works both before and after joining a tailnet.
+
+#### Joining the tailnet
+
+SSH in (or use the built-in Terminal panel) and run:
+
+```bash
+tailscale up
+```
+
+Copy the auth URL that appears and visit it in a browser to link the device to your tailnet. After authentication, the Settings panel will show the assigned Tailscale IP and offer a direct link to the peer-accessible web client at `<tailscale-ip>:5252`.
+
+#### Design notes (store-publishable)
+
+The integration deliberately avoids:
+- The `system-files` interface (not auto-connectable in the Snap Store for arbitrary paths)
+- The `tailscale:socket` content interface (requires a runtime `snap connect` and a snap restart to take effect for the running daemon)
+
+The reverse-proxy approach uses only the existing `network` plug, which allows loopback TCP connections to the `tailscale web` process without any additional assertions.
+
+---
+
 ### Local / container mode (development)
 
 Use the helper scripts if you want Nimbus to run fully inside the LXD container:
@@ -420,6 +457,7 @@ nimbus/
 │   │   ├── snapshots.py        # LXD container snapshots (create / restore / delete)
 │   │   ├── ssh.py              # SSH authorized-key management
 │   │   ├── system.py           # Stats, restart, power-off, update, logs, resources
+│   │   ├── tailscale.py        # Tailscale status + reverse-proxy for tailscale web UI
 │   │   └── terminal.py         # WebSocket terminal (persistent LXD exec session)
 │   └── services/
 │       ├── api_keys.py         # Named key persistence
@@ -444,6 +482,7 @@ nimbus/
 │       ├── ssh.py              # authorized_keys management
 │       ├── store.py            # Deprecated: Umbrel-format Docker Compose catalog parser
 │       ├── system_apps.py      # System-app metadata (openclaw, hermes-agent)
+│       ├── tailscale.py        # Tailscale connection status via psutil
 │       ├── tls.py              # TLS certificate helpers
 │       └── wifi.py             # NetworkManager Wi-Fi management
 ├── frontend/
@@ -630,6 +669,14 @@ All endpoints are prefixed with `/api/` and require authentication (session cook
 | `GET` | `/api/ssh/keys` | List authorized public keys |
 | `POST` | `/api/ssh/keys` | Add an authorized public key |
 | `DELETE` | `/api/ssh/keys/{fingerprint}` | Remove an authorized key |
+
+### Tailscale
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/tailscale/status` | Tailscale connection state and IP (reads `tailscale0` interface via psutil) |
+| `GET` | `/api/tailscale/webclient/` | Tailscale web management UI (reverse-proxied from `localhost:8088`) |
+| `GET/POST` | `/api/tailscale/webclient/{path}` | Remaining assets and API calls proxied to the local `tailscale web` service |
 
 ### Firewall (LXD mode)
 
