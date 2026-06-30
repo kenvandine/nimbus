@@ -300,6 +300,15 @@ def get_auth_url(timeout=20):
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
+
+    def _send_json(self, body_dict):
+        body = json.dumps(body_dict).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
         if self.path != "/api/auth/session/new":
             self.send_error(404); return
@@ -308,12 +317,20 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             self.send_error(502, str(e)); return
         if auth_url:
-            body = json.dumps({"authUrl": auth_url}).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._send_json({"authUrl": auth_url})
+        else:
+            self.send_error(502, "no auth URL from tailscale")
+
+    def do_POST(self):
+        if self.path != "/api/up":
+            self.send_error(404); return
+        try:
+            auth_url = get_auth_url()
+        except Exception as e:
+            self.send_error(502, str(e)); return
+        if auth_url:
+            # JS checks i.url (lowercase) — from tailscale web client source
+            self._send_json({"url": auth_url})
         else:
             self.send_error(502, "no auth URL from tailscale")
 

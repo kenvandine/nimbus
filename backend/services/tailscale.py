@@ -19,9 +19,13 @@ def get_status() -> dict:
                 if addr.family == socket.AF_INET:
                     tailscale_ip = addr.address
                     break
+            # Only mark as connected once the device has a 100.x.x.x address —
+            # tailscale0 is created at daemon startup but the IP is only assigned
+            # after the device authenticates and joins the tailnet.
+            connected = tailscale_ip is not None
             return {
                 "available": True,
-                "connected": True,
+                "connected": connected,
                 "tailscale_ip": tailscale_ip,
                 "webclient_url": f"http://{tailscale_ip}:5252" if tailscale_ip else None,
             }

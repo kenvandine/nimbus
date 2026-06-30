@@ -41,12 +41,15 @@ async def tailscale_webclient_redirect():
     return RedirectResponse(url="/api/tailscale/webclient/")
 
 
-@router.get("/webclient/api/auth/session/new", include_in_schema=False)
-async def tailscale_auth_session_new() -> Response:
-    """Route the login initiation to the auth bridge (runs outside snap confinement)."""
+async def _proxy_to_bridge(method: str, path: str, body: bytes = b"") -> Response:
+    """Forward a request to the auth bridge (port 8089)."""
     try:
         async with httpx.AsyncClient(timeout=25.0) as client:
-            upstream = await client.get(f"{_TAILSCALE_AUTH_BRIDGE}/api/auth/session/new")
+            upstream = await client.request(
+                method=method,
+                url=f"{_TAILSCALE_AUTH_BRIDGE}/{path}",
+                content=body,
+            )
     except httpx.ConnectError:
         raise HTTPException(
             status_code=503,
@@ -57,6 +60,19 @@ async def tailscale_auth_session_new() -> Response:
         status_code=upstream.status_code,
         media_type=upstream.headers.get("content-type"),
     )
+
+
+@router.get("/webclient/api/auth/session/new", include_in_schema=False)
+async def tailscale_auth_session_new() -> Response:
+    """Intercept the login initiation — route to the auth bridge."""
+    return await _proxy_to_bridge("GET", "api/auth/session/new")
+
+
+@router.post("/webclient/api/up", include_in_schema=False)
+async def tailscale_api_up(request: Request) -> Response:
+    """Intercept the 'Log in' POST — route to the auth bridge."""
+    body = await request.body()
+    return await _proxy_to_bridge("POST", "api/up", body)
 
 
 @router.api_route(
