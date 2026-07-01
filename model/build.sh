@@ -254,8 +254,10 @@ UNIT
     # on localhost:8089/api/auth/session/new for the Nimbus proxy.  Runs as root
     # so it can access /var/snap/tailscale/common/socket/tailscaled.sock without
     # the system-files snap interface.
-    mkdir -p "$workdir/var/lib"
-    cat > "$workdir/var/lib/tailscale-auth-bridge.py" <<'PY'
+    # Stored at the system-data root so it is accessible at the absolute path
+    # /writable/system-data/tailscale-auth-bridge.py on the running device.
+    # (/var/lib is read-only squashfs on Ubuntu Core — not overlaid by system-data.)
+    cat > "$workdir/tailscale-auth-bridge.py" <<'PY'
 #!/usr/bin/python3
 import http.client, json, socket, time
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -345,7 +347,7 @@ Wants=snap.tailscale.tailscaled.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /var/lib/tailscale-auth-bridge.py
+ExecStart=/usr/bin/python3 /writable/system-data/tailscale-auth-bridge.py
 Restart=on-failure
 RestartSec=5s
 StandardOutput=journal
