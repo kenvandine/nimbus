@@ -224,27 +224,6 @@ jobs:
           # Fix docker iptables conflict blocking LXD container internet access
           sudo iptables -P FORWARD ACCEPT
 
-      - name: Add custom sideload partition to gadget config
-        env:
-          # When sideloading model files use 8000M; when only storing the model
-          # spec (model_override.json) a tiny partition is sufficient.
-          SIDELOAD_SIZE: ${{ github.event.inputs.download == 'false' && '64M' || '8000M' }}
-        run: |
-          python3 -c "
-          import os
-          path = 'pc-amd64-gadget/gadget/gadget-amd64.yaml'
-          size = os.environ['SIDELOAD_SIZE']
-          with open(path, 'r') as f:
-              content = f.read()
-          
-          partition_def = f'      - name: nimbus-sideload\n        filesystem: ext4\n        type: 0FC63DAF-8483-4772-8E79-3D69D8477DE4\n        size: {size}\n'
-          if 'nimbus-sideload' not in content:
-              content = content.replace('      - name: ubuntu-data', partition_def + '      - name: ubuntu-data')
-              with open(path, 'w') as f:
-                  f.write(content)
-          print(f'nimbus-sideload partition size: {size}')
-          "
-
       - name: Build Gadget Snap
         run: |
           cd pc-amd64-gadget
