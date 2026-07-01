@@ -9,10 +9,10 @@
     "grade": "dangerous",
     "snaps": [
         {
-            "name": "pc",
+            "name": "pc-nimbus",
             "type": "gadget",
             "default-channel": "24/stable",
-            "id": "UqFziVZDHLSyO3TqSWgNBoAdHbLI4dAH"
+            "id": "o8NbeqxGiPJc0J2EQJ3eIIhXlsJgQxiF"
         },
         {
             "name": "pc-kernel",
