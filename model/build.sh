@@ -53,13 +53,9 @@ inject_nm_lxd_unmanaged() {
 
     preseed_tgz="$systems_root/$system_name/preseed.tgz"
     preseed_assert="$systems_root/$system_name/preseed"
-    if [ ! -f "$preseed_tgz" ]; then
-        echo "could not locate preseed archive: $preseed_tgz" >&2
-        return 1
-    fi
-    if [ ! -f "$preseed_assert" ]; then
-        echo "could not locate preseed assertion: $preseed_assert" >&2
-        return 1
+    if [ ! -f "$preseed_tgz" ] || [ ! -f "$preseed_assert" ]; then
+        echo "no preseed archive found (image was likely built with --no-preseed) — skipping NM/LXD unmanaged config and other preseed-injected services" >&2
+        return 0
     fi
 
     workdir=$(mktemp -d "${TMPDIR%/}/nimbus-preseed.XXXXXX")
@@ -572,19 +568,19 @@ OUTPUT_DIR=$TARGET_MODEL
 case "$TARGET_MODEL" in
     nimbus-amd)
         EXTRA_SNAP=
-        GADGET_SNAP=../../pc-amd64-gadget/pc-nimbus_amd-26-0.1_amd64.snap
+        GADGET_SNAP=../../pc-nimbus-gadget/pc-nimbus_amd-26-0.1_amd64.snap
         PRESEED_DEFAULT=1
         MODEL_JSON=nimbus-lemonade.json
         MODEL_ASSERTION=nimbus-lemonade.model
         ;;
     nimbus-lemonade)
         EXTRA_SNAP=
-        GADGET_SNAP=../../pc-amd64-gadget/pc-nimbus_amd-26-0.1_amd64.snap
+        GADGET_SNAP=../../pc-nimbus-gadget/pc-nimbus_amd-26-0.1_amd64.snap
         PRESEED_DEFAULT=1
         ;;
     nimbus-gemma4)
         EXTRA_SNAP=
-        GADGET_SNAP=../../pc-amd64-gadget/pc-nimbus_amd-26-0.1_amd64.snap
+        GADGET_SNAP=../../pc-nimbus-gadget/pc-nimbus_amd-26-0.1_amd64.snap
         PRESEED_DEFAULT=0
         ;;
     *)
