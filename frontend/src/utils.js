@@ -14,11 +14,12 @@ export function isLocalAccess() {
 }
 
 export function openApp(url, meta = {}) {
+  // Always rewrite the app URL's hostname to match the current page's hostname
+  // so that links work regardless of whether the user is on the LAN IP,
+  // nimbus.local (mDNS), or a Tailscale address.
+  const rewritten = rewriteToCurrentHost(url)
+
   if (isLocalAccess()) {
-    // Rewrite any external IP/hostname to localhost so the request resolves
-    // on the device itself.  The LXD proxy listens on 0.0.0.0 so localhost
-    // always reaches it; the LAN IP only works from remote clients.
-    const localUrl = rewriteToLocalhost(url)
     if (_kioskFallback) {
       // Browsers block HTTP iframes inside HTTPS pages (mixed content).
       // Fall back to remoteOnly so the user sees a message rather than a blank frame.
@@ -26,25 +27,25 @@ export function openApp(url, meta = {}) {
       try {
         mixedContent =
           window.location.protocol === 'https:' &&
-          new URL(url).protocol === 'http:'
+          new URL(rewritten).protocol === 'http:'
       } catch {
         // relative or invalid URL — no mixed-content concern
       }
       if (NO_IFRAME_APPS.has(meta.id) || mixedContent) {
-        _kioskFallback(localUrl, { ...meta, remoteOnly: true, remoteUrl: url })
+        _kioskFallback(rewritten, { ...meta, remoteOnly: true, remoteUrl: rewritten })
       } else {
-        _kioskFallback(localUrl, meta)
+        _kioskFallback(rewritten, meta)
       }
       return
     }
-    window.location.href = localUrl
+    window.location.href = rewritten
     return
   }
   // Use a programmatic anchor click rather than window.open(url, '_blank', 'noopener,noreferrer').
   // window.open with the 'noopener' feature string always returns null in modern browsers,
   // which causes the window.location.href fallback to fire too — double-navigation.
   const a = document.createElement('a')
-  a.href = url
+  a.href = rewritten
   a.target = '_blank'
   a.rel = 'noopener noreferrer'
   document.body.appendChild(a)
@@ -52,10 +53,10 @@ export function openApp(url, meta = {}) {
   document.body.removeChild(a)
 }
 
-function rewriteToLocalhost(url) {
+function rewriteToCurrentHost(url) {
   try {
     const parsed = new URL(url)
-    parsed.hostname = 'localhost'
+    parsed.hostname = window.location.hostname
     return parsed.toString()
   } catch {
     return url

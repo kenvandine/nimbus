@@ -137,6 +137,7 @@ snap connect nimbus:network-control; \
 snap connect nimbus:network-observe; \
 snap connect nimbus:system-observe; \
 snap connect nimbus:hardware-observe; \
+/snap/bin/tailscale set --webclient || true; \
 snap set system hostname=nimbus; \
 hostnamectl set-hostname --transient nimbus || true; \
 snap set system service.systemd-resolved.multicast-dns=yes; \
@@ -227,6 +228,135 @@ UNIT
     ln -sf /etc/systemd/system/nimbus-lxc-restart.service \
         "$svc_dir/multi-user.target.wants/nimbus-lxc-restart.service"
     echo "    Added nimbus-lxc-restart.service to preseed"
+
+    cat > "$svc_dir/tailscale-web.service" <<'UNIT'
+[Unit]
+Description=Tailscale web management UI (local reverse-proxy target)
+After=snap.tailscale.tailscaled.service
+Wants=snap.tailscale.tailscaled.service
+
+[Service]
+Type=simple
+ExecStart=/snap/bin/tailscale web --listen=127.0.0.1:8088
+Restart=on-failure
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    ln -sf /etc/systemd/system/tailscale-web.service \
+        "$svc_dir/multi-user.target.wants/tailscale-web.service"
+    echo "    Added tailscale-web.service to preseed"
+
+    # Auth bridge: reads the auth URL from the tailscale socket and exposes it
+    # on localhost:8089/api/auth/session/new for the Nimbus proxy.  Runs as root
+    # so it can access /var/snap/tailscale/common/socket/tailscaled.sock without
+    # the system-files snap interface.
+    mkdir -p "$workdir/var/lib"
+    cat > "$workdir/var/lib/tailscale-auth-bridge.py" <<'PY'
+#!/usr/bin/python3
+import http.client, json, socket, time
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+_SOCK = "/var/snap/tailscale/common/socket/tailscaled.sock"
+_HOST = "local-tailscaled.sock"
+
+class _UnixHTTP(http.client.HTTPConnection):
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.connect(_SOCK)
+
+def _localapi(method, path, body=None):
+    c = _UnixHTTP(_HOST)
+    headers = {"Host": _HOST}
+    if body is not None:
+        headers["Content-Length"] = str(len(body))
+    c.request(method, path, body=body, headers=headers)
+    r = c.getresponse()
+    return r.status, r.read()
+
+def get_auth_url(timeout=20):
+    status, body = _localapi("GET", "/localapi/v0/status")
+    if status == 200:
+        d = json.loads(body)
+        if d.get("AuthURL"):
+            return d["AuthURL"]
+        if d.get("BackendState") == "Running":
+            return None
+    _localapi("POST", "/localapi/v0/login-interactive", body=b"")
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        time.sleep(1)
+        status, body = _localapi("GET", "/localapi/v0/status")
+        if status == 200:
+            d = json.loads(body)
+            if d.get("AuthURL"):
+                return d["AuthURL"]
+            if d.get("BackendState") == "Running":
+                return None
+    return None
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *a): pass
+
+    def _send_json(self, body_dict):
+        body = json.dumps(body_dict).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if self.path != "/api/auth/session/new":
+            self.send_error(404); return
+        try:
+            auth_url = get_auth_url()
+        except Exception as e:
+            self.send_error(502, str(e)); return
+        if auth_url:
+            self._send_json({"authUrl": auth_url})
+        else:
+            self.send_error(502, "no auth URL from tailscale")
+
+    def do_POST(self):
+        if self.path != "/api/up":
+            self.send_error(404); return
+        try:
+            auth_url = get_auth_url()
+        except Exception as e:
+            self.send_error(502, str(e)); return
+        if auth_url:
+            # JS checks i.url (lowercase) — from tailscale web client source
+            self._send_json({"url": auth_url})
+        else:
+            self.send_error(502, "no auth URL from tailscale")
+
+HTTPServer(("127.0.0.1", 8089), Handler).serve_forever()
+PY
+
+    cat > "$svc_dir/tailscale-auth-bridge.service" <<'UNIT'
+[Unit]
+Description=Tailscale auth URL bridge (for Nimbus web proxy)
+After=snap.tailscale.tailscaled.service
+Wants=snap.tailscale.tailscaled.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /var/lib/tailscale-auth-bridge.py
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    ln -sf /etc/systemd/system/tailscale-auth-bridge.service \
+        "$svc_dir/multi-user.target.wants/tailscale-auth-bridge.service"
+    echo "    Added tailscale-auth-bridge.service to preseed"
 
     if [ "$extra" = "lemonade" ]; then
         cat > "$svc_dir/lemonade-configure.service" <<'UNIT'

@@ -25,6 +25,7 @@ from routers.firewall import router as firewall_router
 from routers.ssh import router as ssh_router
 from routers.models import router as models_router
 from routers.keys import router as keys_router
+from routers.tailscale import router as tailscale_router
 from services.control_plane import get_control_plane
 from services import openclaw as openclaw_service
 from services.store import ensure_store, refresh_store
@@ -252,6 +253,7 @@ app.include_router(firewall_router)
 app.include_router(ssh_router)
 app.include_router(models_router)
 app.include_router(keys_router)
+app.include_router(tailscale_router)
 
 if settings.serve_frontend and STATIC_DIR.exists():
     app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="frontend")

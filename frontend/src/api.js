@@ -117,3 +117,6 @@ export const deleteApiKey = (name) => request(`/keys/${encodeURIComponent(name)}
 
 // Hardware info (static, fetched once)
 export const getHardwareInfo = () => request('/system/hardware')
+
+// Tailscale
+export const getTailscaleStatus = () => request('/tailscale/status')
