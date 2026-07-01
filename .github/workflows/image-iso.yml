@@ -80,7 +80,7 @@ jobs:
         with:
           repository: ${{ github.repository_owner }}/pc-nimbus-gadget
           ref: main
-          path: pc-amd64-gadget
+          path: pc-nimbus-gadget
 
       - name: Update Nimbus Snap Channel in model definitions
         env:
@@ -226,7 +226,7 @@ jobs:
 
       - name: Build Gadget Snap
         run: |
-          cd pc-amd64-gadget
+          cd pc-nimbus-gadget
           sg lxd -c "snapcraft"
 
       - name: Generate system-user assertion JSON
