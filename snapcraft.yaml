@@ -1,6 +1,7 @@
 name: nimbus
 base: core24
 version: "0.3.4"
+title: Nimbus Personal AI Cloud Appliance
 summary: Nimbus LXD application controller
 description: |
   Nimbus is a host-side controller for an Ubuntu Core appliance that manages a
@@ -10,6 +11,13 @@ description: |
   future operations.
 grade: stable
 confinement: strict
+
+source-code: https://github.com/kenvandine/nimbus
+issues: https://github.com/kenvandine/nimbus/issues
+contact: https://github.com/kenvandine/nimbus/issues
+website: https://github.com/kenvandine/nimbus
+license: GPL-3
+
 apps:
   nimbus:
     command: bin/nimbus-launch
