@@ -776,18 +776,8 @@ function TailscalePanel() {
       {/* How to connect — shown when not on tailnet */}
       {!connected && (
         <div style={{ padding: '10px 16px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-          <div style={{ ...styles.itemSub, marginBottom: 6 }}>
-            To connect this device to your tailnet, open a terminal and run:
-          </div>
-          <div style={{
-            fontFamily: 'ui-monospace, monospace', fontSize: 12,
-            background: 'rgba(0,0,0,0.3)', borderRadius: 6, padding: '6px 10px',
-            color: 'rgba(129,212,250,0.9)', letterSpacing: '0.03em',
-          }}>
-            tailscale up
-          </div>
-          <div style={{ ...styles.itemSub, marginTop: 6 }}>
-            An auth URL will appear — visit it on any device to authenticate.
+          <div style={styles.itemSub}>
+            To connect this device to your tailnet, open the Tailscale web client below and sign in.
           </div>
         </div>
       )}
