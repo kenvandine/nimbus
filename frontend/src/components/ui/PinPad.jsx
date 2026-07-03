@@ -34,7 +34,7 @@ export function PinDots({ length = 4, value = '', shake = false, size = 14 }) {
 export default function PinPad({ value = '', onChange, length = 4, onComplete, size = 72, disabled = false }) {
   useEffect(() => {
     if (value.length === length) onComplete?.(value)
-  }, [value, length])
+  }, [value, length, onComplete])
 
   function digit(d) {
     if (disabled || value.length >= length) return
