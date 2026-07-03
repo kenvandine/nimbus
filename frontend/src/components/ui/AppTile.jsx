@@ -57,6 +57,7 @@ export default function AppTile({ app, onOpen, onAction }) {
 
       {actions.length > 0 && (
         <button
+          type="button"
           style={styles.menuBtn}
           aria-label={`${app.name} actions`}
           onClick={e => { e.stopPropagation(); setMenuOpen(o => !o) }}
@@ -69,6 +70,7 @@ export default function AppTile({ app, onOpen, onAction }) {
         <div style={styles.menu} onClick={e => e.stopPropagation()}>
           {actions.map(a => (
             <button
+              type="button"
               key={a.key}
               style={{ ...styles.menuItem, ...(a.danger ? styles.menuItemDanger : {}) }}
               onClick={() => { setMenuOpen(false); onAction?.(a.key, app) }}
