@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { X } from 'lucide-react'
 
 export default function Window({ title, onClose, children, noPad = false }) {
   useEffect(() => {
@@ -17,11 +18,8 @@ export default function Window({ title, onClose, children, noPad = false }) {
       <div className="window-container" style={styles.window} onClick={event => event.stopPropagation()}>
         <div style={styles.titleBar}>
           <span style={styles.titleText}>{title}</span>
-          <button style={styles.closeBtn} onClick={onClose} title="Close">
-            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-              <line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
-              <line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
-            </svg>
+          <button type="button" aria-label="Close" style={styles.closeBtn} onClick={onClose} title="Close">
+            <X size={14} />
           </button>
         </div>
         <div style={{ ...styles.content, ...(noPad ? styles.contentNoPad : {}) }}>{children}</div>
@@ -48,7 +46,7 @@ const styles = {
   overlay: {
     position: 'fixed',
     inset: 0,
-    background: 'rgba(0,0,0,0.55)',
+    background: 'var(--color-overlay-scrim)',
     backdropFilter: 'blur(6px)',
     display: 'flex',
     alignItems: 'center',
@@ -57,46 +55,47 @@ const styles = {
     padding: '20px',
   },
   window: {
-    background: 'linear-gradient(160deg,#0f2035 0%,#0b1928 100%)',
-    border: '1px solid rgba(255,255,255,0.12)',
-    borderRadius: '8px',
+    background: 'var(--color-surface-2)',
+    border: '1px solid var(--color-border-subtle)',
+    borderRadius: 'var(--radius-lg)',
     width: '100%',
     maxWidth: '960px',
     height: '80vh',
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
-    boxShadow: '0 24px 80px rgba(0,0,0,0.6)',
+    boxShadow: 'var(--shadow-xl)',
   },
   titleBar: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: '0 12px 0 16px',
-    height: '38px',
-    borderBottom: '1px solid rgba(255,255,255,0.08)',
+    height: '44px',
+    borderBottom: '1px solid var(--color-border-subtle)',
     flexShrink: 0,
-    background: 'rgba(255,255,255,0.04)',
+    background: 'var(--color-surface-1)',
   },
   titleText: {
-    color: 'rgba(255,255,255,0.8)',
+    color: 'var(--text-primary)',
+    fontFamily: 'var(--font-sans)',
     fontSize: '13px',
-    fontWeight: 600,
+    fontWeight: 700,
     letterSpacing: '0.01em',
   },
   closeBtn: {
-    width: '26px',
-    height: '26px',
-    borderRadius: '6px',
+    width: '30px',
+    height: '30px',
+    borderRadius: 'var(--radius-sm)',
     border: 'none',
-    background: 'rgba(255,255,255,0.08)',
-    color: 'rgba(255,255,255,0.55)',
+    background: 'var(--color-surface-3)',
+    color: 'var(--text-secondary)',
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
-    transition: 'background 0.15s, color 0.15s',
+    transition: 'background var(--duration-fast), color var(--duration-fast)',
   },
   content: {
     flex: 1,

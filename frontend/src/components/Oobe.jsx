@@ -1,23 +1,26 @@
 import { useState, useEffect, useRef } from 'react'
+import { Wifi, Lock, Check, X } from 'lucide-react'
 import { getWifiStatus, scanWifiNetworks, connectWifi, completeOobe, setupAccount } from '../api.js'
 import { isLocalAccess } from '../utils.js'
+import Button from './ui/Button.jsx'
+import Badge from './ui/Badge.jsx'
+import SignalBars from './ui/SignalBars.jsx'
+import PasswordField from './ui/PasswordField.jsx'
+import PinPad, { PinDots } from './ui/PinPad.jsx'
+import Spinner from './ui/Spinner.jsx'
+import NimbusMark from './ui/NimbusMark.jsx'
 
 const STATUS_IP_RETRY_DELAY_MS = 1500
+const STEP_ORDER = ['network', 'account', 'pin']
 
-function SignalBars({ strength }) {
-  const bars = 4
-  const filled = Math.ceil((strength / 100) * bars)
+function StepDots({ current }) {
+  const index = STEP_ORDER.indexOf(current)
   return (
-    <span style={{ display: 'inline-flex', gap: '2px', alignItems: 'flex-end', height: '14px' }}>
-      {Array.from({ length: bars }, (_, i) => (
-        <span key={i} style={{
-          width: '3px',
-          height: `${5 + i * 3}px`,
-          borderRadius: '1px',
-          background: i < filled ? 'rgba(129,212,250,0.85)' : 'rgba(255,255,255,0.15)',
-        }} />
+    <div style={s.stepDots}>
+      {STEP_ORDER.map((step, i) => (
+        <span key={step} style={{ ...s.stepDot, ...(i <= index ? s.stepDotDone : {}) }} />
       ))}
-    </span>
+    </div>
   )
 }
 
@@ -28,7 +31,6 @@ function NetworkStep({ online, onNext, reconnect }) {
   const [connecting, setConnecting] = useState(null)
   const [passwordSsid, setPasswordSsid] = useState(null)
   const [password, setPassword] = useState('')
-  const [showPw, setShowPw] = useState(false)
   const [error, setError] = useState(null)
   const [transitioningSsid, setTransitioningSsid] = useState(null)
   // When the OOBE is being served over the onboarding hotspot (this device's
@@ -131,14 +133,12 @@ function NetworkStep({ online, onNext, reconnect }) {
   function promptForPassword(ssid) {
     setPasswordSsid(ssid)
     setPassword('')
-    setShowPw(false)
     setError(null)
   }
 
   function cancelPassword() {
     setPasswordSsid(null)
     setPassword('')
-    setShowPw(false)
   }
 
   const wifiAvailable = wifiStatus?.available !== false
@@ -147,25 +147,26 @@ function NetworkStep({ online, onNext, reconnect }) {
     const { ssid, password: pwd } = pendingHandover
     return (
       <div style={s.transitionContainer}>
-        <h1 style={s.heading}>Before you connect</h1>
+        <h1 style={s.heading}>Almost there</h1>
         <p style={s.subheading}>
-          Nimbus will join <strong>{ssid}</strong> and switch off its setup hotspot.
-          This sign-in window will close — that's expected.
+          Nimbus will join <strong>{ssid}</strong> and switch off its setup Wi-Fi.
+          This page will close on its own — that's expected.
         </p>
-        <div style={s.transitionCard}>
+        <div style={s.illustrationCard}>
+          <div style={s.handoverIcon}>📶→🏠</div>
           <div style={s.instructionStep}>
             <strong>1.</strong> Reconnect this phone to <strong>{ssid}</strong> (or any
             network with internet).
           </div>
           <div style={s.instructionStep}>
-            <strong>2.</strong> Open <a href="http://nimbus.local" style={s.link}>http://nimbus.local</a> in
+            <strong>2.</strong> Open <a href="http://nimbus.local" style={s.link}>nimbus.local</a> in
             your browser to finish setup.
           </div>
         </div>
-        <button style={s.btnPrimary} onClick={() => handleConnect(ssid, pwd)}>
-          Connect &amp; turn off hotspot
-        </button>
-        <button style={s.btnGhost} onClick={() => setPendingHandover(null)}>Cancel</button>
+        <Button variant="primary" fullWidth onClick={() => handleConnect(ssid, pwd)} style={{ marginBottom: 10 }}>
+          Connect &amp; continue
+        </Button>
+        <Button variant="ghost" fullWidth onClick={() => setPendingHandover(null)}>Cancel</Button>
       </div>
     )
   }
@@ -173,20 +174,19 @@ function NetworkStep({ online, onNext, reconnect }) {
   if (transitioningSsid) {
     return (
       <div style={s.transitionContainer}>
-        <h1 style={s.heading}>Connecting to Wi-Fi</h1>
+        <h1 style={s.heading}>Connecting…</h1>
         <p style={s.subheading}>
-          Nimbus is connecting to <strong>{transitioningSsid}</strong> and disabling the onboarding hotspot.
+          Joining <strong>{transitioningSsid}</strong> and turning off the setup Wi-Fi.
         </p>
-        <div style={s.transitionCard}>
-          <div style={s.spinnerContainer}>
-            <div style={s.spinner} />
-          </div>
+        <div style={s.illustrationCard}>
+          <div style={s.spinnerContainer}><Spinner size={36} thickness={3} /></div>
           <div style={s.instructionStep}>
-            This screen will continue automatically once Nimbus is online.
+            This will continue on its own once Nimbus is online.
           </div>
           {!isLocalAccess() && (
             <div style={s.instructionStep}>
-              If this window stays open, reconnect to <strong>{transitioningSsid}</strong> and open <a href="http://nimbus.local" style={s.link}>http://nimbus.local</a> to finish setup.
+              Still here in a minute? Reconnect to <strong>{transitioningSsid}</strong> and open{' '}
+              <a href="http://nimbus.local" style={s.link}>nimbus.local</a>.
             </div>
           )}
         </div>
@@ -196,21 +196,24 @@ function NetworkStep({ online, onNext, reconnect }) {
 
   return (
     <>
-      {!reconnect && <div style={s.stepLabel}>Step 1 of 2</div>}
-      <h1 style={s.heading}>{reconnect ? 'Reconnect to a network' : 'Connect to a network'}</h1>
+      {!reconnect && <StepDots current="network" />}
+      <h1 style={s.heading}>{reconnect ? 'Reconnect to Wi-Fi' : "Let's get you online"}</h1>
       <p style={s.subheading}>
         {connected
-          ? 'Your device is connected and ready to continue.'
+          ? "You're connected and ready to continue."
           : reconnect
-            ? 'Your device lost network connectivity. Connect to Wi-Fi to restore access.'
-            : 'Connect your device to the internet to enable setup.'}
+            ? 'Nimbus lost its connection — reconnect to keep going.'
+            : 'Connect Nimbus to your home network to continue setup.'}
       </p>
 
-      <div style={{ ...s.badge, ...(connected ? s.badgeOnline : s.badgeOffline) }}>
-        {connected
-          ? `✓ Connected${wifiStatus?.ssid ? ` — ${wifiStatus.ssid}` : ' via Ethernet'}`
-          : '✗ Not connected'}
-      </div>
+      <Badge tone={connected ? 'success' : 'danger'} uppercase={false} style={{ marginBottom: 18 }}>
+        {connected ? <Check size={13} /> : <X size={13} />}
+        <span style={{ marginLeft: 6 }}>
+          {connected
+            ? `Connected${wifiStatus?.ssid ? ` — ${wifiStatus.ssid}` : ' via Ethernet'}`
+            : 'Not connected'}
+        </span>
+      </Badge>
       {connected && wifiStatus?.ip_address && (
         <div style={s.connectionMeta}>IP address: {wifiStatus.ip_address}</div>
       )}
@@ -222,35 +225,29 @@ function NetworkStep({ online, onNext, reconnect }) {
         // the cramped captive-portal browser, where the list could not scroll.
         <div style={s.wifiPanel}>
           <div style={s.wifiHeader}>
-            <span style={s.wifiTitle}>🔒 {passwordSsid}</span>
+            <span style={s.wifiTitle}><Lock size={13} style={{ marginRight: 6, verticalAlign: -2 }} />{passwordSsid}</span>
           </div>
           <div style={s.pwPrompt}>
             <label style={s.label}>Wi-Fi password</label>
-            <div style={{ position: 'relative', width: '100%' }}>
-              <input
-                ref={pwInputRef}
-                type={showPw ? 'text' : 'password'}
-                placeholder="Enter password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && password && requestConnect(passwordSsid, password)}
-                style={s.input}
-                autoFocus
-              />
-              <button style={s.eyeBtn} onClick={() => setShowPw(p => !p)} tabIndex={-1}>
-                {showPw ? '🙈' : '👁'}
-              </button>
-            </div>
+            <PasswordField
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="Enter password"
+              onKeyDown={e => e.key === 'Enter' && password && requestConnect(passwordSsid, password)}
+              autoFocus
+            />
             {error && <div style={{ ...s.netError, padding: '6px 0 0' }}>{error}</div>}
-            <div style={{ display: 'flex', gap: '8px', width: '100%', justifyContent: 'flex-end', marginTop: '10px' }}>
-              <button style={s.btnCancel} onClick={cancelPassword}>Cancel</button>
-              <button
-                style={{ ...s.btnSm, ...(!password || connecting === passwordSsid ? s.btnSmDisabled : {}) }}
+            <div style={{ display: 'flex', gap: 8, width: '100%', justifyContent: 'flex-end', marginTop: 12 }}>
+              <Button variant="ghost" size="sm" onClick={cancelPassword}>Cancel</Button>
+              <Button
+                variant="soft"
+                size="sm"
                 onClick={() => requestConnect(passwordSsid, password)}
                 disabled={!password || connecting === passwordSsid}
+                loading={connecting === passwordSsid}
               >
                 {connecting === passwordSsid ? 'Connecting…' : 'Connect'}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -259,51 +256,45 @@ function NetworkStep({ online, onNext, reconnect }) {
       {wifiAvailable && !passwordSsid && (
         <div style={s.wifiPanel}>
           <div style={s.wifiHeader}>
-            <span style={s.wifiTitle}>📶 Wi-Fi</span>
-            <button
-              style={{ ...s.btnSm, ...(scanning ? s.btnSmDisabled : {}) }}
-              onClick={handleScan} disabled={scanning}
-            >
+            <span style={s.wifiTitle}><Wifi size={14} style={{ marginRight: 6, verticalAlign: -2 }} />Wi-Fi networks</span>
+            <Button variant="ghost" size="sm" onClick={handleScan} loading={scanning}>
               {scanning ? 'Scanning…' : 'Scan'}
-            </button>
+            </Button>
           </div>
           {error && <div style={s.netError}>{error}</div>}
-          {networks === null && <div style={s.netHint}>Press Scan to discover available networks</div>}
+          {networks === null && <div style={s.netHint}>Tap Scan to find nearby networks</div>}
           {networks?.length === 0 && <div style={s.netHint}>No networks found — try scanning again</div>}
           {networks?.map(net => (
-            <div key={net.ssid}>
-              <div style={s.netRow}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '9px' }}>
-                  <SignalBars strength={net.strength} />
-                  <span style={{ ...s.netName, ...(net.in_use ? s.netNameActive : {}) }}>
-                    {net.ssid}
-                    {net.secured && <span style={{ marginLeft: '4px', opacity: 0.5, fontSize: '11px' }}>🔒</span>}
-                    {net.in_use && <span style={s.connTag}>✓</span>}
-                  </span>
-                </div>
-                {!net.in_use && (
-                  <button
-                    style={{ ...s.btnSm, ...(connecting === net.ssid ? s.btnSmDisabled : {}) }}
-                    onClick={() => (!net.secured || net.known) ? requestConnect(net.ssid, null) : promptForPassword(net.ssid)}
-                    disabled={connecting === net.ssid}
-                  >
-                    {connecting === net.ssid ? 'Connecting…' : 'Connect'}
-                  </button>
-                )}
+            <div key={net.ssid} style={s.netRow}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+                <SignalBars strength={net.strength} />
+                <span style={{ ...s.netName, ...(net.in_use ? s.netNameActive : {}) }}>
+                  {net.ssid}
+                  {net.secured && <Lock size={11} style={{ marginLeft: 5, opacity: 0.5, verticalAlign: -1 }} />}
+                  {net.in_use && <Check size={12} style={{ marginLeft: 6, color: 'var(--color-success)', verticalAlign: -1 }} />}
+                </span>
               </div>
+              {!net.in_use && (
+                <Button
+                  variant="soft"
+                  size="sm"
+                  onClick={() => (!net.secured || net.known) ? requestConnect(net.ssid, null) : promptForPassword(net.ssid)}
+                  disabled={connecting === net.ssid}
+                  loading={connecting === net.ssid}
+                >
+                  {connecting === net.ssid ? 'Connecting…' : 'Connect'}
+                </Button>
+              )}
             </div>
           ))}
         </div>
       )}
 
-      <button
-        style={{ ...s.btnPrimary, ...(!connected ? s.btnPrimaryDisabled : {}) }}
-        onClick={onNext} disabled={!connected}
-      >
-        {reconnect ? 'Continue' : 'Next →'}
-      </button>
+      <Button variant="primary" fullWidth onClick={onNext} disabled={!connected} style={{ marginBottom: 10 }}>
+        {reconnect ? 'Continue' : 'Next'}
+      </Button>
       {!connected && (
-        <button style={s.btnGhost} onClick={onNext}>Skip — I'm using Ethernet</button>
+        <Button variant="ghost" fullWidth onClick={onNext}>Skip — I'm using Ethernet</Button>
       )}
     </>
   )
@@ -313,7 +304,6 @@ function AccountStep({ onNext }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
-  const [showPw, setShowPw] = useState(false)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
 
@@ -336,10 +326,10 @@ function AccountStep({ onNext }) {
 
   return (
     <>
-      <div style={s.stepLabel}>Step 2 of 3</div>
+      <StepDots current="account" />
       <h1 style={s.heading}>Create your account</h1>
       <p style={s.subheading}>
-        This account protects access to the Nimbus web interface.
+        This protects access to your Nimbus.
       </p>
 
       <div style={s.fieldGroup}>
@@ -358,21 +348,14 @@ function AccountStep({ onNext }) {
 
       <div style={s.fieldGroup}>
         <label style={s.label}>Password</label>
-        <div style={{ position: 'relative' }}>
-          <input
-            id="nimbus-pw"
-            type={showPw ? 'text' : 'password'}
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            placeholder="At least 8 characters"
-            style={s.input}
-            autoComplete="new-password"
-            onKeyDown={e => e.key === 'Enter' && document.getElementById('nimbus-confirm')?.focus()}
-          />
-          <button style={s.eyeBtn} onClick={() => setShowPw(p => !p)} tabIndex={-1}>
-            {showPw ? '🙈' : '👁'}
-          </button>
-        </div>
+        <PasswordField
+          id="nimbus-pw"
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+          placeholder="At least 8 characters"
+          autoComplete="new-password"
+          onKeyDown={e => e.key === 'Enter' && document.getElementById('nimbus-confirm')?.focus()}
+        />
         {password.length > 0 && !pwValid && (
           <div style={s.fieldHint}>Password must be at least 8 characters</div>
         )}
@@ -380,13 +363,12 @@ function AccountStep({ onNext }) {
 
       <div style={s.fieldGroup}>
         <label style={s.label}>Confirm password</label>
-        <input
+        <PasswordField
           id="nimbus-confirm"
-          type={showPw ? 'text' : 'password'}
           value={confirm}
           onChange={e => setConfirm(e.target.value)}
           placeholder="Re-enter password"
-          style={{ ...s.input, ...(confirm.length > 0 && !pwMatch ? s.inputError : {}) }}
+          inputStyle={confirm.length > 0 && !pwMatch ? { borderColor: 'var(--color-danger)' } : {}}
           autoComplete="new-password"
           onKeyDown={e => e.key === 'Enter' && handleSubmit()}
         />
@@ -397,13 +379,9 @@ function AccountStep({ onNext }) {
 
       {error && <div style={s.errorBox}>{error}</div>}
 
-      <button
-        style={{ ...s.btnPrimary, ...(!canSubmit ? s.btnPrimaryDisabled : {}) }}
-        onClick={handleSubmit}
-        disabled={!canSubmit}
-      >
-        {busy ? 'Creating account…' : 'Next →'}
-      </button>
+      <Button variant="primary" fullWidth onClick={handleSubmit} disabled={!canSubmit} loading={busy}>
+        {busy ? 'Creating account…' : 'Next'}
+      </Button>
     </>
   )
 }
@@ -415,13 +393,6 @@ function PinStep({ onComplete }) {
   const [pin, setPin] = useState('')
   const [firstPin, setFirstPin] = useState('')
   const [error, setError] = useState(null)
-
-  function handleDigit(d) {
-    if (pin.length >= OOBE_PIN_LENGTH) return
-    const next = pin + d
-    setPin(next)
-    if (next.length === OOBE_PIN_LENGTH) setTimeout(() => advance(next), 80)
-  }
 
   function advance(entered) {
     if (mode === 'set') {
@@ -438,47 +409,25 @@ function PinStep({ onComplete }) {
 
   return (
     <>
-      <div style={s.stepLabel}>Step 3 of 3 — Optional</div>
-      <h1 style={s.heading}>Set a screen lock PIN</h1>
-      <p style={s.subheading}>
-        Choose a 4-digit PIN to lock the screen after inactivity. You can skip this and set it later in Settings.
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 4 }}>
+        <Badge tone="neutral">Optional</Badge>
+      </div>
+      <h1 style={{ ...s.heading, textAlign: 'center' }}>Add a screen lock PIN</h1>
+      <p style={{ ...s.subheading, textAlign: 'center' }}>
+        Choose a 4-digit PIN to lock the screen after inactivity. You can add this anytime in Settings instead.
       </p>
 
       {error && <div style={{ ...s.errorBox, marginBottom: 12 }}>{error}</div>}
 
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-        <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, marginBottom: 12 }}>
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)' }}>
           {mode === 'set' ? 'Enter a 4-digit PIN' : 'Confirm your PIN'}
         </div>
-        <div style={{ display: 'flex', gap: 12 }}>
-          {Array.from({ length: OOBE_PIN_LENGTH }, (_, i) => (
-            <div key={i} style={{
-              width: 14, height: 14, borderRadius: '50%',
-              background: i < pin.length ? 'rgba(79,195,247,0.9)' : 'transparent',
-              border: '2px solid ' + (i < pin.length ? 'rgba(79,195,247,0.9)' : 'rgba(255,255,255,0.3)'),
-              transition: 'background 0.12s',
-            }} />
-          ))}
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-          {['1','2','3','4','5','6','7','8','9','','0','⌫'].map((d, i) => (
-            <button key={i}
-              style={{
-                width: 68, height: 68, borderRadius: '50%',
-                background: d === '' ? 'transparent' : 'rgba(255,255,255,0.08)',
-                border: d === '' ? 'none' : '1px solid rgba(255,255,255,0.12)',
-                color: 'rgba(255,255,255,0.85)', fontSize: 22, fontWeight: 400,
-                cursor: d === '' ? 'default' : 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}
-              onClick={() => d === '⌫' ? setPin(p => p.slice(0, -1)) : d ? handleDigit(d) : undefined}
-              disabled={d === ''}
-            >{d}</button>
-          ))}
-        </div>
+        <PinDots length={OOBE_PIN_LENGTH} value={pin} />
+        <PinPad value={pin} onChange={setPin} length={OOBE_PIN_LENGTH} onComplete={advance} size={64} />
       </div>
 
-      <button style={s.btnGhost} onClick={onComplete}>Skip — set up later in Settings</button>
+      <Button variant="ghost" fullWidth onClick={onComplete}>Skip for now</Button>
     </>
   )
 }
@@ -495,7 +444,7 @@ export default function Oobe({ online, onComplete, networkOnly }) {
     <div style={{ ...s.overlay, alignItems: isLocalAccess() ? 'center' : 'flex-start' }}>
       <div className="oobe-card" style={s.card}>
         <div style={s.logoRow}>
-          <span style={s.logoIcon}>☁</span>
+          <NimbusMark size={30} />
           <span style={s.logoText}>Nimbus</span>
         </div>
 
@@ -511,13 +460,11 @@ export default function Oobe({ online, onComplete, networkOnly }) {
       </div>
       <style>{`
         @keyframes fadeIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
-        @keyframes spin { to { transform: rotate(360deg); } }
         @media (max-width: 480px) {
           .oobe-card {
             padding: 24px 20px 20px !important;
             border-radius: 20px !important;
           }
-          .net-row { flex-direction: column !important; align-items: stretch !important; gap: 8px !important; }
         }
       `}</style>
     </div>
@@ -528,115 +475,76 @@ const s = {
   overlay: {
     position: 'fixed', inset: 0, display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
     overflowY: 'auto',
-    background: 'linear-gradient(145deg,hsl(215,75%,8%) 0%,hsl(220,60%,14%) 60%,hsl(200,55%,28%) 100%)',
-    zIndex: 9999, padding: '20px',
-    fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
+    background: 'linear-gradient(160deg, var(--nimbus-charcoal-950) 0%, var(--nimbus-charcoal-900) 55%, var(--nimbus-charcoal-800) 100%)',
+    zIndex: 9999, padding: 20,
+    fontFamily: 'var(--font-sans)',
   },
   card: {
-    width: 'min(520px,100%)', background: 'rgba(8,16,28,0.72)',
-    border: '1px solid rgba(255,255,255,0.12)', borderRadius: '28px',
-    padding: '36px 32px 28px', boxShadow: '0 32px 80px rgba(0,0,0,0.4)',
-    backdropFilter: 'blur(20px)', animation: 'fadeIn 0.4s ease',
-    display: 'flex', flexDirection: 'column', gap: '0',
+    width: 'min(520px,100%)', background: 'var(--color-surface-2)',
+    border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-2xl)',
+    padding: '36px 32px 28px', boxShadow: 'var(--shadow-xl)',
+    backdropFilter: 'blur(var(--blur-lg))', animation: 'fadeIn 0.4s ease',
+    display: 'flex', flexDirection: 'column',
   },
-  logoRow: { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '22px' },
-  logoIcon: { fontSize: '26px' },
-  logoText: { fontSize: '17px', fontWeight: 700, color: 'rgba(255,255,255,0.9)', letterSpacing: '-0.02em' },
-  stepLabel: { fontSize: '11px', fontWeight: 700, color: 'rgba(79,195,247,0.7)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '8px' },
-  heading: { margin: '0 0 8px', fontSize: '28px', fontWeight: 700, color: 'white', letterSpacing: '-0.03em', lineHeight: 1.15 },
-  subheading: { margin: '0 0 16px', fontSize: '14px', color: 'rgba(255,255,255,0.5)', lineHeight: 1.5 },
-  badge: {
-    display: 'inline-flex', alignSelf: 'flex-start', alignItems: 'center',
-    padding: '5px 11px', borderRadius: '999px', fontSize: '12px', fontWeight: 600, marginBottom: '18px',
-  },
-  badgeOnline: { background: 'rgba(129,199,132,0.18)', color: 'rgba(185,246,202,0.95)', border: '1px solid rgba(129,199,132,0.3)' },
-  badgeOffline: { background: 'rgba(255,138,128,0.12)', color: 'rgba(255,204,188,0.9)', border: '1px solid rgba(255,138,128,0.25)' },
-  connectionMeta: { margin: '-8px 0 18px', fontSize: '12px', color: 'rgba(255,255,255,0.58)' },
+  logoRow: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24 },
+  logoText: { fontSize: 17, fontWeight: 'var(--font-weight-bold)', color: 'var(--text-primary)', letterSpacing: '-0.02em' },
+  stepDots: { display: 'flex', gap: 6, marginBottom: 14 },
+  stepDot: { width: 20, height: 4, borderRadius: 2, background: 'var(--color-border-strong)' },
+  stepDotDone: { background: 'var(--color-accent)' },
+  heading: { margin: '0 0 8px', fontSize: 26, fontWeight: 'var(--font-weight-bold)', color: 'var(--text-primary)', letterSpacing: '-0.02em', lineHeight: 1.15 },
+  subheading: { margin: '0 0 18px', fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.5 },
+  connectionMeta: { margin: '-10px 0 18px', fontSize: 12, color: 'var(--text-tertiary)' },
   wifiPanel: {
-    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)',
-    borderRadius: '14px', overflow: 'hidden', marginBottom: '20px',
+    background: 'var(--color-surface-1)', border: '1px solid var(--color-border-subtle)',
+    borderRadius: 'var(--radius-lg)', overflow: 'hidden', marginBottom: 20,
   },
   wifiHeader: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: '11px 14px', borderBottom: '1px solid rgba(255,255,255,0.07)',
-    background: 'rgba(255,255,255,0.03)',
+    padding: '11px 14px', borderBottom: '1px solid var(--color-border-subtle)',
+    background: 'var(--color-surface-2)',
   },
-  wifiTitle: { fontSize: '13px', fontWeight: 600, color: 'rgba(255,255,255,0.7)' },
-  netHint: { padding: '13px 14px', fontSize: '12px', color: 'rgba(255,255,255,0.3)' },
-  netError: { padding: '8px 14px', fontSize: '12px', color: 'rgba(255,138,128,0.9)' },
+  wifiTitle: { fontSize: 13, fontWeight: 'var(--font-weight-bold)', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' },
+  netHint: { padding: '14px', fontSize: 12, color: 'var(--text-tertiary)' },
+  netError: { padding: '8px 14px', fontSize: 12, color: 'var(--color-danger)' },
   netRow: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
-    padding: '9px 14px', borderBottom: '1px solid rgba(255,255,255,0.05)',
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+    padding: '13px 14px', borderBottom: '1px solid var(--color-border-subtle)', minHeight: 44,
   },
-  netName: { fontSize: '13px', color: 'rgba(255,255,255,0.55)' },
-  netNameActive: { color: 'rgba(129,212,250,0.9)' },
-  connTag: { marginLeft: '6px', fontSize: '11px', color: 'rgba(129,199,132,0.9)' },
+  netName: { fontSize: 13, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  netNameActive: { color: 'var(--color-info-soft-text)' },
   pwPrompt: {
-    display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: '6px',
-    padding: '14px', background: 'rgba(255,255,255,0.02)',
+    display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 6,
+    padding: 14,
   },
-  fieldGroup: { display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '14px' },
-  label: { fontSize: '12px', fontWeight: 600, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.02em' },
-  fieldHint: { fontSize: '11px', color: 'rgba(255,138,128,0.8)', marginTop: '2px' },
+  fieldGroup: { display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 },
+  label: { fontSize: 12, fontWeight: 'var(--font-weight-bold)', color: 'var(--text-secondary)', letterSpacing: '0.02em' },
+  fieldHint: { fontSize: 11, color: 'var(--color-danger)', marginTop: 2 },
   errorBox: {
-    background: 'rgba(255,138,128,0.1)', border: '1px solid rgba(255,138,128,0.25)',
-    borderRadius: '8px', padding: '10px 12px', fontSize: '13px',
-    color: 'rgba(255,204,188,0.9)', marginBottom: '14px',
+    background: 'var(--color-danger-soft-bg)', border: '1px solid var(--color-danger-soft-border)',
+    borderRadius: 'var(--radius-sm)', padding: '10px 12px', fontSize: 13,
+    color: 'var(--color-danger-soft-text)', marginBottom: 14,
   },
   input: {
-    width: '100%', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.14)',
-    borderRadius: '9px', padding: '9px 36px 9px 12px', color: 'rgba(255,255,255,0.88)',
-    fontSize: '13px', outline: 'none', boxSizing: 'border-box',
-  },
-  inputError: { borderColor: 'rgba(255,138,128,0.5)' },
-  eyeBtn: {
-    position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
-    background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px', lineHeight: 1, padding: '2px',
-  },
-  btnSm: {
-    background: 'rgba(79,195,247,0.15)', color: 'rgba(79,195,247,0.9)',
-    border: '1px solid rgba(79,195,247,0.25)', borderRadius: '7px',
-    padding: '5px 12px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
-  },
-  btnSmDisabled: { opacity: 0.4, cursor: 'not-allowed' },
-  btnCancel: {
-    background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.4)',
-    border: '1px solid rgba(255,255,255,0.1)', borderRadius: '7px',
-    padding: '5px 10px', fontSize: '12px', cursor: 'pointer', whiteSpace: 'nowrap',
-  },
-  btnPrimary: {
-    background: 'rgba(79,195,247,0.22)', color: 'rgba(79,195,247,0.98)',
-    border: '1px solid rgba(79,195,247,0.35)', borderRadius: '12px',
-    padding: '13px 20px', fontSize: '15px', fontWeight: 700, cursor: 'pointer',
-    width: '100%', marginBottom: '10px', marginTop: '4px',
-  },
-  btnPrimaryDisabled: { opacity: 0.35, cursor: 'not-allowed' },
-  btnGhost: {
-    background: 'none', border: 'none', color: 'rgba(255,255,255,0.35)',
-    fontSize: '13px', cursor: 'pointer', padding: '4px 0',
-    textDecoration: 'underline', textDecorationColor: 'rgba(255,255,255,0.15)',
-    width: '100%', textAlign: 'center',
+    width: '100%', minHeight: 44, background: 'var(--color-surface-2)', border: '1px solid var(--color-border-strong)',
+    borderRadius: 'var(--radius-sm)', padding: '10px 14px', color: 'var(--text-primary)',
+    fontFamily: 'var(--font-sans)', fontSize: 14, outline: 'none', boxSizing: 'border-box',
   },
   transitionContainer: {
-    display: 'flex', flexDirection: 'column', gap: '8px', animation: 'fadeIn 0.4s ease',
+    display: 'flex', flexDirection: 'column', gap: 8, animation: 'fadeIn 0.4s ease',
   },
-  transitionCard: {
-    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)',
-    borderRadius: '14px', padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: '16px',
-    marginTop: '10px',
+  illustrationCard: {
+    background: 'var(--color-surface-1)', border: '1px solid var(--color-border-subtle)',
+    borderRadius: 'var(--radius-lg)', padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: 16,
+    marginTop: 10, alignItems: 'center', textAlign: 'center',
   },
+  handoverIcon: { fontSize: 36, lineHeight: 1 },
   spinnerContainer: {
-    display: 'flex', justifyContent: 'center', margin: '8px 0 12px',
-  },
-  spinner: {
-    width: '32px', height: '32px', border: '3px solid rgba(79,195,247,0.15)',
-    borderTop: '3px solid rgba(79,195,247,0.9)', borderRadius: '50%',
-    animation: 'spin 1s linear infinite',
+    display: 'flex', justifyContent: 'center', margin: '4px 0 8px',
   },
   instructionStep: {
-    fontSize: '13px', color: 'rgba(255,255,255,0.7)', lineHeight: 1.5,
+    fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5, textAlign: 'left', alignSelf: 'stretch',
   },
   link: {
-    color: 'rgba(79,195,247,0.95)', textDecoration: 'underline', fontWeight: 600,
+    color: 'var(--color-accent-soft-text)', textDecoration: 'underline', fontWeight: 600,
   },
 }

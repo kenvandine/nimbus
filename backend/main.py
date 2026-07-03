@@ -87,7 +87,73 @@ if _snap_common:
 STATIC_DIR = Path(__file__).parent / "static"
 
 
+def _seed_theme_override_dir(directory: Path) -> None:
+    """Create the theme-override directory with a README on first run.
+
+    Never touches an existing directory beyond that — an operator's
+    override.css/logo.svg (or their absence) is left exactly as-is.
+    """
+    try:
+        readme = directory / "README.md"
+        if readme.exists():
+            return
+        directory.mkdir(parents=True, exist_ok=True)
+        readme.write_text(
+            "# Nimbus theme overrides\n\n"
+            "Drop files here to change Nimbus's look and feel without rebuilding\n"
+            "the frontend. This directory is served at /theme/ and survives snap\n"
+            "refreshes. Nothing here is required — Nimbus ships its own defaults\n"
+            "and only loads what it finds.\n\n"
+            "## override.css\n\n"
+            "Nimbus's entire UI is styled from CSS custom properties defined in\n"
+            "one place (frontend/src/theme.css in the source tree). Redeclare any\n"
+            "of them here and the whole app picks it up — colors, spacing, radius,\n"
+            "shadows, fonts. Example:\n\n"
+            "```css\n"
+            ":root {\n"
+            "  --color-accent: #3E8CA8;       /* primary buttons, focus rings, badges */\n"
+            "  --color-bg-canvas: #0a0f14;    /* base background */\n"
+            "  --font-sans: 'Inter', sans-serif;\n"
+            "  --nimbus-gradient-hue: 200;    /* hue of the ambient home-screen background */\n"
+            "}\n"
+            "```\n\n"
+            "See theme.css in the frontend source for the full token list.\n\n"
+            "## logo.svg\n\n"
+            "Drop a square SVG (any viewBox) here to replace the cloud logomark shown\n"
+            "on the onboarding, login, and kiosk-ready screens.\n",
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        logger.warning("Could not seed theme override dir %s: %s", directory, exc)
+
+
 _LOCALHOST_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+# Header the relay stamps on a request when the *raw TCP peer* connecting to
+# the plain-HTTP port was genuinely loopback — never client-supplied. Because
+# every request proxied here re-originates as a fresh loopback connection to
+# the HTTPS backend, request.client.host alone can't tell the backend whether
+# a request actually came from this device or from any host on the LAN
+# hitting port 80; this header carries that distinction across the relay.
+TRUSTED_LOCAL_HEADER = b"x-nimbus-local"
+
+
+def _set_or_strip_header(raw: bytes, name: bytes, value: bytes | None) -> bytes:
+    """Remove any existing `name` header from a raw HTTP request and, if value
+    is given, add `name: value` instead. Leaves `raw` untouched if the header
+    block isn't fully present in the buffer yet (fails safe: no header added)."""
+    sep = b"\r\n\r\n"
+    idx = raw.find(sep)
+    if idx == -1:
+        return raw
+    head, rest = raw[:idx], raw[idx + len(sep):]
+    lines = head.split(b"\r\n")
+    request_line, header_lines = lines[0], lines[1:]
+    lname = name.lower()
+    header_lines = [l for l in header_lines if not l.lower().startswith(lname + b":")]
+    if value is not None:
+        header_lines.append(name + b": " + value)
+    return b"\r\n".join([request_line] + header_lines) + sep + rest
 
 
 async def _run_http_redirect(http_port: int, https_port: int) -> None:
@@ -117,7 +183,7 @@ async def _run_http_redirect(http_port: int, https_port: int) -> None:
                 pass
 
     async def _proxy_localhost(initial: bytes, client_r: asyncio.StreamReader,
-                               client_w: asyncio.StreamWriter) -> None:
+                                client_w: asyncio.StreamWriter, trust_local: bool) -> None:
         """Forward the HTTP request to the local HTTPS backend and pipe back the response."""
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         ctx.check_hostname = False
@@ -129,6 +195,9 @@ async def _run_http_redirect(http_port: int, https_port: int) -> None:
         except Exception as exc:
             logger.debug("localhost proxy connect failed: %s", exc)
             return
+        initial = _set_or_strip_header(
+            initial, TRUSTED_LOCAL_HEADER, b"1" if trust_local else None
+        )
         backend_w.write(initial)
         await backend_w.drain()
         await asyncio.gather(
@@ -137,9 +206,32 @@ async def _run_http_redirect(http_port: int, https_port: int) -> None:
             return_exceptions=True,
         )
 
+    async def _read_headers(reader: asyncio.StreamReader, limit: int = 65536) -> bytes:
+        """Buffer reads until the full HTTP header block has arrived.
+
+        A single reader.read(n) call returns as soon as *any* bytes are
+        available — real browsers routinely write a request's many headers
+        (Sec-*, User-Agent, ...) across more than one TCP segment, so one
+        read is not guaranteed to capture the \r\n\r\n terminator. Without
+        this loop, _set_or_strip_header silently sees a headers block it
+        can't find the end of and skips adding the trust header.
+        """
+        buf = b""
+        while b"\r\n\r\n" not in buf and len(buf) < limit:
+            chunk = await asyncio.wait_for(reader.read(4096), timeout=5.0)
+            if not chunk:
+                break
+            buf += chunk
+        return buf
+
     async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
-            raw = await asyncio.wait_for(reader.read(4096), timeout=5.0)
+            # The peer of *this* socket is the real, unspoofable network-layer
+            # origin of the request (unlike the Host header, which any client
+            # can set to whatever it wants) — trust it only when it's loopback.
+            peername = writer.get_extra_info("peername")
+            trust_local = bool(peername) and peername[0] in _LOCALHOST_HOSTS
+            raw = await _read_headers(reader)
             # Proxy all HTTP traffic straight through to the local HTTPS backend.
             # This enables the captive portal: when a phone on the nimbus AP
             # browses to any http:// URL, DNS (dnsmasq address=/#/10.42.0.1)
@@ -148,7 +240,7 @@ async def _run_http_redirect(http_port: int, https_port: int) -> None:
             # probes get the OOBE HTML (not a 204/specific body), which triggers
             # the "Sign in to network" notification. http://nimbus.local also
             # benefits: no browser cert warning on the home network.
-            await _proxy_localhost(raw, reader, writer)
+            await _proxy_localhost(raw, reader, writer, trust_local)
         except Exception:
             pass
         finally:
@@ -231,6 +323,12 @@ async def captive_portal_middleware(request, call_next):
         and request.url.path != "/"
         and not request.url.path.startswith("/api/")
         and not request.url.path.startswith("/ws/")
+        # A missing theme override (the common case — nothing dropped in
+        # $SNAP_COMMON/theme yet) must 404 cleanly. Otherwise this turns into
+        # a redirect to "/", and e.g. a HEAD check for logo.svg would come
+        # back 200 (redirected to index.html) and be mistaken for an override
+        # actually existing.
+        and not request.url.path.startswith("/theme/")
     ):
         from fastapi.responses import RedirectResponse
         host = request.headers.get("host", "").lower()
@@ -255,5 +353,10 @@ app.include_router(models_router)
 app.include_router(keys_router)
 app.include_router(tailscale_router)
 
+# Must be mounted before the catch-all "/" frontend mount below, or that
+# mount (which matches every path as a prefix) would shadow it.
+_seed_theme_override_dir(settings.theme_override_dir)
+if settings.theme_override_dir.is_dir():
+    app.mount("/theme", StaticFiles(directory=str(settings.theme_override_dir)), name="theme_override")
 if settings.serve_frontend and STATIC_DIR.exists():
     app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="frontend")

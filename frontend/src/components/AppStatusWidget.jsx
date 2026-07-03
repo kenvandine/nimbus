@@ -21,7 +21,7 @@ export default function AppStatusWidget({ appId, title }) {
   }, [appId])
 
   const running = app?.running ?? false
-  const dotColor = running ? '#4caf50' : app ? '#ef5350' : '#ffb74d'
+  const dotColor = running ? 'var(--color-success)' : app ? 'var(--color-danger)' : 'var(--color-warning)'
 
   return (
     <div style={styles.widget}>
@@ -50,13 +50,13 @@ export default function AppStatusWidget({ appId, title }) {
 const styles = {
   widget: {
     width: '220px',
-    background: 'rgba(8,16,28,0.82)',
-    border: '1px solid rgba(255,255,255,0.12)',
-    borderRadius: '14px',
-    boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
-    backdropFilter: 'blur(18px)',
+    background: 'var(--color-surface-2)',
+    border: '1px solid var(--color-border-subtle)',
+    borderRadius: 'var(--radius-md)',
+    boxShadow: 'var(--shadow-md)',
+    backdropFilter: 'blur(var(--blur-lg))',
     overflow: 'hidden',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    fontFamily: 'var(--font-sans)',
   },
   header: {
     display: 'flex',
@@ -67,7 +67,7 @@ const styles = {
     border: 'none',
     padding: '10px 12px',
     cursor: 'pointer',
-    color: 'white',
+    color: 'var(--text-primary)',
   },
   dot: {
     width: '7px',
@@ -78,7 +78,7 @@ const styles = {
   title: {
     fontSize: '12px',
     fontWeight: 600,
-    color: 'rgba(255,255,255,0.85)',
+    color: 'var(--text-primary)',
     flex: 1,
     textAlign: 'left',
   },
@@ -86,26 +86,26 @@ const styles = {
     fontSize: '10px',
     fontWeight: 700,
     padding: '1px 6px',
-    borderRadius: '999px',
-    background: 'rgba(76,175,80,0.25)',
-    color: '#81c784',
+    borderRadius: 'var(--radius-full)',
+    background: 'var(--color-success-soft-bg)',
+    color: 'var(--color-success-soft-text)',
     letterSpacing: '0.02em',
   },
   chevron: {
     fontSize: '9px',
-    color: 'rgba(255,255,255,0.35)',
+    color: 'var(--text-tertiary)',
   },
   body: {
     padding: '0 10px 10px',
   },
   onlineMsg: {
     fontSize: '11px',
-    color: 'rgba(255,255,255,0.6)',
+    color: 'var(--text-secondary)',
     padding: '4px 2px 2px',
   },
   offlineMsg: {
     fontSize: '11px',
-    color: 'rgba(255,255,255,0.4)',
+    color: 'var(--text-tertiary)',
     padding: '4px 2px 2px',
     fontStyle: 'italic',
   },

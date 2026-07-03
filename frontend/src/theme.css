@@ -1,0 +1,188 @@
+/* Nimbus design tokens.
+   Two layers: primitives (raw swatches, no meaning) -> semantics (what things are for).
+   Components should only ever reference the semantic layer. */
+
+@font-face {
+  font-family: 'Ubuntu Sans';
+  src: url('/fonts/ubuntu-sans-variable.woff2') format('woff2-variations'), url('/fonts/ubuntu-sans-variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-stretch: 75% 100%;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Ubuntu Mono';
+  src: url('/fonts/ubuntu-mono-variable.woff2') format('woff2-variations'), url('/fonts/ubuntu-mono-variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: optional;
+}
+
+:root {
+  /* ---- Primitives ---- */
+  /* Charcoal: near-black with a warm brown/plum undertone (hue 20) instead of the old navy (hue ~215) */
+  --nimbus-charcoal-950: hsl(20, 16%, 6%);
+  --nimbus-charcoal-900: hsl(20, 15%, 9%);
+  --nimbus-charcoal-800: hsl(20, 13%, 13%);
+  --nimbus-charcoal-700: hsl(18, 12%, 18%);
+  --nimbus-charcoal-600: hsl(18, 10%, 25%);
+  --nimbus-charcoal-500: hsl(18, 9%, 34%);
+  --nimbus-charcoal-400: hsl(20, 8%, 48%);
+  --nimbus-charcoal-300: hsl(22, 10%, 64%);
+  --nimbus-charcoal-200: hsl(24, 14%, 80%);
+  --nimbus-charcoal-100: hsl(28, 22%, 91%);
+  --nimbus-charcoal-50:  hsl(32, 30%, 97%);
+
+  /* Sun: warm amber/coral primary accent, replaces "Nimbus blue" as the primary action color */
+  --nimbus-sun-100: #FFE8D1;
+  --nimbus-sun-200: #FFD3AC;
+  --nimbus-sun-300: #FFB37B;
+  --nimbus-sun-400: #FF9B54;
+  --nimbus-sun-500: #F0813A;
+  --nimbus-sun-600: #E8763C;
+  --nimbus-sun-700: #C85F2C;
+  --nimbus-sun-800: #9C4A22;
+  --nimbus-sun-900: #6B3218;
+
+  /* Sky: desaturated evolution of the old cyan, demoted to secondary/informational use */
+  --nimbus-sky-300: #A8D8E8;
+  --nimbus-sky-400: #7CC3DA;
+  --nimbus-sky-500: #56ABC6;
+  --nimbus-sky-600: #3E8CA8;
+
+  /* Status */
+  --nimbus-green-400: #8ED191;
+  --nimbus-green-500: #6FBF73;
+  --nimbus-green-600: #4E9A52;
+  --nimbus-amber-400: #F5C976;
+  --nimbus-amber-500: #F2B84B;
+  --nimbus-amber-600: #D89A2E;
+  --nimbus-red-400: #F0958A;
+  --nimbus-red-500: #E8776B;
+  --nimbus-red-600: #CC5A4E;
+
+  /* ---- Semantic: surfaces & background ---- */
+  --color-bg-canvas: var(--nimbus-charcoal-950);
+  --color-surface-1: rgba(255, 238, 222, 0.05);
+  --color-surface-2: rgba(255, 238, 222, 0.08);
+  --color-surface-3: rgba(255, 238, 222, 0.14);
+  --color-overlay-scrim: rgba(22, 14, 8, 0.6);
+  --color-border-subtle: rgba(255, 238, 222, 0.10);
+  --color-border-strong: rgba(255, 238, 222, 0.20);
+
+  /* ---- Semantic: accent & status (each with a soft bg/border/text triplet
+     for the pill/badge/soft-button pattern used throughout the app) ---- */
+  --color-accent: var(--nimbus-sun-500);
+  --color-accent-hover: var(--nimbus-sun-400);
+  --color-accent-active: var(--nimbus-sun-600);
+  --color-accent-soft-bg: rgba(240, 129, 58, 0.18);
+  --color-accent-soft-border: rgba(240, 129, 58, 0.35);
+  --color-accent-soft-text: var(--nimbus-sun-300);
+  --color-text-on-accent: #1A0E06;
+
+  --color-info: var(--nimbus-sky-500);
+  --color-info-soft-bg: rgba(86, 171, 198, 0.16);
+  --color-info-soft-border: rgba(86, 171, 198, 0.32);
+  --color-info-soft-text: var(--nimbus-sky-300);
+
+  --color-success: var(--nimbus-green-500);
+  --color-success-soft-bg: rgba(111, 191, 115, 0.16);
+  --color-success-soft-border: rgba(111, 191, 115, 0.32);
+  --color-success-soft-text: var(--nimbus-green-400);
+
+  --color-warning: var(--nimbus-amber-500);
+  --color-warning-soft-bg: rgba(242, 184, 75, 0.16);
+  --color-warning-soft-border: rgba(242, 184, 75, 0.32);
+  --color-warning-soft-text: var(--nimbus-amber-400);
+
+  --color-danger: var(--nimbus-red-500);
+  --color-danger-soft-bg: rgba(232, 119, 107, 0.16);
+  --color-danger-soft-border: rgba(232, 119, 107, 0.32);
+  --color-danger-soft-text: var(--nimbus-red-400);
+
+  /* ---- Semantic: text (warm-white ladder, replaces bare rgba(255,255,255,*)) ---- */
+  --text-primary: rgba(255, 246, 238, 0.92);
+  --text-secondary: rgba(255, 246, 238, 0.62);
+  --text-tertiary: rgba(255, 246, 238, 0.42);
+  --text-disabled: rgba(255, 246, 238, 0.28);
+
+  /* ---- Spacing (4px grid) ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 48px;
+  --space-9: 64px;
+  --space-10: 80px;
+
+  /* ---- Radius (biased softer/rounder than the old 8px modal corners) ---- */
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  --radius-2xl: 36px;
+  --radius-full: 999px;
+
+  /* ---- Shadow (warm-tinted, not flat black) ---- */
+  --shadow-sm: 0 4px 12px rgba(20, 10, 4, 0.24);
+  --shadow-md: 0 12px 28px rgba(20, 10, 4, 0.28);
+  --shadow-lg: 0 24px 60px rgba(20, 10, 4, 0.32);
+  --shadow-xl: 0 32px 80px rgba(20, 10, 4, 0.4);
+
+  /* ---- Glass (kept, just warmed — translucency is a nice quality, not an inherently cold one) ---- */
+  --blur-md: 16px;
+  --blur-lg: 20px;
+
+  /* Hue (0-360, no unit) of the animated home-screen background gradient.
+     Read dynamically by theme.js's ambientGradient() — override this alone
+     to re-tint the ambient background without touching the gradient math. */
+  --nimbus-gradient-hue: 25;
+
+  /* ---- Typography ---- */
+  --font-sans: 'Ubuntu Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: 'Ubuntu Mono', ui-monospace, "SF Mono", "Cascadia Code", "Fira Code", monospace;
+  --font-size-xs: 11px;
+  --font-size-sm: 13px;
+  --font-size-md: 15px;
+  --font-size-lg: 18px;
+  --font-size-xl: 24px;
+  --font-size-2xl: 30px;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-bold: 700;
+
+  /* ---- Motion ---- */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-fast: 150ms;
+  --duration-base: 250ms;
+  --duration-slow: 400ms;
+  --duration-ambient: 3000ms;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; margin: 0; }
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-bg-canvas);
+}
+
+input::placeholder { color: var(--text-tertiary); }
+input:focus {
+  border-color: var(--color-accent-hover) !important;
+  box-shadow: 0 0 0 3px var(--color-accent-soft-bg);
+}
+button:hover:not(:disabled) { filter: brightness(1.12); }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-border-strong); border-radius: 3px; }

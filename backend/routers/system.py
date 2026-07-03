@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
-from auth import require_api_token
+from auth import require_api_token, require_api_token_or_local
 from config import settings
 from constants import LXC_AGENT_PORT
 from models import SystemStats
@@ -20,15 +20,19 @@ from services.device import mark_oobe_complete
 _HOST_LOG_FILE = Path(os.environ.get("SNAP_COMMON", "")) / "nimbus.log" if os.environ.get("SNAP_COMMON") else None
 _HOST_LOG_FILE = Path(os.environ.get("SNAP_COMMON", "")) / "nimbus.log" if os.environ.get("SNAP_COMMON") else None
 
-router = APIRouter(prefix="/api/system", tags=["system"], dependencies=[Depends(require_api_token)])
+# No router-level auth dependency: /stats and /stats/stream use the relaxed
+# require_api_token_or_local (the kiosk display reads these with no session —
+# see auth.require_api_token_or_local), everything else below requires a
+# real session via require_api_token explicitly.
+router = APIRouter(prefix="/api/system", tags=["system"])
 
 
-@router.get("/stats", response_model=SystemStats)
+@router.get("/stats", response_model=SystemStats, dependencies=[Depends(require_api_token_or_local)])
 async def get_stats() -> SystemStats:
     return await get_control_plane().get_stats()
 
 
-@router.get("/stats/stream")
+@router.get("/stats/stream", dependencies=[Depends(require_api_token_or_local)])
 async def stream_stats(request: Request) -> StreamingResponse:
     try:
         from sse_starlette.sse import EventSourceResponse
@@ -49,22 +53,22 @@ async def stream_stats(request: Request) -> StreamingResponse:
     return EventSourceResponse(event_gen())
 
 
-@router.post("/restart")
+@router.post("/restart", dependencies=[Depends(require_api_token)])
 async def restart_system() -> dict:
     return await get_control_plane().restart_system()
 
 
-@router.post("/poweroff")
+@router.post("/poweroff", dependencies=[Depends(require_api_token)])
 async def power_off_system() -> dict:
     return await get_control_plane().power_off_system()
 
 
-@router.post("/update")
+@router.post("/update", dependencies=[Depends(require_api_token)])
 async def update_system() -> dict:
     return await get_control_plane().update_system()
 
 
-@router.post("/oobe-complete")
+@router.post("/oobe-complete", dependencies=[Depends(require_api_token)])
 async def oobe_complete() -> dict:
     mark_oobe_complete()
     return {"status": "ok"}
@@ -112,7 +116,7 @@ async def _journal_sse(source: str, lines: int):
                     pass
 
 
-@router.get("/journal")
+@router.get("/journal", dependencies=[Depends(require_api_token)])
 async def stream_journal(
     source: str = Query("host", pattern="^(host|lxc)$"),
     lines: int = Query(200, ge=1, le=2000),
@@ -129,7 +133,7 @@ class ResourceLimitsRequest(BaseModel):
     memory_mb: int | None = None
 
 
-@router.get("/resources")
+@router.get("/resources", dependencies=[Depends(require_api_token)])
 async def get_resource_limits() -> dict:
     if settings.control_mode != "lxd":
         raise HTTPException(status_code=400, detail="Resource limits require LXD control mode")
@@ -141,7 +145,7 @@ async def get_resource_limits() -> dict:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@router.put("/resources")
+@router.put("/resources", dependencies=[Depends(require_api_token)])
 async def set_resource_limits(req: ResourceLimitsRequest) -> dict:
     if settings.control_mode != "lxd":
         raise HTTPException(status_code=400, detail="Resource limits require LXD control mode")
@@ -154,14 +158,14 @@ async def set_resource_limits(req: ResourceLimitsRequest) -> dict:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@router.get("/hardware")
+@router.get("/hardware", dependencies=[Depends(require_api_token)])
 async def get_hardware_info() -> dict:
     from services.hardware import get_hardware_info
     import asyncio
     return await asyncio.to_thread(get_hardware_info)
 
 
-@router.get("/ca-cert")
+@router.get("/ca-cert", dependencies=[Depends(require_api_token)])
 async def get_ca_cert() -> Response:
     content, media_type, filename = await get_control_plane().get_ca_cert()
     return Response(

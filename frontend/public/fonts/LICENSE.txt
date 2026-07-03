@@ -1,0 +1,12 @@
+Ubuntu Sans and Ubuntu Mono are distributed under the Ubuntu Font Licence 1.0.
+Copyright 2010-2022 Canonical Ltd.
+
+Full licence text: https://ubuntu.com/legal/font-licence
+
+The Ubuntu Font Licence permits embedding these fonts in software and
+redistributing them as part of a larger work, which is why the compiled
+.woff2 files in this directory are vendored directly into the Nimbus
+frontend instead of being loaded from a CDN.
+
+Source TTFs: fonts-ubuntu (Debian/Ubuntu package), converted to .woff2
+with fonttools (`python3 -m fontTools.ttLib.woff2 compress`).

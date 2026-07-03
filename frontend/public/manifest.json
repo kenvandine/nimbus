@@ -3,9 +3,9 @@
   "short_name": "Nimbus",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0f2035",
-  "theme_color": "#0b1928",
-  "description": "Nimbus Application Controller",
+  "background_color": "#180f09",
+  "theme_color": "#1c130c",
+  "description": "Your personal cloud, at home.",
   "icons": [
     {
       "src": "/icon-192.png",

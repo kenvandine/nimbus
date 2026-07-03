@@ -16,7 +16,7 @@ source-code: https://github.com/kenvandine/nimbus
 issues: https://github.com/kenvandine/nimbus/issues
 contact: https://github.com/kenvandine/nimbus/issues
 website: https://github.com/kenvandine/nimbus
-license: GPL-3
+license: GPL-3.0
 
 apps:
   nimbus:

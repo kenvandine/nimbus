@@ -1,7 +1,9 @@
 import { useState } from 'react'
+import { RefreshCw, ArrowUp } from 'lucide-react'
 import AppCard from './AppCard.jsx'
 import AppModal from './AppModal.jsx'
 import { refreshCatalog } from '../api.js'
+import Button from './ui/Button.jsx'
 
 export default function AppStore({ apps, onRefresh, onOpenDetail, activeInstalls = [] }) {
   const [search, setSearch] = useState('')
@@ -49,28 +51,24 @@ export default function AppStore({ apps, onRefresh, onOpenDetail, activeInstalls
           className="store-search"
           style={styles.search}
         />
-        <button
-          style={{ ...styles.filterBtn, ...(showUpdatesOnly ? styles.filterBtnActive : {}) }}
+        <Button
+          variant={showUpdatesOnly ? 'soft' : 'secondary'}
+          size="sm"
           onClick={() => setShowUpdatesOnly(v => !v)}
           title="Show apps with updates only"
         >
-          ⬆ Updates{updatableCount > 0 && <span style={styles.filterBadge}>{updatableCount}</span>}
-        </button>
+          <ArrowUp size={13} /> Updates{updatableCount > 0 && <span style={styles.filterBadge}>{updatableCount}</span>}
+        </Button>
         <button
-          style={{ ...styles.filterBtn, ...(showUnsupported ? styles.filterBtnAdvanced : {}) }}
+          style={{ ...styles.advancedBtn, ...(showUnsupported ? styles.advancedBtnActive : {}) }}
           onClick={() => setShowUnsupported(v => !v)}
           title="Show untested apps"
         >
           Advanced
         </button>
-        <button
-          style={{ ...styles.filterBtn, ...(refreshing ? styles.filterBtnDisabled : {}) }}
-          onClick={handleRefreshCatalog}
-          disabled={refreshing}
-          title="Refresh app catalog"
-        >
-          {refreshing ? <><span style={styles.spinner} /> Refreshing…</> : '↻ Refresh'}
-        </button>
+        <Button variant="secondary" size="sm" onClick={handleRefreshCatalog} disabled={refreshing} loading={refreshing} title="Refresh app catalog">
+          {refreshing ? 'Refreshing…' : <><RefreshCw size={13} /> Refresh</>}
+        </Button>
         <span style={styles.count}>{filtered.length} app{filtered.length !== 1 ? 's' : ''}</span>
       </div>
 
@@ -122,70 +120,58 @@ export default function AppStore({ apps, onRefresh, onOpenDetail, activeInstalls
 }
 
 const styles = {
-  container: { display: 'flex', flexDirection: 'column', gap: '16px' },
+  container: { display: 'flex', flexDirection: 'column', gap: '16px', fontFamily: 'var(--font-sans)' },
   toolbar: { display: 'flex', alignItems: 'center', gap: '10px' },
   search: {
     flex: 1,
+    minHeight: 38,
     padding: '9px 14px',
-    borderRadius: '10px',
-    border: '1px solid rgba(255,255,255,0.15)',
-    background: 'rgba(255,255,255,0.08)',
-    color: 'white',
+    borderRadius: 'var(--radius-sm)',
+    border: '1px solid var(--color-border-strong)',
+    background: 'var(--color-surface-2)',
+    color: 'var(--text-primary)',
+    fontFamily: 'var(--font-sans)',
     fontSize: '14px',
     outline: 'none',
   },
-  filterBtn: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    padding: '8px 14px',
-    borderRadius: '10px',
-    border: '1px solid rgba(255,255,255,0.15)',
-    background: 'rgba(255,255,255,0.06)',
-    color: 'rgba(255,255,255,0.55)',
-    fontSize: '13px',
-    fontWeight: 500,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-  },
-  filterBtnActive: {
-    background: 'rgba(255,152,0,0.18)',
-    border: '1px solid rgba(255,152,0,0.45)',
-    color: '#ffb74d',
-  },
   filterBadge: {
-    background: '#ff9800',
-    color: '#0a1628',
+    background: 'var(--color-warning)',
+    color: 'var(--color-text-on-accent)',
     borderRadius: '8px',
     padding: '1px 6px',
     fontSize: '11px',
     fontWeight: 700,
+    marginLeft: 4,
   },
-  count: { color: 'rgba(255,255,255,0.35)', fontSize: '13px', whiteSpace: 'nowrap' },
+  count: { color: 'var(--text-tertiary)', fontSize: '13px', whiteSpace: 'nowrap' },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '14px' },
-  empty: { color: 'rgba(255,255,255,0.4)', textAlign: 'center', marginTop: '40px' },
-  filterBtnAdvanced: {
-    background: 'rgba(156,39,176,0.18)',
-    border: '1px solid rgba(156,39,176,0.45)',
-    color: '#ce93d8',
+  empty: { color: 'var(--text-tertiary)', textAlign: 'center', marginTop: '40px' },
+  advancedBtn: {
+    display: 'flex', alignItems: 'center', gap: 6,
+    height: 34, padding: '0 14px',
+    borderRadius: 'var(--radius-sm)',
+    border: '1px solid var(--color-border-strong)',
+    background: 'var(--color-surface-3)',
+    color: 'var(--text-secondary)',
+    fontFamily: 'var(--font-sans)',
+    fontSize: '13px',
+    fontWeight: 700,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
   },
-  filterBtnDisabled: {
-    opacity: 0.5,
-    cursor: 'not-allowed',
-  },
-  spinner: {
-    display: 'inline-block', width: '10px', height: '10px',
-    border: '2px solid rgba(255,255,255,0.3)', borderTopColor: 'white',
-    borderRadius: '50%', animation: 'spin 0.7s linear infinite',
-    marginRight: '4px',
+  advancedBtnActive: {
+    background: 'rgba(186,141,201,0.16)',
+    border: '1px solid rgba(186,141,201,0.4)',
+    color: '#d9b8e3',
   },
   advancedNotice: {
-    color: 'rgba(206,147,216,0.8)',
+    color: '#d9b8e3',
     fontSize: '13px',
     margin: 0,
     padding: '8px 14px',
-    background: 'rgba(156,39,176,0.08)',
-    border: '1px solid rgba(156,39,176,0.2)',
-    borderRadius: '10px',
+    background: 'rgba(186,141,201,0.08)',
+    border: '1px solid rgba(186,141,201,0.22)',
+    borderRadius: 'var(--radius-sm)',
+    fontFamily: 'var(--font-sans)',
   },
 }

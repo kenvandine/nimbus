@@ -44,7 +44,7 @@ export default function AppLogViewer({ appId }) {
   return (
     <div style={styles.wrap}>
       <div style={styles.toolbar}>
-        <span style={{ ...styles.statusDot, background: connected ? '#4caf50' : '#ef5350' }} />
+        <span style={{ ...styles.statusDot, background: connected ? 'var(--color-success)' : 'var(--color-danger)' }} />
         <span style={styles.statusLabel}>{connected ? 'Live' : 'Disconnected'}</span>
         <button style={styles.clearBtn} onClick={() => setLines([])}>Clear</button>
       </div>
@@ -67,15 +67,15 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     height: '100%',
-    background: '#0d1117',
+    background: 'var(--nimbus-charcoal-950)',
   },
   toolbar: {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
     padding: '8px 12px',
-    background: '#161b22',
-    borderBottom: '1px solid rgba(255,255,255,0.08)',
+    background: 'var(--nimbus-charcoal-900)',
+    borderBottom: '1px solid var(--color-border-subtle)',
     flexShrink: 0,
   },
   statusDot: {
@@ -85,15 +85,17 @@ const styles = {
     flexShrink: 0,
   },
   statusLabel: {
+    fontFamily: 'var(--font-sans)',
     fontSize: '11px',
-    color: 'rgba(255,255,255,0.45)',
+    color: 'var(--text-tertiary)',
     flex: 1,
   },
   clearBtn: {
-    background: 'rgba(255,255,255,0.06)',
-    border: '1px solid rgba(255,255,255,0.12)',
-    color: 'rgba(255,255,255,0.6)',
-    borderRadius: '6px',
+    background: 'var(--color-surface-2)',
+    border: '1px solid var(--color-border-subtle)',
+    color: 'var(--text-secondary)',
+    fontFamily: 'var(--font-sans)',
+    borderRadius: 'var(--radius-sm)',
     padding: '2px 10px',
     fontSize: '11px',
     cursor: 'pointer',
@@ -102,10 +104,10 @@ const styles = {
     flex: 1,
     overflowY: 'auto',
     padding: '10px 14px',
-    fontFamily: '"SF Mono", "Fira Code", "Consolas", monospace',
+    fontFamily: 'var(--font-mono)',
     fontSize: '12px',
     lineHeight: 1.6,
-    color: '#c9d1d9',
+    color: 'var(--text-secondary)',
   },
   line: {
     whiteSpace: 'pre-wrap',
@@ -113,12 +115,13 @@ const styles = {
     margin: 0,
   },
   errorLine: {
-    color: '#f47067',
+    color: 'var(--color-danger)',
     whiteSpace: 'pre-wrap',
     wordBreak: 'break-all',
   },
   emptyMsg: {
-    color: 'rgba(255,255,255,0.25)',
+    color: 'var(--text-disabled)',
+    fontFamily: 'var(--font-sans)',
     fontStyle: 'italic',
     fontSize: '12px',
   },

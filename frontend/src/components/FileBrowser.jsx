@@ -1,22 +1,24 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Folder, FileText, FileCode2, Globe, Palette, Braces, Settings2, Terminal as TerminalIcon, Database, File as FileIcon } from 'lucide-react'
 import { listFiles, readFile } from '../api.js'
 import FileEditor from './FileEditor.jsx'
 
-function fileIcon(entry) {
-  if (entry.is_dir) return '📁'
+function FileTypeIcon({ entry, size = 32 }) {
+  if (entry.is_dir) return <Folder size={size} color="var(--color-info)" fill="var(--color-info-soft-bg)" />
+  const props = { size, color: 'var(--text-secondary)' }
   switch (entry.mime_hint) {
-    case 'markdown':   return '📝'
-    case 'python':     return '🐍'
+    case 'markdown':   return <FileText {...props} />
+    case 'python':
     case 'javascript':
-    case 'typescript': return '🟨'
-    case 'html':       return '🌐'
-    case 'css':        return '🎨'
-    case 'json':       return '🗂️'
-    case 'yaml':       return '⚙️'
-    case 'rust':       return '🦀'
-    case 'shell':      return '💻'
-    case 'sql':        return '🗄️'
-    default:           return '📄'
+    case 'typescript':
+    case 'rust':       return <FileCode2 {...props} />
+    case 'html':       return <Globe {...props} />
+    case 'css':        return <Palette {...props} />
+    case 'json':       return <Braces {...props} />
+    case 'yaml':       return <Settings2 {...props} />
+    case 'shell':      return <TerminalIcon {...props} />
+    case 'sql':        return <Database {...props} />
+    default:           return <FileIcon {...props} />
   }
 }
 
@@ -58,23 +60,23 @@ const bcStyles = {
     flexWrap: 'wrap',
     gap: '2px',
     padding: '8px 14px',
-    borderBottom: '1px solid rgba(255,255,255,0.07)',
+    borderBottom: '1px solid var(--color-border-subtle)',
     flexShrink: 0,
   },
   crumbGroup: { display: 'flex', alignItems: 'center' },
-  sep: { color: 'rgba(255,255,255,0.2)', padding: '0 3px', fontSize: '12px' },
+  sep: { color: 'var(--text-disabled)', padding: '0 3px', fontSize: '12px' },
   crumb: {
     background: 'none',
     border: 'none',
-    color: 'rgba(79,195,247,0.85)',
+    color: 'var(--color-accent-soft-text)',
     fontSize: '12px',
-    fontFamily: 'monospace',
+    fontFamily: 'var(--font-mono)',
     cursor: 'pointer',
     padding: '2px 4px',
-    borderRadius: '4px',
+    borderRadius: 'var(--radius-sm)',
   },
   crumbActive: {
-    color: 'rgba(255,255,255,0.7)',
+    color: 'var(--text-secondary)',
     cursor: 'default',
   },
 }
@@ -104,7 +106,7 @@ function FileGrid({ entries, onNavigate, onOpenFile }) {
           onClick={() => entry.is_dir ? onNavigate(entry.path) : onOpenFile(entry)}
           title={entry.is_dir ? entry.name : `${entry.name} · ${formatSize(entry.size)}`}
         >
-          <span style={gridStyles.emoji}>{fileIcon(entry)}</span>
+          <FileTypeIcon entry={entry} />
           <span style={gridStyles.label}>{entry.name}</span>
           {!entry.is_dir && (
             <span style={gridStyles.size}>{formatSize(entry.size)}</span>
@@ -129,24 +131,20 @@ const gridStyles = {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    gap: '4px',
+    gap: '6px',
     padding: '10px 8px 8px',
-    borderRadius: '12px',
+    borderRadius: 'var(--radius-md)',
     cursor: 'pointer',
     width: '86px',
-    transition: 'background 0.12s',
+    transition: 'background var(--duration-fast)',
   },
   iconHover: {
-    background: 'rgba(255,255,255,0.1)',
-  },
-  emoji: {
-    fontSize: '36px',
-    lineHeight: 1,
-    filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.5))',
+    background: 'var(--color-surface-2)',
   },
   label: {
+    fontFamily: 'var(--font-sans)',
     fontSize: '11px',
-    color: 'rgba(255,255,255,0.85)',
+    color: 'var(--text-primary)',
     textAlign: 'center',
     wordBreak: 'break-all',
     display: '-webkit-box',
@@ -155,19 +153,19 @@ const gridStyles = {
     overflow: 'hidden',
     lineHeight: 1.3,
     maxWidth: '80px',
-    textShadow: '0 1px 3px rgba(0,0,0,0.7)',
   },
   size: {
     fontSize: '9px',
-    color: 'rgba(255,255,255,0.3)',
-    fontFamily: 'monospace',
+    color: 'var(--text-tertiary)',
+    fontFamily: 'var(--font-mono)',
   },
   empty: {
     flex: 1,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    color: 'rgba(255,255,255,0.3)',
+    color: 'var(--text-tertiary)',
+    fontFamily: 'var(--font-sans)',
     fontSize: '13px',
   },
 }
@@ -260,9 +258,9 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     height: '100%',
-    background: 'rgba(14,22,36,0.9)',
-    borderRadius: '0 0 12px 12px',
+    background: 'var(--color-bg-canvas)',
     overflow: 'hidden',
+    fontFamily: 'var(--font-sans)',
   },
   body: {
     flex: 1,
@@ -277,34 +275,34 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    color: 'rgba(255,255,255,0.4)',
+    color: 'var(--text-tertiary)',
     fontSize: '13px',
-    background: 'rgba(14,22,36,0.6)',
+    background: 'rgba(0,0,0,0.4)',
     backdropFilter: 'blur(4px)',
     zIndex: 5,
   },
   errorBar: {
     padding: '12px 16px',
-    background: 'rgba(255,80,80,0.1)',
-    color: 'rgba(255,160,160,0.9)',
+    background: 'var(--color-danger-soft-bg)',
+    color: 'var(--color-danger-soft-text)',
     fontSize: '12px',
-    borderBottom: '1px solid rgba(255,80,80,0.2)',
+    borderBottom: '1px solid var(--color-danger-soft-border)',
   },
   statusBar: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: '6px 14px',
-    borderTop: '1px solid rgba(255,255,255,0.07)',
-    color: 'rgba(255,255,255,0.3)',
+    borderTop: '1px solid var(--color-border-subtle)',
+    color: 'var(--text-tertiary)',
     fontSize: '11px',
     flexShrink: 0,
   },
   pathPill: {
-    fontFamily: 'monospace',
-    background: 'rgba(255,255,255,0.05)',
+    fontFamily: 'var(--font-mono)',
+    background: 'var(--color-surface-2)',
     padding: '2px 8px',
-    borderRadius: '6px',
+    borderRadius: 'var(--radius-sm)',
     fontSize: '10px',
   },
 }

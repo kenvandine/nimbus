@@ -13,7 +13,9 @@ import { cpp } from '@codemirror/lang-cpp'
 import { java } from '@codemirror/lang-java'
 import { sql } from '@codemirror/lang-sql'
 import { xml } from '@codemirror/lang-xml'
+import { ArrowLeft } from 'lucide-react'
 import { writeFile } from '../api.js'
+import Button from './ui/Button.jsx'
 
 function extensionForMime(mime) {
   switch (mime) {
@@ -70,9 +72,9 @@ export default function FileEditor({ path, mimeHint, initialContent, onClose, on
   return (
     <div style={styles.wrap}>
       <div style={styles.toolbar}>
-        <button style={styles.backBtn} onClick={onClose} title="Back to file browser">
-          ← Back
-        </button>
+        <Button variant="secondary" size="sm" onClick={onClose} title="Back to file browser">
+          <ArrowLeft size={14} /> Back
+        </Button>
         <span style={styles.filename}>{filename}</span>
         <span style={{ ...styles.mimePill, ...(mimeHint ? {} : styles.mimePillMuted) }}>
           {mimeHint || 'text'}
@@ -80,13 +82,9 @@ export default function FileEditor({ path, mimeHint, initialContent, onClose, on
         {dirty && <span style={styles.dirtyDot} title="Unsaved changes" />}
         <div style={{ flex: 1 }} />
         {saveError && <span style={styles.saveError}>{saveError}</span>}
-        <button
-          style={{ ...styles.saveBtn, ...((!dirty || saving) ? styles.saveBtnDisabled : {}) }}
-          onClick={handleSave}
-          disabled={!dirty || saving}
-        >
+        <Button variant="soft" size="sm" onClick={handleSave} disabled={!dirty || saving} loading={saving}>
           {saving ? 'Saving…' : 'Save'}
-        </button>
+        </Button>
       </div>
 
       <div style={styles.editorWrap}>
@@ -117,7 +115,6 @@ const styles = {
     flexDirection: 'column',
     height: '100%',
     background: '#282c34',
-    borderRadius: '0 0 12px 12px',
     overflow: 'hidden',
   },
   toolbar: {
@@ -126,77 +123,54 @@ const styles = {
     gap: '10px',
     padding: '8px 12px',
     background: 'rgba(0,0,0,0.3)',
-    borderBottom: '1px solid rgba(255,255,255,0.08)',
+    borderBottom: '1px solid var(--color-border-subtle)',
     flexShrink: 0,
     flexWrap: 'wrap',
     minHeight: '44px',
   },
-  backBtn: {
-    background: 'rgba(255,255,255,0.08)',
-    border: '1px solid rgba(255,255,255,0.12)',
-    color: 'rgba(255,255,255,0.75)',
-    borderRadius: '7px',
-    padding: '5px 10px',
-    fontSize: '12px',
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-  },
   filename: {
-    color: 'rgba(255,255,255,0.85)',
+    color: 'var(--text-primary)',
     fontSize: '13px',
     fontWeight: 600,
-    fontFamily: 'monospace',
+    fontFamily: 'var(--font-mono)',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
     maxWidth: '260px',
   },
   mimePill: {
-    background: 'rgba(79,195,247,0.14)',
-    color: 'rgba(129,212,250,0.85)',
-    border: '1px solid rgba(79,195,247,0.22)',
-    borderRadius: '6px',
+    background: 'var(--color-accent-soft-bg)',
+    color: 'var(--color-accent-soft-text)',
+    border: '1px solid var(--color-accent-soft-border)',
+    borderRadius: 'var(--radius-sm)',
     padding: '2px 8px',
     fontSize: '10px',
     fontWeight: 700,
     letterSpacing: '0.04em',
     textTransform: 'uppercase',
     whiteSpace: 'nowrap',
+    fontFamily: 'var(--font-sans)',
   },
   mimePillMuted: {
-    background: 'rgba(255,255,255,0.05)',
-    color: 'rgba(255,255,255,0.3)',
-    border: '1px solid rgba(255,255,255,0.08)',
+    background: 'var(--color-surface-2)',
+    color: 'var(--text-tertiary)',
+    border: '1px solid var(--color-border-subtle)',
   },
   dirtyDot: {
     width: '8px',
     height: '8px',
     borderRadius: '50%',
-    background: '#ff9800',
+    background: 'var(--color-warning)',
     flexShrink: 0,
   },
   saveError: {
-    color: 'rgba(255,138,128,0.9)',
+    color: 'var(--color-danger-soft-text)',
+    fontFamily: 'var(--font-sans)',
     fontSize: '11px',
     maxWidth: '200px',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
-  },
-  saveBtn: {
-    background: 'rgba(79,195,247,0.18)',
-    color: 'rgba(79,195,247,0.98)',
-    border: '1px solid rgba(79,195,247,0.3)',
-    borderRadius: '7px',
-    padding: '5px 14px',
-    fontSize: '12px',
-    fontWeight: 700,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-  },
-  saveBtnDisabled: {
-    opacity: 0.45,
-    cursor: 'not-allowed',
   },
   editorWrap: {
     flex: 1,

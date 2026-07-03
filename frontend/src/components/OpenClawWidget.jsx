@@ -4,10 +4,10 @@ import { getOpenClawStatus } from '../api.js'
 const POLL_MS = 5000
 
 const STATUS_COLOR = {
-  active: '#4caf50',
-  idle: 'rgba(255,255,255,0.35)',
-  done: 'rgba(255,255,255,0.2)',
-  unknown: 'rgba(255,255,255,0.2)',
+  active: 'var(--color-success)',
+  idle: 'var(--text-tertiary)',
+  done: 'var(--text-disabled)',
+  unknown: 'var(--text-disabled)',
 }
 
 const STATUS_LABEL = {
@@ -52,10 +52,10 @@ export default function OpenClawWidget() {
   const activeSessions = sessions.filter(s => s.status === 'active')
 
   const headerDotColor = pullActive
-    ? '#ffb74d'
+    ? 'var(--color-warning)'
     : pullFailed
-      ? '#ef5350'
-      : status.reachable ? '#4caf50' : '#ef5350'
+      ? 'var(--color-danger)'
+      : status.reachable ? 'var(--color-success)' : 'var(--color-danger)'
 
   return (
     <div style={styles.widget}>
@@ -171,13 +171,13 @@ function PullProgress({ lemonade }) {
 const styles = {
   widget: {
     width: '220px',
-    background: 'rgba(8,16,28,0.82)',
-    border: '1px solid rgba(255,255,255,0.12)',
-    borderRadius: '14px',
-    boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
-    backdropFilter: 'blur(18px)',
+    background: 'var(--color-surface-2)',
+    border: '1px solid var(--color-border-subtle)',
+    borderRadius: 'var(--radius-md)',
+    boxShadow: 'var(--shadow-md)',
+    backdropFilter: 'blur(var(--blur-lg))',
     overflow: 'hidden',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    fontFamily: 'var(--font-sans)',
   },
   header: {
     display: 'flex',
@@ -188,7 +188,7 @@ const styles = {
     border: 'none',
     padding: '10px 12px',
     cursor: 'pointer',
-    color: 'white',
+    color: 'var(--text-primary)',
   },
   dot: {
     width: '7px',
@@ -199,7 +199,7 @@ const styles = {
   title: {
     fontSize: '12px',
     fontWeight: 600,
-    color: 'rgba(255,255,255,0.85)',
+    color: 'var(--text-primary)',
     flex: 1,
     textAlign: 'left',
   },
@@ -207,18 +207,18 @@ const styles = {
     fontSize: '10px',
     fontWeight: 700,
     padding: '1px 6px',
-    borderRadius: '999px',
-    background: 'rgba(76,175,80,0.25)',
-    color: '#81c784',
+    borderRadius: 'var(--radius-full)',
+    background: 'var(--color-success-soft-bg)',
+    color: 'var(--color-success-soft-text)',
     letterSpacing: '0.02em',
   },
   pullBadge: {
     fontSize: '10px',
     fontWeight: 700,
     padding: '1px 6px',
-    borderRadius: '999px',
-    background: 'rgba(255,183,77,0.22)',
-    color: '#ffcc80',
+    borderRadius: 'var(--radius-full)',
+    background: 'var(--color-warning-soft-bg)',
+    color: 'var(--color-warning-soft-text)',
     letterSpacing: '0.02em',
     fontVariantNumeric: 'tabular-nums',
   },
@@ -228,13 +228,13 @@ const styles = {
   pullLabel: {
     fontSize: '12px',
     fontWeight: 600,
-    color: 'rgba(255,255,255,0.88)',
+    color: 'var(--text-primary)',
     marginBottom: '2px',
   },
   pullModel: {
     fontSize: '10px',
-    color: 'rgba(255,255,255,0.45)',
-    fontFamily: 'ui-monospace, "SF Mono", monospace',
+    color: 'var(--text-tertiary)',
+    fontFamily: 'var(--font-mono)',
     marginBottom: '8px',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
@@ -243,40 +243,40 @@ const styles = {
   pullBarTrack: {
     width: '100%',
     height: '6px',
-    background: 'rgba(255,255,255,0.08)',
-    borderRadius: '999px',
+    background: 'var(--color-surface-3)',
+    borderRadius: 'var(--radius-full)',
     overflow: 'hidden',
   },
   pullBarFill: {
     height: '100%',
-    background: 'linear-gradient(90deg, #ff9800, #ffcc80)',
-    borderRadius: '999px',
+    background: 'linear-gradient(90deg, var(--nimbus-sun-600), var(--nimbus-sun-300))',
+    borderRadius: 'var(--radius-full)',
     transition: 'width 0.4s ease-out',
   },
   pullMeta: {
     display: 'flex',
     justifyContent: 'space-between',
     fontSize: '10px',
-    color: 'rgba(255,255,255,0.55)',
+    color: 'var(--text-secondary)',
     marginTop: '4px',
     fontVariantNumeric: 'tabular-nums',
   },
   pullHint: {
     fontSize: '10px',
-    color: 'rgba(255,255,255,0.35)',
+    color: 'var(--text-tertiary)',
     marginTop: '8px',
     lineHeight: 1.35,
     fontStyle: 'italic',
   },
   errorMsg: {
     fontSize: '11px',
-    color: '#ef9a9a',
+    color: 'var(--color-danger-soft-text)',
     padding: '6px 2px 8px',
     lineHeight: 1.35,
   },
   chevron: {
     fontSize: '9px',
-    color: 'rgba(255,255,255,0.35)',
+    color: 'var(--text-tertiary)',
   },
   body: {
     padding: '0 10px 10px',
@@ -285,13 +285,13 @@ const styles = {
   },
   offlineMsg: {
     fontSize: '11px',
-    color: 'rgba(255,255,255,0.4)',
+    color: 'var(--text-secondary)',
     padding: '4px 2px 8px',
     fontStyle: 'italic',
   },
   emptyMsg: {
     fontSize: '11px',
-    color: 'rgba(255,255,255,0.3)',
+    color: 'var(--text-tertiary)',
     padding: '4px 2px 8px',
     fontStyle: 'italic',
   },
@@ -311,16 +311,16 @@ const styles = {
   agentName: {
     fontSize: '12px',
     fontWeight: 600,
-    color: 'rgba(255,255,255,0.88)',
+    color: 'var(--text-primary)',
     flex: 1,
   },
   defaultBadge: {
     fontSize: '9px',
     fontWeight: 700,
     padding: '1px 5px',
-    borderRadius: '999px',
-    background: 'rgba(79,195,247,0.18)',
-    color: '#81d4fa',
+    borderRadius: 'var(--radius-full)',
+    background: 'var(--color-info-soft-bg)',
+    color: 'var(--color-info-soft-text)',
     letterSpacing: '0.04em',
     textTransform: 'uppercase',
   },
@@ -344,7 +344,7 @@ const styles = {
   },
   sessionSummary: {
     fontSize: '11px',
-    color: 'rgba(255,255,255,0.72)',
+    color: 'var(--text-secondary)',
     lineHeight: 1.35,
     display: '-webkit-box',
     WebkitLineClamp: 2,
@@ -353,12 +353,12 @@ const styles = {
   },
   sessionStatus: {
     fontSize: '10px',
-    color: 'rgba(255,255,255,0.35)',
+    color: 'var(--text-tertiary)',
     fontStyle: 'italic',
   },
   noSessions: {
     fontSize: '10px',
-    color: 'rgba(255,255,255,0.22)',
+    color: 'var(--text-disabled)',
     paddingLeft: '8px',
     fontStyle: 'italic',
   },
