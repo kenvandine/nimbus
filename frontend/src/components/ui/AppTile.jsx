@@ -42,7 +42,7 @@ export default function AppTile({ app, onOpen, onAction }) {
 
   return (
     <div ref={wrapRef} style={styles.tile}>
-      <button style={styles.tap} onClick={() => onOpen?.(app)}>
+      <button type="button" style={styles.tap} onClick={() => onOpen?.(app)}>
         <div style={styles.iconWrap}>
           <img
             src={app.icon}
