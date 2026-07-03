@@ -139,10 +139,12 @@ export default function TerminalPanel() {
       // no-op if already parented here, and a move if coming from elsewhere.
       wrapper.appendChild(_container)
 
+      // Re-read CSS variables so the terminal picks up any late-loaded theme overrides.
+      _term.options.theme = getXtermTheme()
+
       // Open xterm into the container the first time it's in the DOM.
       if (!_opened) {
         _term.open(_container)
-        _opened = true
         _connect()
       } else if (!_ws || _ws.readyState === WebSocket.CLOSED || _ws.readyState === WebSocket.CLOSING) {
         // Reconnect if the WS died while the terminal window was closed.
