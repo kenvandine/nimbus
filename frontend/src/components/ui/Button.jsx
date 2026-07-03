@@ -56,6 +56,7 @@ export default function Button({
     <button
       {...rest}
       disabled={isDisabled}
+      type={rest.type ?? 'button'}
       style={{
         ...v,
         height: s.height,
