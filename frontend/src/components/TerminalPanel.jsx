@@ -101,27 +101,35 @@ async function _connect() {
 // and self-hosted webfonts aren't guaranteed loaded yet on first paint. If
 // this ran against the fallback font, cell metrics would be wrong and the
 // grid would misalign/clip once Ubuntu Mono swaps in.
+let _ensureTerminalPromise = null
+
 async function _ensureTerminal() {
   if (_term) return
-  try {
-    await document.fonts.load(`13px "Ubuntu Mono"`)
-    await document.fonts.ready
-  } catch {}
+  if (_ensureTerminalPromise) return _ensureTerminalPromise
 
-  _term = new Terminal({
-    theme: getXtermTheme(),
-    fontFamily: TERMINAL_FONT_FAMILY,
-    fontSize: 13,
-    lineHeight: 1.4,
-    cursorBlink: true,
-    scrollback: 5000,
-    allowProposedApi: true,
-  })
-  _fit = new FitAddon()
-  _term.loadAddon(_fit)
-  _term.loadAddon(new WebLinksAddon())
-  _container = document.createElement('div')
-  _container.style.cssText = 'flex:1; padding:8px; overflow:hidden; min-height:0;'
+  _ensureTerminalPromise = (async () => {
+    try {
+      await document.fonts.load(`13px "Ubuntu Mono"`)
+      await document.fonts.ready
+    } catch {}
+
+    _term = new Terminal({
+      theme: getXtermTheme(),
+      fontFamily: TERMINAL_FONT_FAMILY,
+      fontSize: 13,
+      lineHeight: 1.4,
+      cursorBlink: true,
+      scrollback: 5000,
+      allowProposedApi: true,
+    })
+    _fit = new FitAddon()
+    _term.loadAddon(_fit)
+    _term.loadAddon(new WebLinksAddon())
+    _container = document.createElement('div')
+    _container.style.cssText = 'flex:1; padding:8px; overflow:hidden; min-height:0;'
+  })()
+
+  return _ensureTerminalPromise
 }
 
 export default function TerminalPanel() {
