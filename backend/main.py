@@ -304,7 +304,7 @@ app.include_router(tailscale_router)
 # Must be mounted before the catch-all "/" frontend mount below, or that
 # mount (which matches every path as a prefix) would shadow it.
 _seed_theme_override_dir(settings.theme_override_dir)
-if settings.theme_override_dir.exists():
+if settings.theme_override_dir.is_dir():
     app.mount("/theme", StaticFiles(directory=str(settings.theme_override_dir)), name="theme_override")
 
 if settings.serve_frontend and STATIC_DIR.exists():

@@ -8,7 +8,7 @@ export default function PageHeader({ title, children }) {
   const navigate = useNavigate()
   return (
     <div style={styles.header}>
-      <button style={styles.backBtn} onClick={() => navigate('/')} aria-label="Back to home">
+      <button type="button" style={styles.backBtn} onClick={() => navigate('/')} aria-label="Back to home">
         <ArrowLeft size={18} />
       </button>
       <span style={styles.title}>{title}</span>

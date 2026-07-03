@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Wifi, Lock, Check, X, Eye, EyeOff } from 'lucide-react'
+import { Wifi, Lock, Check, X } from 'lucide-react'
 import { getWifiStatus, scanWifiNetworks, connectWifi, completeOobe, setupAccount } from '../api.js'
 import { isLocalAccess } from '../utils.js'
 import Button from './ui/Button.jsx'

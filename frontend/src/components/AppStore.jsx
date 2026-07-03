@@ -4,7 +4,6 @@ import AppCard from './AppCard.jsx'
 import AppModal from './AppModal.jsx'
 import { refreshCatalog } from '../api.js'
 import Button from './ui/Button.jsx'
-import Spinner from './ui/Spinner.jsx'
 
 export default function AppStore({ apps, onRefresh, onOpenDetail, activeInstalls = [] }) {
   const [search, setSearch] = useState('')

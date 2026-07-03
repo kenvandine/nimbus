@@ -145,6 +145,7 @@ export default function TerminalPanel() {
       // Open xterm into the container the first time it's in the DOM.
       if (!_opened) {
         _term.open(_container)
+        _opened = true
         _connect()
       } else if (!_ws || _ws.readyState === WebSocket.CLOSED || _ws.readyState === WebSocket.CLOSING) {
         // Reconnect if the WS died while the terminal window was closed.
