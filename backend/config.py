@@ -76,6 +76,10 @@ class Settings:
     # Directory containing nimbus-shipped overlay files for Umbrel apps
     # (e.g. openclaw-overlay/setup-wrapper.cjs).
     overlay_dir: Path = field(default_factory=lambda: Path("/usr/share/nimbus"))
+    # Writable directory an OEM/integrator can drop theme overrides into
+    # (override.css, logo.svg) — served at /theme/. Lives in $SNAP_COMMON so
+    # it survives snap refreshes (unlike $SNAP, which is read-only).
+    theme_override_dir: Path = field(default_factory=lambda: Path("/var/lib/nimbus/theme"))
     # Local-LLM backend OpenClaw is configured against. One of
     # MODEL_PROVIDER_LEMONADE, MODEL_PROVIDER_GEMMA4.
     model_provider: str = MODEL_PROVIDER_LEMONADE
@@ -123,6 +127,15 @@ def _build_settings() -> Settings:
         overlay_dir = Path(os.environ["SNAP"]) / "share"
     else:
         overlay_dir = Path(__file__).resolve().parent.parent
+
+    # Same "$SNAP_COMMON if present, else in-tree/dev fallback" pattern as overlay_dir.
+    theme_dir_env = os.getenv("NIMBUS_THEME_DIR")
+    if theme_dir_env:
+        theme_override_dir = Path(theme_dir_env)
+    elif os.getenv("SNAP_COMMON"):
+        theme_override_dir = Path(os.environ["SNAP_COMMON"]) / "theme"
+    else:
+        theme_override_dir = Path("/var/lib/nimbus/theme")
 
     model_provider = os.getenv("NIMBUS_MODEL_PROVIDER", MODEL_PROVIDER_LEMONADE).strip().lower()
     if model_provider not in MODEL_PROVIDERS:
@@ -180,6 +193,7 @@ def _build_settings() -> Settings:
         acme_staging=_env_bool("NIMBUS_ACME_STAGING", False),
         files_root=files_root,
         overlay_dir=overlay_dir,
+        theme_override_dir=theme_override_dir,
         model_provider=model_provider,
         openai_url=openai_url,
         app_store_type=app_store_type,

@@ -1,7 +1,16 @@
 // JS mirror of theme.css's primitive values, for the few places CSS variables
-// can't reach: canvas/WebGL-rendered text (xterm.js), <canvas> drawing (QR code),
-// and inline gradient math. Keep these two files in sync by hand — there is no
-// build step that generates one from the other.
+// can't reach directly: canvas-rendered text (xterm.js) and <canvas> drawing
+// (QR code). Both read the *live* CSS custom properties via cssVar() rather
+// than hardcoded values, so a theme override dropped in $SNAP_COMMON/theme
+// (see /theme/override.css, mounted by the backend) reaches these surfaces
+// too, not just the DOM-rendered UI. The literals below are only fallbacks
+// for when a property is somehow unset — theme.css always defines them.
+
+function cssVar(name, fallback) {
+  if (typeof document === 'undefined') return fallback
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return value || fallback
+}
 
 export const palette = {
   charcoal: {
@@ -41,43 +50,51 @@ export const palette = {
 
 export const textOnAccent = '#1A0E06'
 
-// Ambient background gradient, driven by system load (0-100ish).
-// Base hue sits in the warm amber/brown range (~25) instead of the old blue (~210);
-// as load rises the gradient both saturates and lightens slightly, reading as
-// "warming up" rather than the old "stormy -> clear sky" blue metaphor.
+// Ambient background gradient, driven by system load (0-100ish). Base hue
+// reads from --nimbus-gradient-hue (default 25, warm amber/brown) so an
+// override can re-tint the ambient background on its own; as load rises the
+// gradient both saturates and lightens slightly, reading as "warming up".
 export function ambientGradient(load) {
-  const hue = 25 + load * 0.25
+  const baseHue = Number(cssVar('--nimbus-gradient-hue', '25')) || 25
+  const hue = baseHue + load * 0.25
   const light = 7 + load * 0.05
   return `linear-gradient(145deg, hsl(${hue}, 55%, ${light}%) 0%, hsl(${hue + 8}, 45%, ${light + 7}%) 60%, hsl(${hue + 15}, 40%, ${light + 20}%) 100%)`
 }
 
-// xterm.js reads colors as a JS object at construction time; it does not see the page's CSS.
-export const xtermTheme = {
-  background: palette.charcoal[950],
-  foreground: 'rgba(255, 246, 238, 0.92)',
-  cursor: palette.sun[400],
-  cursorAccent: textOnAccent,
-  selectionBackground: 'rgba(240, 129, 58, 0.35)',
-  black: palette.charcoal[900],
-  brightBlack: palette.charcoal[600],
-  red: palette.red[500],
-  brightRed: palette.red[400],
-  green: palette.green[500],
-  brightGreen: palette.green[400],
-  yellow: palette.amber[500],
-  brightYellow: palette.amber[400],
-  blue: palette.sky[500],
-  brightBlue: palette.sky[400],
-  magenta: palette.sun[600],
-  brightMagenta: palette.sun[400],
-  cyan: palette.sky[400],
-  brightCyan: palette.sky[300],
-  white: palette.charcoal[100],
-  brightWhite: palette.charcoal[50],
+// xterm.js reads colors as a JS object at construction time; it does not see
+// the page's CSS, so this must be called (not imported as a static value)
+// after the page's stylesheets — including any override — have loaded.
+export function getXtermTheme() {
+  return {
+    background: cssVar('--color-bg-canvas', palette.charcoal[950]),
+    foreground: cssVar('--text-primary', 'rgba(255, 246, 238, 0.92)'),
+    cursor: cssVar('--nimbus-sun-400', palette.sun[400]),
+    cursorAccent: cssVar('--color-text-on-accent', textOnAccent),
+    selectionBackground: cssVar('--color-accent-soft-border', 'rgba(240, 129, 58, 0.35)'),
+    black: cssVar('--nimbus-charcoal-900', palette.charcoal[900]),
+    brightBlack: cssVar('--nimbus-charcoal-600', palette.charcoal[600]),
+    red: cssVar('--nimbus-red-500', palette.red[500]),
+    brightRed: cssVar('--nimbus-red-400', palette.red[400]),
+    green: cssVar('--nimbus-green-500', palette.green[500]),
+    brightGreen: cssVar('--nimbus-green-400', palette.green[400]),
+    yellow: cssVar('--nimbus-amber-500', palette.amber[500]),
+    brightYellow: cssVar('--nimbus-amber-400', palette.amber[400]),
+    blue: cssVar('--nimbus-sky-500', palette.sky[500]),
+    brightBlue: cssVar('--nimbus-sky-400', palette.sky[400]),
+    magenta: cssVar('--nimbus-sun-600', palette.sun[600]),
+    brightMagenta: cssVar('--nimbus-sun-400', palette.sun[400]),
+    cyan: cssVar('--nimbus-sky-400', palette.sky[400]),
+    brightCyan: cssVar('--nimbus-sky-300', palette.sky[300]),
+    white: cssVar('--nimbus-charcoal-100', palette.charcoal[100]),
+    brightWhite: cssVar('--nimbus-charcoal-50', palette.charcoal[50]),
+  }
 }
 
-// QRCode.toCanvas() colors for the kiosk "scan to connect" screen.
-export const qrColors = {
-  dark: palette.charcoal[950],
-  light: '#FFF6EE',
+// QRCode.toCanvas() colors for the kiosk "scan to connect" screen. Same
+// call-time-not-import-time reasoning as getXtermTheme().
+export function getQrColors() {
+  return {
+    dark: cssVar('--color-bg-canvas', palette.charcoal[950]),
+    light: cssVar('--nimbus-charcoal-50', '#FFF6EE'),
+  }
 }

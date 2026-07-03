@@ -137,6 +137,11 @@
   --blur-md: 16px;
   --blur-lg: 20px;
 
+  /* Hue (0-360, no unit) of the animated home-screen background gradient.
+     Read dynamically by theme.js's ambientGradient() — override this alone
+     to re-tint the ambient background without touching the gradient math. */
+  --nimbus-gradient-hue: 25;
+
   /* ---- Typography ---- */
   --font-sans: 'Ubuntu Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: 'Ubuntu Mono', ui-monospace, "SF Mono", "Cascadia Code", "Fira Code", monospace;

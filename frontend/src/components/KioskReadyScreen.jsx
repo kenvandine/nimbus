@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
 import { RotateCcw, Power } from 'lucide-react'
 import { restartSystem, powerOffSystem } from '../api.js'
-import { qrColors } from '../theme.js'
+import { getQrColors } from '../theme.js'
 import Spinner from './ui/Spinner.jsx'
 import Badge from './ui/Badge.jsx'
 import NimbusMark from './ui/NimbusMark.jsx'
@@ -56,7 +56,7 @@ export default function KioskReadyScreen({ stats }) {
     QRCode.toCanvas(canvasRef.current, nimbuUrl, {
       width: 200,
       margin: 2,
-      color: qrColors,
+      color: getQrColors(),
     }).catch(() => setQrError(true))
   }, [nimbuUrl, bootstrapReady])
 
@@ -267,7 +267,7 @@ const styles = {
     boxSizing: 'border-box',
   },
   qrWrap: {
-    background: qrColors.light,
+    background: 'var(--nimbus-charcoal-50)',
     borderRadius: 'var(--radius-lg)',
     padding: 12,
     display: 'inline-flex',

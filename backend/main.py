@@ -87,6 +87,46 @@ if _snap_common:
 STATIC_DIR = Path(__file__).parent / "static"
 
 
+def _seed_theme_override_dir(directory: Path) -> None:
+    """Create the theme-override directory with a README on first run.
+
+    Never touches an existing directory beyond that — an operator's
+    override.css/logo.svg (or their absence) is left exactly as-is.
+    """
+    try:
+        readme = directory / "README.md"
+        if readme.exists():
+            return
+        directory.mkdir(parents=True, exist_ok=True)
+        readme.write_text(
+            "# Nimbus theme overrides\n\n"
+            "Drop files here to change Nimbus's look and feel without rebuilding\n"
+            "the frontend. This directory is served at /theme/ and survives snap\n"
+            "refreshes. Nothing here is required — Nimbus ships its own defaults\n"
+            "and only loads what it finds.\n\n"
+            "## override.css\n\n"
+            "Nimbus's entire UI is styled from CSS custom properties defined in\n"
+            "one place (frontend/src/theme.css in the source tree). Redeclare any\n"
+            "of them here and the whole app picks it up — colors, spacing, radius,\n"
+            "shadows, fonts. Example:\n\n"
+            "```css\n"
+            ":root {\n"
+            "  --color-accent: #3E8CA8;       /* primary buttons, focus rings, badges */\n"
+            "  --color-bg-canvas: #0a0f14;    /* base background */\n"
+            "  --font-sans: 'Inter', sans-serif;\n"
+            "  --nimbus-gradient-hue: 200;    /* hue of the ambient home-screen background */\n"
+            "}\n"
+            "```\n\n"
+            "See theme.css in the frontend source for the full token list.\n\n"
+            "## logo.svg\n\n"
+            "Drop a square SVG (any viewBox) here to replace the cloud logomark shown\n"
+            "on the onboarding, login, and kiosk-ready screens.\n",
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        logger.warning("Could not seed theme override dir %s: %s", directory, exc)
+
+
 _LOCALHOST_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
@@ -231,6 +271,12 @@ async def captive_portal_middleware(request, call_next):
         and request.url.path != "/"
         and not request.url.path.startswith("/api/")
         and not request.url.path.startswith("/ws/")
+        # A missing theme override (the common case — nothing dropped in
+        # $SNAP_COMMON/theme yet) must 404 cleanly. Otherwise this turns into
+        # a redirect to "/", and e.g. a HEAD check for logo.svg would come
+        # back 200 (redirected to index.html) and be mistaken for an override
+        # actually existing.
+        and not request.url.path.startswith("/theme/")
     ):
         from fastapi.responses import RedirectResponse
         host = request.headers.get("host", "").lower()
@@ -254,6 +300,12 @@ app.include_router(ssh_router)
 app.include_router(models_router)
 app.include_router(keys_router)
 app.include_router(tailscale_router)
+
+# Must be mounted before the catch-all "/" frontend mount below, or that
+# mount (which matches every path as a prefix) would shadow it.
+_seed_theme_override_dir(settings.theme_override_dir)
+if settings.theme_override_dir.exists():
+    app.mount("/theme", StaticFiles(directory=str(settings.theme_override_dir)), name="theme_override")
 
 if settings.serve_frontend and STATIC_DIR.exists():
     app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="frontend")

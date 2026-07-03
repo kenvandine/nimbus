@@ -3,7 +3,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
-import { xtermTheme } from '../theme.js'
+import { getXtermTheme } from '../theme.js'
 
 const TERMINAL_FONT_FAMILY = '"Ubuntu Mono", ui-monospace, "SF Mono", "Cascadia Code", "Fira Code", monospace'
 
@@ -109,7 +109,7 @@ async function _ensureTerminal() {
   } catch {}
 
   _term = new Terminal({
-    theme: xtermTheme,
+    theme: getXtermTheme(),
     fontFamily: TERMINAL_FONT_FAMILY,
     fontSize: 13,
     lineHeight: 1.4,
