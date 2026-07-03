@@ -31,6 +31,9 @@ export default function Modal({ title, onClose, children, footer, width = 420 })
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title || 'Dialog'}
         onClick={e => e.stopPropagation()}
         style={{
           width: `min(${width}px, 100%)`,
