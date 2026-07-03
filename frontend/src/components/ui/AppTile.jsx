@@ -48,7 +48,7 @@ export default function AppTile({ app, onOpen, onAction }) {
             src={app.icon}
             alt=""
             style={styles.icon}
-            onError={e => { e.target.src = `/api/apps/${app.id}/icon.svg` }}
+            onError={e => { e.currentTarget.onerror = null; e.currentTarget.src = `/api/apps/${app.id}/icon.svg` }}
           />
           {app.update_available && <span style={styles.updateDot} title="Update available" />}
         </div>
