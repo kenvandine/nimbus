@@ -30,8 +30,8 @@ export default function ScreenLock({ deviceName, onUnlock, onFail }) {
   }
 
   function handleKeyDown(e) {
-    if (e.key >= '0' && e.key <= '9' && pin.length < PIN_LENGTH) {
-      setPin(pin + e.key)
+    if (e.key >= '0' && e.key <= '9') {
+      setPin(p => (p.length < PIN_LENGTH ? p + e.key : p))
       e.preventDefault()
     } else if (e.key === 'Backspace') {
       setPin(p => p.slice(0, -1))
