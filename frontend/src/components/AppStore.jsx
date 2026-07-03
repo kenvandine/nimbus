@@ -69,9 +69,9 @@ export default function AppStore({ apps, onRefresh, onOpenDetail, activeInstalls
           {t('advanced', 'Advanced')}
         </button>
         <Button variant="secondary" size="sm" onClick={handleRefreshCatalog} disabled={refreshing} loading={refreshing} title={t('refresh_app_catalog', 'Refresh app catalog')}>
-          {refreshing ? t('app_store_updating', 'Updating…') : <><RefreshCw size={13} /> {t('app_store_refresh', 'Refresh Store')}</>}
+          {refreshing ? t('app_store_refreshing', 'Refreshing…') : <><RefreshCw size={13} /> {t('app_store_refresh', 'Refresh Store')}</>}
         </Button>
-        <span style={styles.count}>{filtered.length} {t('apps', 'apps')}</span>
+        <span style={styles.count}>{filtered.length} {filtered.length === 1 ? t('app_singular', 'app') : t('app_plural', 'apps')}</span>
       </div>
 
       {showUnsupported && filtered.length > 0 && (

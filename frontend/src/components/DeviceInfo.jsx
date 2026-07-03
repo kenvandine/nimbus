@@ -511,7 +511,7 @@ export default function DeviceInfo({ stats, apps }) {
                 style={{ ...styles.tab, ...(logSource === 'lxc' ? styles.tabActive : {}) }}
                 onClick={() => setLogSource('lxc')}
               >
-                {t('device_info_managed_environment', 'Container')}
+                {t('device_info_logs_container', 'Container')}
               </button>
             )}
           </div>

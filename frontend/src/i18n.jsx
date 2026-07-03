@@ -31,6 +31,8 @@ const translations = {
     version: "Version",
     restart: "Restart",
     restarting: "Restarting…",
+    enable: "Enable",
+    disable: "Disable",
     power_off: "Power Off",
     power_off_busy: "Powering off…",
     edit: "Edit",
@@ -58,11 +60,14 @@ const translations = {
     oobe_handover_desc: "Nimbus will join {{ssid}} and switch off its setup Wi-Fi. This page will close on its own — that's expected.",
     oobe_handover_step1: "1. Reconnect this phone to {{ssid}} (or any network with internet).",
     oobe_handover_step2: "2. Open nimbus.local in your browser to finish setup.",
+    oobe_handover_step2_open: "Open",
+    oobe_handover_step2_finish: "in your browser to finish setup.",
     oobe_handover_btn: "Connect & continue",
     oobe_transition_title: "Connecting…",
     oobe_transition_desc: "Joining {{ssid}} and turning off the setup Wi-Fi.",
     oobe_transition_auto: "This will continue on its own once Nimbus is online.",
     oobe_transition_manual: "Still here in a minute? Reconnect to {{ssid}} and open nimbus.local.",
+    oobe_transition_manual_part1: "Still here in a minute? Reconnect to {{ssid}} and open",
 
     oobe_account_title: "Create your account",
     oobe_account_desc: "This protects access to your Nimbus.",
@@ -112,6 +117,7 @@ const translations = {
     settings_system_restart: "Restart system",
     settings_system_restart_desc: "Reboot the device",
     settings_system_restart_busy: "Restarting…",
+    settings_system_restart_success_msg: "Restart requested.",
 
     settings_ip_title: "IP Addresses",
     settings_ip_loading: "Loading…",
@@ -259,6 +265,7 @@ const translations = {
     app_store_update_available: "Update available",
     app_store_installing: "Installing…",
     app_store_uninstalling: "Uninstalling…",
+    app_store_refreshing: "Refreshing…",
     app_store_refresh: "Refresh Store",
     app_store_search: "Search apps…",
     app_store_no_apps: "No apps found matching search.",
@@ -288,6 +295,7 @@ const translations = {
 
     // Login
     login_title: "Sign in to Nimbus",
+    login_welcome_back: "Welcome back",
     login_username: "Username",
     login_password: "Password",
     login_button: "Sign in",
@@ -303,6 +311,10 @@ const translations = {
     frame_open_tab: "Open in new tab ↗",
     frame_fullscreen: "⛶ Fullscreen",
     frame_exit_fullscreen: "✕ Exit fullscreen",
+    app_singular: "app",
+    app_plural: "apps",
+    refresh_app_catalog: "Refresh app catalog",
+    device_info_logs_container: "Container",
   },
   es: {
     // general
@@ -331,6 +343,8 @@ const translations = {
     version: "Versión",
     restart: "Reiniciar",
     restarting: "Reiniciando…",
+    enable: "Habilitar",
+    disable: "Deshabilitar",
     power_off: "Apagar",
     power_off_busy: "Apagando…",
     edit: "Editar",
@@ -358,11 +372,14 @@ const translations = {
     oobe_handover_desc: "Nimbus se unirá a {{ssid}} y apagará su Wi-Fi de configuración. Esta página se cerrará sola; es normal.",
     oobe_handover_step1: "1. Vuelve a conectar este teléfono a {{ssid}} (o cualquier red con Internet).",
     oobe_handover_step2: "2. Abre nimbus.local en tu navegador para terminar la configuración.",
+    oobe_handover_step2_open: "Abre",
+    oobe_handover_step2_finish: "en tu navegador para terminar la configuración.",
     oobe_handover_btn: "Conectar y continuar",
     oobe_transition_title: "Conectando…",
     oobe_transition_desc: "Uniéndose a {{ssid}} y apagando el Wi-Fi de configuración.",
     oobe_transition_auto: "Esto continuará por sí solo una vez que Nimbus esté en línea.",
     oobe_transition_manual: "¿Sigues aquí en un minuto? Vuelve a conectarte a {{ssid}} y abre nimbus.local.",
+    oobe_transition_manual_part1: "¿Sigues aquí en un minuto? Vuelve a conectarte a {{ssid}} y abre",
 
     oobe_account_title: "Crea tu cuenta",
     oobe_account_desc: "Esto protege el acceso a tu Nimbus.",
@@ -412,6 +429,7 @@ const translations = {
     settings_system_restart: "Reiniciar sistema",
     settings_system_restart_desc: "Reiniciar el dispositivo",
     settings_system_restart_busy: "Reiniciando…",
+    settings_system_restart_success_msg: "Reinicio solicitado.",
 
     settings_ip_title: "Direcciones IP",
     settings_ip_loading: "Cargando…",
@@ -558,7 +576,8 @@ const translations = {
     app_store_update: "Actualizar",
     app_store_update_available: "Actualización disponible",
     app_store_installing: "Instalando…",
-    app_store_uninstalling: "Desinstallando…",
+    app_store_uninstalling: "Desinstalando…",
+    app_store_refreshing: "Actualizando catálogo…",
     app_store_refresh: "Actualizar tienda",
     app_store_search: "Buscar aplicaciones…",
     app_store_no_apps: "No se encontraron aplicaciones coincidiendo con la búsqueda.",
@@ -588,6 +607,7 @@ const translations = {
 
     // Login
     login_title: "Iniciar sesión en Nimbus",
+    login_welcome_back: "Bienvenido de nuevo",
     login_username: "Nombre de usuario",
     login_password: "Contraseña",
     login_button: "Iniciar sesión",
@@ -603,6 +623,10 @@ const translations = {
     frame_open_tab: "Abrir en una nueva pestaña ↗",
     frame_fullscreen: "⛶ Pantalla completa",
     frame_exit_fullscreen: "✕ Salir de pantalla completa",
+    app_singular: "aplicación",
+    app_plural: "aplicaciones",
+    refresh_app_catalog: "Actualizar catálogo de aplicaciones",
+    device_info_logs_container: "Contenedor",
   },
   fr: {
     // general
@@ -631,6 +655,8 @@ const translations = {
     version: "Version",
     restart: "Redémarrer",
     restarting: "Redémarrage…",
+    enable: "Activer",
+    disable: "Désactiver",
     power_off: "Éteindre",
     power_off_busy: "Extinction…",
     edit: "Modifier",
@@ -658,11 +684,14 @@ const translations = {
     oobe_handover_desc: "Nimbus va rejoindre {{ssid}} et éteindre son Wi-Fi de configuration. Cette page se fermera d'elle-même — c'est normal.",
     oobe_handover_step1: "1. Reconnectez ce téléphone à {{ssid}} (ou tout réseau avec internet).",
     oobe_handover_step2: "2. Ouvrez nimbus.local dans votre navigateur pour terminer la configuration.",
+    oobe_handover_step2_open: "Ouvrez",
+    oobe_handover_step2_finish: "dans votre navigateur pour terminer la configuration.",
     oobe_handover_btn: "Se connecter et continuer",
     oobe_transition_title: "Connexion…",
     oobe_transition_desc: "Connexion à {{ssid}} et arrêt du Wi-Fi de configuration.",
     oobe_transition_auto: "Cela continuera tout seul une fois Nimbus en ligne.",
     oobe_transition_manual: "Toujours là après une minute ? Reconnectez-vous à {{ssid}} et ouvrez nimbus.local.",
+    oobe_transition_manual_part1: "Toujours là après une minute ? Reconnectez-vous à {{ssid}} et ouvrez",
 
     oobe_account_title: "Créez votre compte",
     oobe_account_desc: "Cela protège l'accès à votre Nimbus.",
@@ -712,6 +741,7 @@ const translations = {
     settings_system_restart: "Redémarrer le système",
     settings_system_restart_desc: "Redémarrer l'appareil",
     settings_system_restart_busy: "Redémarrage…",
+    settings_system_restart_success_msg: "Redémarrage demandé.",
 
     settings_ip_title: "Adresses IP",
     settings_ip_loading: "Chargement…",
@@ -826,7 +856,7 @@ const translations = {
     device_info_temperatures: "Températures",
     device_info_network_interfaces: "Interfaces Réseau",
     device_info_app_status: "État du conteneur d'applications",
-    device_info_managed_environment: "Contenedor LXD géré",
+    device_info_managed_environment: "Conteneur LXD géré",
     device_info_running: "En cours d'exécution",
     device_info_stopped: "Arrêté",
     device_info_error: "Erreur",
@@ -859,6 +889,7 @@ const translations = {
     app_store_update_available: "Mise à jour disponible",
     app_store_installing: "Installation…",
     app_store_uninstalling: "Désinstallation…",
+    app_store_refreshing: "Actualisation…",
     app_store_refresh: "Actualiser la boutique",
     app_store_search: "Rechercher des applications…",
     app_store_no_apps: "Aucune application ne correspond à votre recherche.",
@@ -888,6 +919,7 @@ const translations = {
 
     // Login
     login_title: "Connexion à Nimbus",
+    login_welcome_back: "Bon retour",
     login_username: "Nom d'utilisateur",
     login_password: "Mot de passe",
     login_button: "Se connecter",
@@ -903,6 +935,10 @@ const translations = {
     frame_open_tab: "Ouvrir dans un nouvel onglet ↗",
     frame_fullscreen: "⛶ Plein écran",
     frame_exit_fullscreen: "✕ Quitter le plein écran",
+    app_singular: "application",
+    app_plural: "applications",
+    refresh_app_catalog: "Actualiser le catalogue d'applications",
+    device_info_logs_container: "Conteneur",
   }
 };
 
