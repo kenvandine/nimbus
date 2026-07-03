@@ -56,6 +56,7 @@ export default function Modal({ title, onClose, children, footer, width = 420 })
             </span>
             {onClose && (
               <button
+                type="button"
                 onClick={onClose}
                 aria-label="Close"
                 style={{
