@@ -632,6 +632,7 @@ const styles = {
     width: '100vw',
     display: 'flex',
     flexDirection: 'column',
+    overflow: 'hidden',
     fontFamily: 'var(--font-sans)',
     color: 'var(--text-primary)',
     position: 'relative',
