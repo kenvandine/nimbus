@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import SystemLogViewer from './SystemLogViewer'
 import { getModelStatus, pullModel, ensureModel, getAvailableModels, selectModel, getHardwareInfo } from '../api.js'
+import Button from './ui/Button.jsx'
 
 const BASE = import.meta.env.VITE_API_BASE ?? '/api'
 
@@ -131,13 +132,9 @@ function SnapshotsTab({ containerReady }) {
           onChange={e => setNewName(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && handleCreate()}
         />
-        <button
-          style={{ ...styles.btnPrimary, ...(busy === 'create' ? styles.btnDisabled : {}) }}
-          onClick={handleCreate}
-          disabled={busy === 'create' || !newName.trim()}
-        >
+        <Button variant="soft" size="sm" onClick={handleCreate} disabled={busy === 'create' || !newName.trim()} loading={busy === 'create'}>
           {busy === 'create' ? 'Creating…' : 'Create'}
-        </button>
+        </Button>
       </div>
 
       {error && <div style={styles.errorText}>{error}</div>}
@@ -155,20 +152,12 @@ function SnapshotsTab({ containerReady }) {
             )}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              style={{ ...styles.btnSecondary, ...(busy ? styles.btnDisabled : {}) }}
-              onClick={() => setConfirmRestore(snap.name)}
-              disabled={Boolean(busy)}
-            >
+            <Button variant="secondary" size="sm" onClick={() => setConfirmRestore(snap.name)} disabled={Boolean(busy)}>
               Restore
-            </button>
-            <button
-              style={{ ...styles.btnDanger, ...(busy ? styles.btnDisabled : {}) }}
-              onClick={() => handleDelete(snap.name)}
-              disabled={Boolean(busy)}
-            >
+            </Button>
+            <Button variant="danger" size="sm" onClick={() => handleDelete(snap.name)} disabled={Boolean(busy)} loading={busy === `del-${snap.name}`}>
               {busy === `del-${snap.name}` ? 'Deleting…' : 'Delete'}
-            </button>
+            </Button>
           </div>
         </div>
       ))}
@@ -182,14 +171,10 @@ function SnapshotsTab({ containerReady }) {
               All changes since the snapshot will be lost.
             </p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button style={styles.btnSecondary} onClick={() => setConfirmRestore(null)}>Cancel</button>
-              <button
-                style={{ ...styles.btnDanger, ...(busy ? styles.btnDisabled : {}) }}
-                onClick={() => handleRestore(confirmRestore)}
-                disabled={Boolean(busy)}
-              >
+              <Button variant="secondary" size="sm" onClick={() => setConfirmRestore(null)}>Cancel</Button>
+              <Button variant="danger" size="sm" onClick={() => handleRestore(confirmRestore)} disabled={Boolean(busy)} loading={busy === `restore-${confirmRestore}`}>
                 {busy === `restore-${confirmRestore}` ? 'Restoring…' : 'Restore'}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -280,8 +265,8 @@ function AiModelTab() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {error && <div style={{ color: '#ff8a80', fontSize: 12 }}>{error}</div>}
-      {msg && <div style={{ color: 'rgba(129,199,132,0.9)', fontSize: 12 }}>{msg}</div>}
+      {error && <div style={{ color: 'var(--color-danger)', fontSize: 12 }}>{error}</div>}
+      {msg && <div style={{ color: 'var(--color-success)', fontSize: 12 }}>{msg}</div>}
 
       {modelStatus === null && <p style={styles.muted}>Loading…</p>}
       {modelStatus !== null && (
@@ -293,20 +278,20 @@ function AiModelTab() {
             </div>
             <div style={styles.infoRow}>
               <span style={styles.infoLabel}>Active Model</span>
-              <span style={{ ...styles.infoValue, fontFamily: 'ui-monospace, monospace', fontSize: 11 }}>
+              <span style={{ ...styles.infoValue, fontFamily: 'var(--font-mono)', fontSize: 11 }}>
                 {friendlyModelName(currentModelId)}
               </span>
             </div>
             <div style={styles.infoRow}>
               <span style={styles.infoLabel}>Status</span>
-              <span style={{ ...styles.infoValue, color: modelStatus.status === 'ready' ? 'rgba(129,199,132,0.9)' : 'rgba(255,255,255,0.5)' }}>
+              <span style={{ ...styles.infoValue, color: modelStatus.status === 'ready' ? 'var(--color-success)' : 'var(--text-secondary)' }}>
                 {modelStatus.status || '—'}
               </span>
             </div>
             {lemon && (
               <div style={styles.infoRow}>
                 <span style={styles.infoLabel}>Lemonade</span>
-                <span style={{ ...styles.infoValue, color: lemon.reachable ? 'rgba(129,199,132,0.9)' : 'rgba(255,138,128,0.8)' }}>
+                <span style={{ ...styles.infoValue, color: lemon.reachable ? 'var(--color-success)' : 'var(--color-danger)' }}>
                   {lemon.reachable ? 'Running' : 'Not reachable'}
                 </span>
               </div>
@@ -324,7 +309,7 @@ function AiModelTab() {
 
           {availableModels.length > 1 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <label style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>Change Model</label>
+              <label style={{ fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)' }}>Change Model</label>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <select
                   value={selectedModel || currentModelId || ''}
@@ -341,24 +326,12 @@ function AiModelTab() {
                     </option>
                   ))}
                 </select>
-                <button
-                  style={{
-                    ...styles.btnPrimary,
-                    ...((!isDifferent || busy) ? styles.btnDisabled : {}),
-                    whiteSpace: 'nowrap',
-                  }}
-                  onClick={handleSelect}
-                  disabled={!isDifferent || Boolean(busy)}
-                >
-                  {busy === 'select'
-                    ? 'Switching…'
-                    : selectedModelInfo?.downloaded
-                      ? 'Apply'
-                      : 'Pull & Apply'}
-                </button>
+                <Button variant="soft" size="sm" onClick={handleSelect} disabled={!isDifferent || Boolean(busy)} loading={busy === 'select'} style={{ whiteSpace: 'nowrap' }}>
+                  {busy === 'select' ? 'Switching…' : selectedModelInfo?.downloaded ? 'Apply' : 'Pull & Apply'}
+                </Button>
               </div>
               {isDifferent && (
-                <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', margin: 0 }}>
+                <p style={{ fontSize: 11, color: 'var(--text-tertiary)', margin: 0, fontFamily: 'var(--font-sans)' }}>
                   {selectedModelInfo?.downloaded
                     ? 'Will load the model and re-run auto-config for installed apps.'
                     : 'Will download the model, then re-run auto-config for installed apps.'}
@@ -368,20 +341,12 @@ function AiModelTab() {
           )}
 
           <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              style={{ ...styles.btnPrimary, ...(busy === 'ensure' ? styles.btnDisabled : {}) }}
-              onClick={handleEnsure}
-              disabled={Boolean(busy)}
-            >
+            <Button variant="soft" size="sm" onClick={handleEnsure} disabled={Boolean(busy)} loading={busy === 'ensure'}>
               {busy === 'ensure' ? 'Verifying…' : 'Verify / Load'}
-            </button>
-            <button
-              style={{ ...styles.btnSecondary, ...(busy === 'pull' ? styles.btnDisabled : {}) }}
-              onClick={handlePull}
-              disabled={Boolean(busy)}
-            >
+            </Button>
+            <Button variant="secondary" size="sm" onClick={handlePull} disabled={Boolean(busy)} loading={busy === 'pull'}>
               {busy === 'pull' ? 'Pulling…' : 'Re-pull Model'}
-            </button>
+            </Button>
           </div>
         </>
       )}
@@ -443,17 +408,17 @@ export default function DeviceInfo({ stats, apps }) {
             <h3 style={styles.sectionTitle}>System Resources</h3>
             {stats ? (
               <>
-                <Gauge label="CPU" value={stats.cpu_pct} color="#4fc3f7" />
+                <Gauge label="CPU" value={stats.cpu_pct} color="var(--color-accent)" />
                 <Gauge
                   label="Memory"
                   value={stats.mem_pct}
-                  color="#81d4fa"
+                  color="var(--color-info)"
                   subtitle={stats.mem_total_gb ? `${stats.mem_used_gb} / ${hardware?.ram_gb ?? stats.mem_total_gb} GB` : undefined}
                 />
                 <Gauge
                   label="Disk"
                   value={stats.disk_pct}
-                  color="#b3e5fc"
+                  color="var(--nimbus-sky-300)"
                   subtitle={stats.disk_total_gb ? `${stats.disk_used_gb} / ${stats.disk_total_gb} GB` : undefined}
                 />
               </>
@@ -487,9 +452,9 @@ export default function DeviceInfo({ stats, apps }) {
           <section style={styles.section}>
             <h3 style={styles.sectionTitle}>Apps</h3>
             <div style={styles.statGrid}>
-              <StatTile value={installed} label="Installed" color="#4fc3f7" />
-              <StatTile value={running} label="Running" color="#4caf50" />
-              <StatTile value={updates} label="Updates" color="#ff9800" />
+              <StatTile value={installed} label="Installed" color="var(--color-info)" />
+              <StatTile value={running} label="Running" color="var(--color-success)" />
+              <StatTile value={updates} label="Updates" color="var(--color-warning)" />
             </div>
           </section>
 
@@ -564,28 +529,28 @@ function StatTile({ value, label, color }) {
 }
 
 const styles = {
-  container: { display: 'flex', flexDirection: 'column', gap: '28px' },
+  container: { display: 'flex', flexDirection: 'column', gap: '28px', fontFamily: 'var(--font-sans)' },
   setupBanner: {
     padding: '16px 18px',
-    borderRadius: '14px',
-    background: 'rgba(79,195,247,0.12)',
-    border: '1px solid rgba(79,195,247,0.24)',
+    borderRadius: 'var(--radius-md)',
+    background: 'var(--color-accent-soft-bg)',
+    border: '1px solid var(--color-accent-soft-border)',
   },
   setupBannerTitle: {
-    color: '#b3e5fc',
+    color: 'var(--color-accent-soft-text)',
     fontSize: '14px',
     fontWeight: 700,
     marginBottom: '6px',
   },
   setupBannerText: {
-    color: 'rgba(255,255,255,0.76)',
+    color: 'var(--text-primary)',
     fontSize: '13px',
     lineHeight: 1.5,
   },
-  tabRow: { display: 'flex', gap: '6px', borderBottom: '1px solid rgba(255,255,255,0.07)', paddingBottom: '2px' },
+  tabRow: { display: 'flex', gap: '6px', borderBottom: '1px solid var(--color-border-subtle)', paddingBottom: '2px' },
   section: {},
   sectionTitle: {
-    color: 'rgba(255,255,255,0.38)',
+    color: 'var(--text-tertiary)',
     fontSize: '11px',
     fontWeight: 600,
     textTransform: 'uppercase',
@@ -594,14 +559,14 @@ const styles = {
   },
   gaugeWrap: { marginBottom: '14px' },
   gaugeHeader: { display: 'flex', justifyContent: 'space-between', marginBottom: '6px' },
-  gaugeLabel: { color: 'rgba(255,255,255,0.65)', fontSize: '13px' },
-  gaugeValue: { color: 'rgba(255,255,255,0.45)', fontSize: '13px' },
-  track: { height: '8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden' },
+  gaugeLabel: { color: 'var(--text-secondary)', fontSize: '13px' },
+  gaugeValue: { color: 'var(--text-tertiary)', fontSize: '13px' },
+  track: { height: '8px', background: 'var(--color-surface-3)', borderRadius: '4px', overflow: 'hidden' },
   fill: { height: '100%', borderRadius: '4px', transition: 'width 0.6s ease' },
   statGrid: { display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '12px' },
   tile: {
-    background: 'rgba(255,255,255,0.06)',
-    borderRadius: '12px',
+    background: 'var(--color-surface-2)',
+    borderRadius: 'var(--radius-md)',
     padding: '16px',
     display: 'flex',
     flexDirection: 'column',
@@ -609,46 +574,49 @@ const styles = {
     gap: '4px',
   },
   tileValue: { fontSize: '28px', fontWeight: 700, lineHeight: 1 },
-  tileLabel: { color: 'rgba(255,255,255,0.45)', fontSize: '12px' },
+  tileLabel: { color: 'var(--text-tertiary)', fontSize: '12px' },
   infoTable: {
-    background: 'rgba(255,255,255,0.04)',
-    borderRadius: '12px',
+    background: 'var(--color-surface-1)',
+    borderRadius: 'var(--radius-md)',
     overflow: 'hidden',
   },
   infoRow: {
     display: 'flex',
     justifyContent: 'space-between',
     padding: '11px 16px',
-    borderBottom: '1px solid rgba(255,255,255,0.06)',
+    borderBottom: '1px solid var(--color-border-subtle)',
   },
-  infoLabel: { color: 'rgba(255,255,255,0.45)', fontSize: '13px' },
-  infoValue: { color: 'rgba(255,255,255,0.8)', fontSize: '13px', fontWeight: 500 },
-  muted: { color: 'rgba(255,255,255,0.3)', fontSize: '13px' },
-  errorText: { color: '#ff8a80', fontSize: '12px', margin: '10px 0 0' },
+  infoLabel: { color: 'var(--text-tertiary)', fontSize: '13px' },
+  infoValue: { color: 'var(--text-primary)', fontSize: '13px', fontWeight: 500 },
+  muted: { color: 'var(--text-tertiary)', fontSize: '13px' },
+  errorText: { color: 'var(--color-danger)', fontSize: '12px', margin: '10px 0 0' },
   logTabs: { display: 'flex', gap: '6px', marginBottom: '10px' },
   tab: {
-    background: 'rgba(255,255,255,0.06)',
-    border: '1px solid rgba(255,255,255,0.1)',
-    color: 'rgba(255,255,255,0.5)',
-    borderRadius: '8px',
+    background: 'var(--color-surface-3)',
+    border: '1px solid var(--color-border-subtle)',
+    color: 'var(--text-secondary)',
+    borderRadius: 'var(--radius-sm)',
     padding: '5px 16px',
     fontSize: '12px',
     cursor: 'pointer',
     fontWeight: 500,
+    fontFamily: 'var(--font-sans)',
   },
   tabActive: {
-    background: 'rgba(79,195,247,0.15)',
-    border: '1px solid rgba(79,195,247,0.35)',
-    color: '#4fc3f7',
+    background: 'var(--color-accent-soft-bg)',
+    border: '1px solid var(--color-accent-soft-border)',
+    color: 'var(--color-accent-soft-text)',
   },
   snapshotRow: { display: 'flex', gap: 8 },
   snapInput: {
     flex: 1,
-    background: 'rgba(255,255,255,0.06)',
-    border: '1px solid rgba(255,255,255,0.15)',
-    borderRadius: '8px',
+    minHeight: 34,
+    background: 'var(--color-surface-2)',
+    border: '1px solid var(--color-border-strong)',
+    borderRadius: 'var(--radius-sm)',
     padding: '8px 12px',
-    color: 'rgba(255,255,255,0.85)',
+    color: 'var(--text-primary)',
+    fontFamily: 'var(--font-sans)',
     fontSize: '13px',
     outline: 'none',
   },
@@ -656,54 +624,21 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: 12,
-    background: 'rgba(255,255,255,0.04)',
-    border: '1px solid rgba(255,255,255,0.08)',
-    borderRadius: 10,
+    background: 'var(--color-surface-1)',
+    border: '1px solid var(--color-border-subtle)',
+    borderRadius: 'var(--radius-md)',
     padding: '12px 14px',
   },
-  snapName: { color: 'rgba(255,255,255,0.85)', fontSize: '13px', fontWeight: 600 },
-  snapDate: { color: 'rgba(255,255,255,0.35)', fontSize: '11px', marginTop: 2 },
-  btnPrimary: {
-    background: 'rgba(79,195,247,0.18)',
-    color: 'rgba(79,195,247,0.98)',
-    border: '1px solid rgba(79,195,247,0.3)',
-    borderRadius: '8px',
-    padding: '7px 14px',
-    fontSize: '12px',
-    fontWeight: 700,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-  },
-  btnSecondary: {
-    background: 'rgba(255,255,255,0.07)',
-    color: 'rgba(255,255,255,0.6)',
-    border: '1px solid rgba(255,255,255,0.12)',
-    borderRadius: '8px',
-    padding: '6px 12px',
-    fontSize: '12px',
-    fontWeight: 600,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-  },
-  btnDanger: {
-    background: 'rgba(255,138,128,0.12)',
-    color: 'rgba(255,138,128,0.9)',
-    border: '1px solid rgba(255,138,128,0.25)',
-    borderRadius: '8px',
-    padding: '6px 12px',
-    fontSize: '12px',
-    fontWeight: 600,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-  },
-  btnDisabled: { opacity: 0.5, cursor: 'not-allowed' },
+  snapName: { color: 'var(--text-primary)', fontSize: '13px', fontWeight: 600 },
+  snapDate: { color: 'var(--text-tertiary)', fontSize: '11px', marginTop: 2 },
   modelSelect: {
     flex: 1,
-    background: 'rgba(255,255,255,0.07)',
-    color: 'rgba(255,255,255,0.85)',
-    border: '1px solid rgba(255,255,255,0.15)',
-    borderRadius: '8px',
+    background: 'var(--color-surface-2)',
+    color: 'var(--text-primary)',
+    border: '1px solid var(--color-border-strong)',
+    borderRadius: 'var(--radius-sm)',
     padding: '6px 10px',
+    fontFamily: 'var(--font-sans)',
     fontSize: '12px',
     cursor: 'pointer',
     outline: 'none',
@@ -711,20 +646,21 @@ const styles = {
   confirmOverlay: {
     position: 'fixed',
     inset: 0,
-    background: 'rgba(0,0,0,0.6)',
+    background: 'var(--color-overlay-scrim)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 1000,
   },
   confirmCard: {
-    background: 'rgba(15,25,40,0.97)',
-    border: '1px solid rgba(255,255,255,0.12)',
-    borderRadius: 16,
+    background: 'var(--nimbus-charcoal-900)',
+    border: '1px solid var(--color-border-strong)',
+    borderRadius: 'var(--radius-lg)',
     padding: '24px',
     maxWidth: 400,
     width: '90%',
+    boxShadow: 'var(--shadow-xl)',
   },
-  confirmTitle: { color: 'white', fontSize: 16, fontWeight: 700, marginBottom: 10 },
-  confirmMsg: { color: 'rgba(255,255,255,0.65)', fontSize: 13, lineHeight: 1.5, margin: '0 0 18px' },
+  confirmTitle: { color: 'var(--text-primary)', fontSize: 16, fontWeight: 700, marginBottom: 10 },
+  confirmMsg: { color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.5, margin: '0 0 18px' },
 }

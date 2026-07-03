@@ -1,5 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
+import './theme.css'
 import App from './App.jsx'
 
 // Sets --vh to the layout viewport height so the app fills the screen without

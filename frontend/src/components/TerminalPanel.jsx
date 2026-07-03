@@ -3,6 +3,9 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
+import { xtermTheme } from '../theme.js'
+
+const TERMINAL_FONT_FAMILY = '"Ubuntu Mono", ui-monospace, "SF Mono", "Cascadia Code", "Fira Code", monospace'
 
 // Module-level singletons — survive component unmount/remount so the terminal
 // session (scrollback, cwd, command history) is preserved when the window closes.
@@ -54,7 +57,7 @@ async function _connect() {
     // Show the banner only on the very first connection; on reconnect the
     // backend replays any missed output so the banner would be redundant.
     if (!_sessionStarted) {
-      _term.write('\r\n\x1b[1;32m✦ Nimbus Container Terminal\x1b[0m \x1b[2m(nimbus user — sudo available)\x1b[0m\r\n\r\n')
+      _term.write('\r\n\x1b[1;32mNimbus Container Terminal\x1b[0m \x1b[2m(nimbus user — sudo available)\x1b[0m\r\n\r\n')
       _sessionStarted = true
     }
     requestAnimationFrame(() => { _fit?.fit(); _sendResize() })
@@ -92,73 +95,69 @@ async function _connect() {
   })
 }
 
+// Creates the Terminal + FitAddon + persistent container on first use. Waits
+// for the Ubuntu Mono webfont to actually be loaded first — xterm measures
+// glyph cell dimensions from whatever font is active at construction time,
+// and self-hosted webfonts aren't guaranteed loaded yet on first paint. If
+// this ran against the fallback font, cell metrics would be wrong and the
+// grid would misalign/clip once Ubuntu Mono swaps in.
+async function _ensureTerminal() {
+  if (_term) return
+  try {
+    await document.fonts.load(`13px "Ubuntu Mono"`)
+    await document.fonts.ready
+  } catch {}
+
+  _term = new Terminal({
+    theme: xtermTheme,
+    fontFamily: TERMINAL_FONT_FAMILY,
+    fontSize: 13,
+    lineHeight: 1.4,
+    cursorBlink: true,
+    scrollback: 5000,
+    allowProposedApi: true,
+  })
+  _fit = new FitAddon()
+  _term.loadAddon(_fit)
+  _term.loadAddon(new WebLinksAddon())
+  _container = document.createElement('div')
+  _container.style.cssText = 'flex:1; padding:8px; overflow:hidden; min-height:0;'
+}
+
 export default function TerminalPanel() {
   const wrapperRef = useRef(null)
 
   useEffect(() => {
+    let cancelled = false
     const wrapper = wrapperRef.current
     if (!wrapper) return
 
-    // Create the Terminal and persistent container on first mount.
-    if (!_term) {
-      _term = new Terminal({
-        theme: {
-          background: '#0d1117',
-          foreground: '#e6edf3',
-          cursor: '#58a6ff',
-          selectionBackground: 'rgba(88,166,255,0.25)',
-          black: '#21262d',
-          red: '#ff7b72',
-          green: '#3fb950',
-          yellow: '#d29922',
-          blue: '#58a6ff',
-          magenta: '#bc8cff',
-          cyan: '#76e3ea',
-          white: '#b1bac4',
-          brightBlack: '#6e7681',
-          brightRed: '#ffa198',
-          brightGreen: '#56d364',
-          brightYellow: '#e3b341',
-          brightBlue: '#79c0ff',
-          brightMagenta: '#d2a8ff',
-          brightCyan: '#b3f0ff',
-          brightWhite: '#f0f6fc',
-        },
-        fontFamily: '"Cascadia Code", "Fira Code", "SF Mono", ui-monospace, monospace',
-        fontSize: 13,
-        lineHeight: 1.4,
-        cursorBlink: true,
-        scrollback: 5000,
-        allowProposedApi: true,
-      })
-      _fit = new FitAddon()
-      _term.loadAddon(_fit)
-      _term.loadAddon(new WebLinksAddon())
-      _container = document.createElement('div')
-      _container.style.cssText = 'flex:1; padding:8px; overflow:hidden; min-height:0;'
-    }
+    _ensureTerminal().then(() => {
+      if (cancelled || !wrapper) return
 
-    // Move the persistent container into this wrapper. appendChild is a
-    // no-op if already parented here, and a move if coming from elsewhere.
-    wrapper.appendChild(_container)
+      // Move the persistent container into this wrapper. appendChild is a
+      // no-op if already parented here, and a move if coming from elsewhere.
+      wrapper.appendChild(_container)
 
-    // Open xterm into the container the first time it's in the DOM.
-    if (!_opened) {
-      _term.open(_container)
-      _opened = true
-      _connect()
-    } else if (!_ws || _ws.readyState === WebSocket.CLOSED || _ws.readyState === WebSocket.CLOSING) {
-      // Reconnect if the WS died while the terminal window was closed.
-      _connect()
-    }
+      // Open xterm into the container the first time it's in the DOM.
+      if (!_opened) {
+        _term.open(_container)
+        _opened = true
+        _connect()
+      } else if (!_ws || _ws.readyState === WebSocket.CLOSED || _ws.readyState === WebSocket.CLOSING) {
+        // Reconnect if the WS died while the terminal window was closed.
+        _connect()
+      }
 
-    // Refit now that the container is visible again.
-    requestAnimationFrame(() => { _fit?.fit(); _sendResize() })
+      // Refit now that the container is visible again.
+      requestAnimationFrame(() => { _fit?.fit(); _sendResize() })
+    })
 
     const ro = new ResizeObserver(() => { _fit?.fit(); _sendResize() })
     ro.observe(wrapper)
 
     return () => {
+      cancelled = true
       ro.disconnect()
       // Orphan the container — keep Terminal and WS alive for next open.
       if (_container?.parentNode) _container.parentNode.removeChild(_container)
@@ -172,7 +171,7 @@ const styles = {
   shell: {
     width: '100%',
     height: '100%',
-    background: '#0d1117',
+    background: 'var(--nimbus-charcoal-950)',
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',

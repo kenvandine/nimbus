@@ -1,6 +1,9 @@
 import { useState, useCallback, useEffect } from 'react'
+import { X, ArrowUp, Check, Copy } from 'lucide-react'
 import { installApp, uninstallApp, updateApp } from '../api.js'
 import { openApp } from '../utils.js'
+import Button from './ui/Button.jsx'
+import StatusDot from './ui/StatusDot.jsx'
 
 export default function AppModal({ app, onClose, onRefresh, isInstalling = false }) {
   const [action, setAction] = useState(null)
@@ -64,7 +67,7 @@ export default function AppModal({ app, onClose, onRefresh, isInstalling = false
     }
   }
 
-  const statusColor = { running: '#4caf50', installed: '#ff9800', installing: '#2196f3', available: 'rgba(255,255,255,0.3)' }[status]
+  const statusTone = { running: 'success', installed: 'warning', installing: 'info', available: 'neutral' }[status]
   const statusLabel = action === 'installing' ? 'Installing…'
     : action === 'uninstalling' ? 'Uninstalling…'
     : action === 'updating' ? 'Updating…'
@@ -73,8 +76,7 @@ export default function AppModal({ app, onClose, onRefresh, isInstalling = false
   return (
     <div className="modal-overlay" style={styles.overlay} onClick={onClose}>
       <div className="modal-panel" style={styles.panel} onClick={e => e.stopPropagation()}>
-        {/* Close */}
-        <button style={styles.closeBtn} onClick={onClose}>✕</button>
+        <button style={styles.closeBtn} onClick={onClose} aria-label="Close"><X size={16} /></button>
 
         {/* Hero header */}
         <div style={styles.hero}>
@@ -86,17 +88,14 @@ export default function AppModal({ app, onClose, onRefresh, isInstalling = false
             <h2 style={styles.heroName}>{app.name}</h2>
             <p style={styles.heroTagline}>{app.tagline}</p>
             <div style={styles.metaRow}>
-              <span style={{ ...styles.statusBadge, background: statusColor + '33', color: statusColor, border: `1px solid ${statusColor}55` }}>
-                <span style={{ ...styles.dot, background: statusColor }} />
-                {statusLabel}
-              </span>
+              <span style={styles.statusBadge}><StatusDot tone={statusTone} label={statusLabel} /></span>
               {app.developer && <span style={styles.metaChip}>by {app.developer}</span>}
               {app.confinement && (
                 <span style={{
                   ...styles.metaChip,
                   ...(app.confinement === 'classic'
-                    ? { background: 'rgba(255,152,0,0.12)', color: 'rgba(255,180,80,0.85)', border: '1px solid rgba(255,152,0,0.25)' }
-                    : { background: 'rgba(76,175,80,0.1)', color: 'rgba(100,220,120,0.85)', border: '1px solid rgba(76,175,80,0.2)' }
+                    ? { background: 'var(--color-warning-soft-bg)', color: 'var(--color-warning-soft-text)', border: '1px solid var(--color-warning-soft-border)' }
+                    : { background: 'var(--color-success-soft-bg)', color: 'var(--color-success-soft-text)', border: '1px solid var(--color-success-soft-border)' }
                   ),
                 }}>{app.confinement}</span>
               )}
@@ -109,27 +108,20 @@ export default function AppModal({ app, onClose, onRefresh, isInstalling = false
 
         {/* Action buttons */}
         <div style={styles.actionRow}>
-          {status === 'available' && !busy && (
-            <button style={styles.btnPrimary} onClick={handleInstall}>Install</button>
-          )}
+          {status === 'available' && !busy && <Button variant="primary" onClick={handleInstall}>Install</Button>}
           {busy && (
-            <button style={styles.btnBusy} disabled>
-              <span style={styles.spinner} />
+            <Button variant="secondary" loading disabled>
               {action === 'updating' ? 'Updating…' : action === 'uninstalling' ? 'Uninstalling…' : 'Installing…'}
-            </button>
+            </Button>
           )}
-          {app.update_available && !busy && (
-            <button style={styles.btnUpdate} onClick={handleUpdate}>⬆ Update</button>
-          )}
+          {app.update_available && !busy && <Button variant="soft" onClick={handleUpdate}><ArrowUp size={14} /> Update</Button>}
           {status === 'running' && !busy && app.open_url && (
-            <button style={styles.btnOpen} onClick={() => openApp(app.open_url, { name: app.name, id: app.id })}>Open ↗</button>
+            <Button variant="primary" onClick={() => openApp(app.open_url, { name: app.name, id: app.id })}>Open ↗</Button>
           )}
           {(status === 'running' || status === 'installed') && !busy && (
-            <button style={styles.btnDanger} onClick={handleUninstall}>Uninstall</button>
+            <Button variant="danger" onClick={handleUninstall}>Uninstall</Button>
           )}
-          {app.website && (
-            <button style={styles.btnGhost} onClick={() => openApp(app.website)}>Website ↗</button>
-          )}
+          {app.website && <Button variant="ghost" onClick={() => openApp(app.website)}>Website ↗</Button>}
         </div>
 
         {error && <p style={styles.error}>{error}</p>}
@@ -168,12 +160,8 @@ export default function AppModal({ app, onClose, onRefresh, isInstalling = false
           <div style={styles.descSection}>
             <h3 style={styles.sectionTitle}>Default Credentials</h3>
             <div style={styles.credTable}>
-              {app.default_username && (
-                <CredRow label="Username" value={app.default_username} />
-              )}
-              {app.default_password && (
-                <CredRow label="Password" value={app.default_password} />
-              )}
+              {app.default_username && <CredRow label="Username" value={app.default_username} />}
+              {app.default_password && <CredRow label="Password" value={app.default_password} />}
             </div>
           </div>
         )}
@@ -231,10 +219,7 @@ function CredRow({ label, value }) {
       <div style={styles.credValueWrap}>
         <code style={styles.credValue}>{value}</code>
         <button style={styles.copyBtn} onClick={copy} title="Copy">
-          {copied
-            ? <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><polyline points="1,7 5,11 12,2" stroke="#4fc3f7" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            : <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><rect x="4" y="1" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.4"/><path d="M1 4.5V11a1.5 1.5 0 001.5 1.5H9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
-          }
+          {copied ? <Check size={13} color="var(--color-accent-soft-text)" /> : <Copy size={13} />}
         </button>
       </div>
     </div>
@@ -244,85 +229,49 @@ function CredRow({ label, value }) {
 const styles = {
   overlay: {
     position: 'fixed', inset: 0,
-    background: 'rgba(0,0,0,0.7)',
+    background: 'var(--color-overlay-scrim)',
     backdropFilter: 'blur(4px)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     zIndex: 1000, padding: '20px',
   },
   panel: {
-    background: 'linear-gradient(160deg, #0f2035 0%, #0d1b2e 100%)',
-    border: '1px solid rgba(255,255,255,0.12)',
-    borderRadius: '20px',
+    background: 'var(--color-surface-2)',
+    border: '1px solid var(--color-border-subtle)',
+    borderRadius: 'var(--radius-xl)',
     width: '100%', maxWidth: '720px',
     maxHeight: '90vh', overflowY: 'auto',
     padding: '32px',
     position: 'relative',
     display: 'flex', flexDirection: 'column', gap: '24px',
+    fontFamily: 'var(--font-sans)',
+    boxShadow: 'var(--shadow-xl)',
   },
   closeBtn: {
     position: 'absolute', top: '16px', right: '16px',
-    background: 'rgba(255,255,255,0.08)', border: 'none', color: 'rgba(255,255,255,0.6)',
-    width: '32px', height: '32px', borderRadius: '8px', cursor: 'pointer',
-    fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    background: 'var(--color-surface-3)', border: 'none', color: 'var(--text-secondary)',
+    width: '32px', height: '32px', borderRadius: 'var(--radius-sm)', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
   },
   hero: { display: 'flex', gap: '20px', alignItems: 'flex-start' },
-  heroIcon: { width: '72px', height: '72px', borderRadius: '16px', objectFit: 'cover', flexShrink: 0 },
+  heroIcon: { width: '72px', height: '72px', borderRadius: 'var(--radius-lg)', objectFit: 'cover', flexShrink: 0 },
   iconFallback: {
-    background: 'rgba(255,255,255,0.15)', display: 'flex',
-    alignItems: 'center', justifyContent: 'center', fontSize: '32px', fontWeight: 700, color: 'white',
+    background: 'var(--color-surface-3)', display: 'flex',
+    alignItems: 'center', justifyContent: 'center', fontSize: '32px', fontWeight: 700, color: 'var(--text-primary)',
   },
   heroText: { flex: 1 },
-  heroName: { color: 'white', margin: '0 0 6px', fontSize: '22px', fontWeight: 700 },
-  heroTagline: { color: 'rgba(255,255,255,0.6)', margin: '0 0 12px', fontSize: '14px' },
+  heroName: { color: 'var(--text-primary)', margin: '0 0 6px', fontSize: '22px', fontWeight: 700 },
+  heroTagline: { color: 'var(--text-secondary)', margin: '0 0 12px', fontSize: '14px' },
   metaRow: { display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' },
-  statusBadge: {
-    display: 'inline-flex', alignItems: 'center', gap: '5px',
-    padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 600,
-  },
-  dot: { width: '6px', height: '6px', borderRadius: '50%' },
+  statusBadge: { display: 'inline-flex', alignItems: 'center' },
   metaChip: {
-    background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.5)',
-    padding: '3px 10px', borderRadius: '20px', fontSize: '12px',
+    background: 'var(--color-surface-3)', color: 'var(--text-secondary)',
+    padding: '3px 10px', borderRadius: 'var(--radius-full)', fontSize: '12px',
   },
   actionRow: { display: 'flex', gap: '10px', flexWrap: 'wrap' },
-  btnPrimary: {
-    background: 'rgba(79,195,247,0.85)', color: '#0a1628', border: 'none',
-    borderRadius: '10px', padding: '10px 24px', fontSize: '14px', fontWeight: 700, cursor: 'pointer',
-  },
-  btnOpen: {
-    background: 'rgba(76,175,80,0.85)', color: 'white', border: 'none',
-    borderRadius: '10px', padding: '10px 24px', fontSize: '14px', fontWeight: 700,
-    cursor: 'pointer', textDecoration: 'none', display: 'inline-block',
-  },
-  btnDanger: {
-    background: 'transparent', color: 'rgba(255,100,100,0.9)',
-    border: '1px solid rgba(255,100,100,0.35)', borderRadius: '10px',
-    padding: '10px 24px', fontSize: '14px', fontWeight: 600, cursor: 'pointer',
-  },
-  btnUpdate: {
-    background: 'rgba(255,152,0,0.8)', color: '#0a1628', border: 'none',
-    borderRadius: '10px', padding: '10px 24px', fontSize: '14px', fontWeight: 700, cursor: 'pointer',
-  },
-  btnGhost: {
-    background: 'transparent', color: 'rgba(255,255,255,0.45)',
-    border: '1px solid rgba(255,255,255,0.15)', borderRadius: '10px',
-    padding: '10px 24px', fontSize: '14px', cursor: 'pointer', textDecoration: 'none',
-    display: 'inline-block',
-  },
-  btnBusy: {
-    background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.5)', border: 'none',
-    borderRadius: '10px', padding: '10px 24px', fontSize: '14px', cursor: 'not-allowed',
-    display: 'flex', alignItems: 'center', gap: '8px',
-  },
-  spinner: {
-    display: 'inline-block', width: '12px', height: '12px',
-    border: '2px solid rgba(255,255,255,0.2)', borderTopColor: 'white',
-    borderRadius: '50%', animation: 'spin 0.7s linear infinite',
-  },
-  error: { color: '#ff6b6b', fontSize: '13px', margin: 0 },
+  error: { color: 'var(--color-danger)', fontSize: '13px', margin: 0 },
   gallerySection: { display: 'flex', flexDirection: 'column', gap: '10px' },
   galleryMain: {
-    borderRadius: '12px', overflow: 'hidden',
+    borderRadius: 'var(--radius-md)', overflow: 'hidden',
     background: 'rgba(0,0,0,0.3)', aspectRatio: '16/9',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
   },
@@ -330,14 +279,14 @@ const styles = {
   galleryThumbs: { display: 'flex', gap: '8px', overflowX: 'auto' },
   thumb: {
     width: '80px', height: '52px', objectFit: 'cover',
-    borderRadius: '8px', cursor: 'pointer', opacity: 0.55,
-    border: '2px solid transparent', flexShrink: 0, transition: 'opacity 0.15s',
+    borderRadius: 'var(--radius-sm)', cursor: 'pointer', opacity: 0.55,
+    border: '2px solid transparent', flexShrink: 0, transition: 'opacity var(--duration-fast)',
   },
-  thumbActive: { opacity: 1, border: '2px solid rgba(79,195,247,0.8)' },
+  thumbActive: { opacity: 1, border: '2px solid var(--color-accent)' },
   descSection: {},
   credTable: {
-    background: 'rgba(255,255,255,0.04)',
-    borderRadius: '10px',
+    background: 'var(--color-surface-1)',
+    borderRadius: 'var(--radius-sm)',
     overflow: 'hidden',
   },
   credRow: {
@@ -345,10 +294,10 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: '10px 14px',
-    borderBottom: '1px solid rgba(255,255,255,0.06)',
+    borderBottom: '1px solid var(--color-border-subtle)',
   },
   credLabel: {
-    color: 'rgba(255,255,255,0.45)',
+    color: 'var(--text-tertiary)',
     fontSize: '13px',
   },
   credValueWrap: {
@@ -357,25 +306,25 @@ const styles = {
     gap: '8px',
   },
   credValue: {
-    background: 'rgba(79,195,247,0.1)',
-    color: 'rgba(79,195,247,0.9)',
-    border: '1px solid rgba(79,195,247,0.2)',
-    borderRadius: '6px',
+    background: 'var(--color-accent-soft-bg)',
+    color: 'var(--color-accent-soft-text)',
+    border: '1px solid var(--color-accent-soft-border)',
+    borderRadius: 'var(--radius-sm)',
     padding: '2px 8px',
     fontSize: '13px',
-    fontFamily: 'monospace',
+    fontFamily: 'var(--font-mono)',
   },
   copyBtn: {
     background: 'none',
     border: 'none',
-    color: 'rgba(255,255,255,0.35)',
+    color: 'var(--text-tertiary)',
     cursor: 'pointer',
     padding: '2px',
     display: 'flex',
     alignItems: 'center',
-    borderRadius: '4px',
-    transition: 'color 0.15s',
+    borderRadius: 'var(--radius-sm)',
+    transition: 'color var(--duration-fast)',
   },
-  sectionTitle: { color: 'rgba(255,255,255,0.4)', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 10px' },
-  description: { color: 'rgba(255,255,255,0.65)', fontSize: '14px', lineHeight: '1.7', margin: 0, whiteSpace: 'pre-wrap' },
+  sectionTitle: { color: 'var(--text-tertiary)', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 10px' },
+  description: { color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.7', margin: 0, whiteSpace: 'pre-wrap' },
 }

@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
+import { RotateCcw, Power } from 'lucide-react'
 import { restartSystem, powerOffSystem } from '../api.js'
+import { qrColors } from '../theme.js'
+import Spinner from './ui/Spinner.jsx'
+import Badge from './ui/Badge.jsx'
+import NimbusMark from './ui/NimbusMark.jsx'
 
 const LONG_PRESS_MS = 1200
 
@@ -51,7 +56,7 @@ export default function KioskReadyScreen({ stats }) {
     QRCode.toCanvas(canvasRef.current, nimbuUrl, {
       width: 200,
       margin: 2,
-      color: { dark: '#0d1117', light: '#f0f6ff' },
+      color: qrColors,
     }).catch(() => setQrError(true))
   }, [nimbuUrl, bootstrapReady])
 
@@ -73,11 +78,14 @@ export default function KioskReadyScreen({ stats }) {
   return (
     <div style={styles.screen}>
       <div style={styles.card}>
-        <div style={styles.logo}>✦ Nimbus</div>
+        <div style={styles.logoRow}>
+          <NimbusMark size={26} />
+          <span style={styles.logo}>Nimbus</span>
+        </div>
 
         {!bootstrapReady && !bootstrapError && (
           <div style={styles.setupSection}>
-            <div style={styles.spinner} />
+            <Spinner size={32} thickness={3} />
             <div style={styles.setupTitle}>Setting up your device…</div>
             <div style={styles.setupMsg}>{formatState(stats?.bootstrap_state)}</div>
           </div>
@@ -92,7 +100,7 @@ export default function KioskReadyScreen({ stats }) {
 
         {bootstrapReady && (
           <>
-            <div style={styles.readyBadge}>Device ready</div>
+            <Badge tone="success">Device ready</Badge>
             <div style={styles.headline}>Access Nimbus from another device</div>
             <div style={styles.subtitle}>
               Open this address on any computer or phone connected to the same Wi-Fi network.
@@ -130,7 +138,7 @@ export default function KioskReadyScreen({ stats }) {
                 title="Hold to restart"
                 {...restartPress}
               >
-                {powerBusy === 'restart' ? '…' : '↺'}
+                {powerBusy === 'restart' ? <Spinner size={18} /> : <RotateCcw size={20} />}
                 <span style={styles.powerBtnLabel}>Restart</span>
               </button>
               <button
@@ -144,7 +152,7 @@ export default function KioskReadyScreen({ stats }) {
                 title="Hold to power off"
                 {...powerOffPress}
               >
-                {powerBusy === 'poweroff' ? '…' : '⏻'}
+                {powerBusy === 'poweroff' ? <Spinner size={18} color="var(--color-danger)" /> : <Power size={20} />}
                 <span style={styles.powerBtnLabel}>Power Off</span>
               </button>
             </div>
@@ -177,27 +185,29 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'linear-gradient(145deg, hsl(215,75%,8%) 0%, hsl(220,60%,14%) 60%, hsl(200,55%,22%) 100%)',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    background: 'linear-gradient(160deg, var(--nimbus-charcoal-950) 0%, var(--nimbus-charcoal-900) 55%, var(--nimbus-charcoal-800) 100%)',
+    fontFamily: 'var(--font-sans)',
   },
   card: {
     width: 380,
     padding: '40px 36px',
-    background: 'rgba(255,255,255,0.05)',
-    border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: 24,
-    backdropFilter: 'blur(20px)',
+    background: 'var(--color-surface-2)',
+    border: '1px solid var(--color-border-subtle)',
+    borderRadius: 'var(--radius-xl)',
+    backdropFilter: 'blur(var(--blur-lg))',
+    boxShadow: 'var(--shadow-xl)',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     gap: 20,
     textAlign: 'center',
   },
+  logoRow: { display: 'flex', alignItems: 'center', gap: 10 },
   logo: {
-    fontSize: 20,
-    fontWeight: 700,
-    color: '#81d4fa',
-    letterSpacing: '0.04em',
+    fontSize: 18,
+    fontWeight: 'var(--font-weight-bold)',
+    color: 'var(--text-primary)',
+    letterSpacing: '-0.01em',
   },
   setupSection: {
     display: 'flex',
@@ -206,76 +216,59 @@ const styles = {
     gap: 12,
     padding: '8px 0',
   },
-  spinner: {
-    width: 32,
-    height: 32,
-    border: '3px solid rgba(79,195,247,0.2)',
-    borderTop: '3px solid #4fc3f7',
-    borderRadius: '50%',
-    animation: 'spin 1s linear infinite',
-  },
   setupTitle: {
     fontSize: 17,
     fontWeight: 600,
-    color: 'rgba(255,255,255,0.85)',
+    color: 'var(--text-primary)',
   },
   setupMsg: {
     fontSize: 13,
-    color: 'rgba(255,255,255,0.45)',
+    color: 'var(--text-tertiary)',
   },
   errorSection: {
     padding: '12px 16px',
-    background: 'rgba(229,57,53,0.12)',
-    border: '1px solid rgba(229,57,53,0.3)',
-    borderRadius: 12,
+    background: 'var(--color-danger-soft-bg)',
+    border: '1px solid var(--color-danger-soft-border)',
+    borderRadius: 'var(--radius-md)',
     width: '100%',
   },
   errorTitle: {
     fontSize: 14,
     fontWeight: 700,
-    color: '#ef9a9a',
+    color: 'var(--color-danger-soft-text)',
     marginBottom: 4,
   },
   errorMsg: {
     fontSize: 12,
-    color: 'rgba(255,255,255,0.6)',
-  },
-  readyBadge: {
-    fontSize: 11,
-    fontWeight: 700,
-    textTransform: 'uppercase',
-    letterSpacing: '0.1em',
-    color: '#4caf50',
-    background: 'rgba(76,175,80,0.12)',
-    border: '1px solid rgba(76,175,80,0.3)',
-    borderRadius: 20,
-    padding: '4px 14px',
+    color: 'var(--text-secondary)',
   },
   headline: {
     fontSize: 20,
     fontWeight: 700,
-    color: 'rgba(255,255,255,0.92)',
+    color: 'var(--text-primary)',
     lineHeight: 1.3,
   },
   subtitle: {
     fontSize: 14,
-    color: 'rgba(255,255,255,0.5)',
+    color: 'var(--text-secondary)',
     lineHeight: 1.6,
   },
   urlBox: {
-    fontSize: 20,
+    fontFamily: 'var(--font-mono)',
+    fontSize: 19,
     fontWeight: 700,
-    color: '#81d4fa',
-    background: 'rgba(79,195,247,0.1)',
-    border: '1px solid rgba(79,195,247,0.3)',
-    borderRadius: 12,
+    color: 'var(--color-accent-soft-text)',
+    background: 'var(--color-accent-soft-bg)',
+    border: '1px solid var(--color-accent-soft-border)',
+    borderRadius: 'var(--radius-md)',
     padding: '12px 20px',
     letterSpacing: '0.01em',
     width: '100%',
+    boxSizing: 'border-box',
   },
   qrWrap: {
-    background: '#f0f6ff',
-    borderRadius: 16,
+    background: qrColors.light,
+    borderRadius: 'var(--radius-lg)',
     padding: 12,
     display: 'inline-flex',
   },
@@ -293,12 +286,12 @@ const styles = {
   },
   noIp: {
     fontSize: 13,
-    color: 'rgba(255,255,255,0.45)',
+    color: 'var(--text-tertiary)',
     fontStyle: 'italic',
   },
   powerRow: {
     width: '100%',
-    borderTop: '1px solid rgba(255,255,255,0.08)',
+    borderTop: '1px solid var(--color-border-subtle)',
     paddingTop: 16,
     display: 'flex',
     flexDirection: 'column',
@@ -307,7 +300,7 @@ const styles = {
   },
   powerHint: {
     fontSize: 10,
-    color: 'rgba(255,255,255,0.25)',
+    color: 'var(--text-disabled)',
     textTransform: 'uppercase',
     letterSpacing: '0.08em',
   },
@@ -319,23 +312,24 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 4,
     padding: '10px 20px',
-    background: 'rgba(255,255,255,0.07)',
-    border: '1px solid rgba(255,255,255,0.12)',
-    borderRadius: 12,
-    color: 'rgba(255,255,255,0.6)',
-    fontSize: 20,
+    minHeight: 56,
+    background: 'var(--color-surface-3)',
+    border: '1px solid var(--color-border-strong)',
+    borderRadius: 'var(--radius-md)',
+    color: 'var(--text-secondary)',
     cursor: 'pointer',
-    transition: 'background 0.1s, transform 0.1s',
+    transition: 'background var(--duration-fast), transform var(--duration-fast)',
     userSelect: 'none',
   },
   powerBtnOff: {
-    color: 'rgba(255,138,128,0.75)',
+    color: 'var(--color-danger)',
   },
   powerBtnActive: {
-    background: 'rgba(79,195,247,0.15)',
-    border: '1px solid rgba(79,195,247,0.4)',
+    background: 'var(--color-accent-soft-bg)',
+    border: '1px solid var(--color-accent-soft-border)',
     transform: 'scale(0.95)',
   },
   powerBtnDisabled: {

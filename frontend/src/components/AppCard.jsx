@@ -1,16 +1,20 @@
 import { useState } from 'react'
+import { ArrowUp } from 'lucide-react'
 import { installApp, uninstallApp, updateApp, startApp, stopApp, restartApp } from '../api.js'
 import { openApp } from '../utils.js'
+import Button from './ui/Button.jsx'
+import Badge from './ui/Badge.jsx'
+import StatusDot from './ui/StatusDot.jsx'
 
-const STATUS_COLORS = {
-  running: '#4caf50',
-  installed: '#ff9800',
-  installing: '#2196f3',
-  uninstalling: '#ff5722',
-  stopping: '#ff5722',
-  starting: '#2196f3',
-  restarting: '#ff9800',
-  available: 'rgba(255,255,255,0.25)',
+const STATUS_TONE = {
+  running: 'success',
+  installed: 'warning',
+  installing: 'info',
+  uninstalling: 'danger',
+  stopping: 'danger',
+  starting: 'info',
+  restarting: 'warning',
+  available: 'neutral',
 }
 
 export default function AppCard({ app, onRefresh, onOpenDetail, isInstalling = false }) {
@@ -28,14 +32,14 @@ export default function AppCard({ app, onRefresh, onOpenDetail, isInstalling = f
     : action === 'restarting' ? 'Restarting…'
     : { running: 'Running', installed: 'Installed', installing: 'Installing…', available: 'Available' }[status]
 
-  const dotColor = action ? STATUS_COLORS[action] : STATUS_COLORS[status]
+  const tone = action ? (STATUS_TONE[action] || 'neutral') : STATUS_TONE[status]
 
-  async function handleInstall(e) {
+  async function withAction(name, fn, e) {
     e.stopPropagation()
-    setAction('installing')
+    setAction(name)
     setError(null)
     try {
-      await installApp(app.id)
+      await fn()
       onRefresh()
     } catch (e) {
       setError(e.message)
@@ -44,75 +48,12 @@ export default function AppCard({ app, onRefresh, onOpenDetail, isInstalling = f
     }
   }
 
-  async function handleUninstall(e) {
-    e.stopPropagation()
-    setAction('uninstalling')
-    setError(null)
-    try {
-      await uninstallApp(app.id)
-      onRefresh()
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setAction(null)
-    }
-  }
-
-  async function handleUpdate(e) {
-    e.stopPropagation()
-    setAction('updating')
-    setError(null)
-    try {
-      await updateApp(app.id)
-      onRefresh()
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setAction(null)
-    }
-  }
-
-  async function handleStart(e) {
-    e.stopPropagation()
-    setAction('starting')
-    setError(null)
-    try {
-      await startApp(app.id)
-      onRefresh()
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setAction(null)
-    }
-  }
-
-  async function handleStop(e) {
-    e.stopPropagation()
-    setAction('stopping')
-    setError(null)
-    try {
-      await stopApp(app.id)
-      onRefresh()
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setAction(null)
-    }
-  }
-
-  async function handleRestart(e) {
-    e.stopPropagation()
-    setAction('restarting')
-    setError(null)
-    try {
-      await restartApp(app.id)
-      onRefresh()
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setAction(null)
-    }
-  }
+  const handleInstall = e => withAction('installing', () => installApp(app.id), e)
+  const handleUninstall = e => withAction('uninstalling', () => uninstallApp(app.id), e)
+  const handleUpdate = e => withAction('updating', () => updateApp(app.id), e)
+  const handleStart = e => withAction('starting', () => startApp(app.id), e)
+  const handleStop = e => withAction('stopping', () => stopApp(app.id), e)
+  const handleRestart = e => withAction('restarting', () => restartApp(app.id), e)
 
   return (
     <div style={styles.card} onClick={() => onOpenDetail(app)}>
@@ -124,86 +65,54 @@ export default function AppCard({ app, onRefresh, onOpenDetail, isInstalling = f
         <div style={styles.titleBlock}>
           <div style={styles.name}>{app.name}</div>
           <div style={styles.statusRow}>
-            <span style={{ ...styles.dot, background: dotColor }} />
-            <span style={styles.statusText}>{statusLabel}</span>
+            <StatusDot tone={tone} label={statusLabel} />
           </div>
         </div>
       </div>
 
       {app.update_available && (
-        <span style={styles.updateBadge}>⬆ Update available</span>
+        <Badge tone="warning" style={{ alignSelf: 'flex-start' }}><ArrowUp size={11} /> Update available</Badge>
       )}
       <p style={styles.tagline}>{app.tagline || ''}</p>
       {app.confinement && (
-        <span style={{
-          ...styles.confinementBadge,
-          ...(app.confinement === 'classic'
-            ? { background: 'rgba(255,152,0,0.12)', color: 'rgba(255,180,80,0.8)', border: '1px solid rgba(255,152,0,0.2)' }
-            : { background: 'rgba(76,175,80,0.08)', color: 'rgba(100,210,110,0.8)', border: '1px solid rgba(76,175,80,0.18)' }
-          ),
-        }}>{app.confinement}</span>
+        <Badge tone={app.confinement === 'classic' ? 'warning' : 'success'} style={{ alignSelf: 'flex-start' }}>
+          {app.confinement}
+        </Badge>
       )}
 
       {error && <p style={styles.error}>{error}</p>}
 
       <div style={styles.actions}>
         {status === 'available' && !busy && (
-          <button style={styles.btnPrimary} onClick={handleInstall}>Install</button>
+          <Button variant="primary" size="sm" onClick={handleInstall}>Install</Button>
         )}
-        {(action === 'installing' || isInstalling) && (
-          <button style={styles.btnDisabled} disabled>
-            <span style={styles.spinner} /> Installing…
-          </button>
-        )}
-        {action === 'uninstalling' && (
-          <button style={styles.btnDisabled} disabled>
-            <span style={styles.spinner} /> Uninstalling…
-          </button>
-        )}
-        {action === 'updating' && (
-          <button style={styles.btnDisabled} disabled>
-            <span style={styles.spinner} /> Updating…
-          </button>
-        )}
-        {action === 'starting' && (
-          <button style={styles.btnDisabled} disabled>
-            <span style={styles.spinner} /> Starting…
-          </button>
-        )}
-        {action === 'stopping' && (
-          <button style={styles.btnDisabled} disabled>
-            <span style={styles.spinner} /> Stopping…
-          </button>
-        )}
-        {action === 'restarting' && (
-          <button style={styles.btnDisabled} disabled>
-            <span style={styles.spinner} /> Restarting…
-          </button>
-        )}
+        {(action === 'installing' || isInstalling) && <Button variant="secondary" size="sm" loading disabled>Installing…</Button>}
+        {action === 'uninstalling' && <Button variant="secondary" size="sm" loading disabled>Uninstalling…</Button>}
+        {action === 'updating' && <Button variant="secondary" size="sm" loading disabled>Updating…</Button>}
+        {action === 'starting' && <Button variant="secondary" size="sm" loading disabled>Starting…</Button>}
+        {action === 'stopping' && <Button variant="secondary" size="sm" loading disabled>Stopping…</Button>}
+        {action === 'restarting' && <Button variant="secondary" size="sm" loading disabled>Restarting…</Button>}
         {app.update_available && !busy && (
-          <button style={styles.btnUpdate} onClick={handleUpdate}>⬆ Update</button>
+          <Button variant="soft" size="sm" onClick={handleUpdate}><ArrowUp size={13} /> Update</Button>
         )}
         {status === 'running' && !busy && (
           <>
             {app.open_url && (
-              <button style={styles.btnOpen}
-                onClick={e => { e.stopPropagation(); openApp(app.open_url, { name: app.name, id: app.id }) }}>Open ↗</button>
+              <Button variant="primary" size="sm" onClick={e => { e.stopPropagation(); openApp(app.open_url, { name: app.name, id: app.id }) }}>Open ↗</Button>
             )}
             {app.has_service && (
               <>
-                <button style={styles.btnSecondary} onClick={handleRestart}>Restart</button>
-                <button style={styles.btnSecondary} onClick={handleStop}>Stop</button>
+                <Button variant="secondary" size="sm" onClick={handleRestart}>Restart</Button>
+                <Button variant="secondary" size="sm" onClick={handleStop}>Stop</Button>
               </>
             )}
-            <button style={styles.btnDanger} onClick={handleUninstall}>Uninstall</button>
+            <Button variant="danger" size="sm" onClick={handleUninstall}>Uninstall</Button>
           </>
         )}
         {status === 'installed' && !busy && (
           <>
-            {app.has_service && (
-              <button style={styles.btnPrimary} onClick={handleStart}>Start</button>
-            )}
-            <button style={styles.btnDanger} onClick={handleUninstall}>Uninstall</button>
+            {app.has_service && <Button variant="primary" size="sm" onClick={handleStart}>Start</Button>}
+            <Button variant="danger" size="sm" onClick={handleUninstall}>Uninstall</Button>
           </>
         )}
       </div>
@@ -213,16 +122,17 @@ export default function AppCard({ app, onRefresh, onOpenDetail, isInstalling = f
 
 const styles = {
   card: {
-    background: 'rgba(255,255,255,0.07)',
-    backdropFilter: 'blur(12px)',
-    border: '1px solid rgba(255,255,255,0.12)',
-    borderRadius: '16px',
+    background: 'var(--color-surface-1)',
+    backdropFilter: 'blur(var(--blur-md))',
+    border: '1px solid var(--color-border-subtle)',
+    borderRadius: 'var(--radius-lg)',
     padding: '20px',
     display: 'flex',
     flexDirection: 'column',
     gap: '12px',
     cursor: 'pointer',
-    transition: 'transform 0.15s, box-shadow 0.15s, border-color 0.15s',
+    transition: 'transform var(--duration-fast), box-shadow var(--duration-fast), border-color var(--duration-fast)',
+    fontFamily: 'var(--font-sans)',
   },
   header: {
     display: 'flex',
@@ -232,26 +142,26 @@ const styles = {
   icon: {
     width: '48px',
     height: '48px',
-    borderRadius: '12px',
+    borderRadius: 'var(--radius-md)',
     objectFit: 'cover',
     flexShrink: 0,
   },
   iconPlaceholder: {
     width: '48px',
     height: '48px',
-    borderRadius: '12px',
-    background: 'rgba(255,255,255,0.15)',
+    borderRadius: 'var(--radius-md)',
+    background: 'var(--color-surface-3)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     fontSize: '22px',
     fontWeight: 700,
-    color: 'white',
+    color: 'var(--text-primary)',
     flexShrink: 0,
   },
   titleBlock: { flex: 1, minWidth: 0 },
   name: {
-    color: 'white',
+    color: 'var(--text-primary)',
     fontWeight: 600,
     fontSize: '15px',
     whiteSpace: 'nowrap',
@@ -259,10 +169,8 @@ const styles = {
     textOverflow: 'ellipsis',
   },
   statusRow: { display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' },
-  dot: { width: '7px', height: '7px', borderRadius: '50%', flexShrink: 0 },
-  statusText: { color: 'rgba(255,255,255,0.55)', fontSize: '12px' },
   tagline: {
-    color: 'rgba(255,255,255,0.55)',
+    color: 'var(--text-secondary)',
     fontSize: '13px',
     margin: 0,
     lineHeight: '1.5',
@@ -271,58 +179,6 @@ const styles = {
     WebkitBoxOrient: 'vertical',
     overflow: 'hidden',
   },
-  error: { color: '#ff6b6b', fontSize: '12px', margin: 0 },
-  confinementBadge: {
-    display: 'inline-block',
-    borderRadius: '5px',
-    padding: '1px 7px',
-    fontSize: '10px',
-    fontWeight: 600,
-    textTransform: 'uppercase',
-    letterSpacing: '0.06em',
-  },
-  updateBadge: {
-    display: 'inline-block',
-    background: 'rgba(255,152,0,0.18)',
-    color: '#ffb74d',
-    border: '1px solid rgba(255,152,0,0.35)',
-    borderRadius: '6px',
-    padding: '2px 8px',
-    fontSize: '11px',
-    fontWeight: 600,
-  },
-  btnUpdate: {
-    background: 'rgba(255,152,0,0.75)', color: '#0a1628', border: 'none',
-    borderRadius: '8px', padding: '7px 18px', fontSize: '13px', fontWeight: 600, cursor: 'pointer',
-  },
+  error: { color: 'var(--color-danger)', fontSize: '12px', margin: 0 },
   actions: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: 'auto' },
-  btnPrimary: {
-    background: 'rgba(79,195,247,0.8)', color: '#0a1628', border: 'none',
-    borderRadius: '8px', padding: '7px 18px', fontSize: '13px', fontWeight: 600, cursor: 'pointer',
-  },
-  btnOpen: {
-    background: 'rgba(76,175,80,0.8)', color: 'white', border: 'none',
-    borderRadius: '8px', padding: '7px 18px', fontSize: '13px', fontWeight: 600,
-    cursor: 'pointer', textDecoration: 'none', display: 'inline-block',
-  },
-  btnSecondary: {
-    background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.85)',
-    border: '1px solid rgba(255,255,255,0.2)', borderRadius: '8px',
-    padding: '7px 18px', fontSize: '13px', fontWeight: 600, cursor: 'pointer',
-  },
-  btnDanger: {
-    background: 'rgba(255,255,255,0.1)', color: 'rgba(255,100,100,0.9)',
-    border: '1px solid rgba(255,100,100,0.3)', borderRadius: '8px',
-    padding: '7px 18px', fontSize: '13px', fontWeight: 600, cursor: 'pointer',
-  },
-  btnDisabled: {
-    background: 'rgba(33,150,243,0.4)', color: 'rgba(255,255,255,0.6)', border: 'none',
-    borderRadius: '8px', padding: '7px 18px', fontSize: '13px', fontWeight: 600,
-    cursor: 'not-allowed', display: 'flex', alignItems: 'center', gap: '6px',
-  },
-  spinner: {
-    display: 'inline-block', width: '10px', height: '10px',
-    border: '2px solid rgba(255,255,255,0.3)', borderTopColor: 'white',
-    borderRadius: '50%', animation: 'spin 0.7s linear infinite',
-  },
 }
