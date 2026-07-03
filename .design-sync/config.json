@@ -1,0 +1,34 @@
+{
+  "pkg": "nimbus-ui",
+  "globalName": "NimbusUI",
+  "projectId": "42b28fff-e7dd-46d1-af3a-1b1e1c2be41f",
+  "shape": "package",
+  "srcDir": "src/components/ui",
+  "readmeHeader": ".design-sync/conventions.md",
+  "extraEntries": ["../.design-sync/preview-theme.jsx"],
+  "provider": { "component": "NimbusPreviewTheme" },
+  "overrides": {
+    "Modal": { "cardMode": "single", "viewport": "480x360" }
+  },
+  "cssEntry": "src/theme.css",
+  "extraFonts": [
+    "public/fonts/ubuntu-sans-variable.woff2",
+    "public/fonts/ubuntu-mono-variable.woff2"
+  ],
+  "componentSrcMap": {
+    "Button": "src/components/ui/Button.jsx",
+    "Spinner": "src/components/ui/Spinner.jsx",
+    "Badge": "src/components/ui/Badge.jsx",
+    "StatusDot": "src/components/ui/StatusDot.jsx",
+    "SignalBars": "src/components/ui/SignalBars.jsx",
+    "PasswordField": "src/components/ui/PasswordField.jsx",
+    "PinPad": "src/components/ui/PinPad.jsx",
+    "PinDots": "src/components/ui/PinPad.jsx",
+    "Panel": "src/components/ui/Section.jsx",
+    "SettingsSection": "src/components/ui/Section.jsx",
+    "SettingsRow": "src/components/ui/Section.jsx",
+    "Modal": "src/components/ui/Modal.jsx",
+    "AppTile": "src/components/ui/AppTile.jsx",
+    "NimbusMark": "src/components/ui/NimbusMark.jsx"
+  }
+}
