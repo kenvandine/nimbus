@@ -522,7 +522,13 @@ export default function App() {
 
   useEffect(() => {
     checkAuth().then(status => {
-      if (!status || status.authenticated || !status.configured) {
+      // The kiosk display (isLocalAccess) has no login UI of its own — it
+      // only ever shows Oobe or KioskReadyScreen — so once an account exists
+      // elsewhere it would otherwise never authenticate and stats would stay
+      // null forever. The backend's require_api_token_or_local grants read
+      // access to /system/stats(/stream) for genuinely local callers, so it's
+      // safe to always fetch here when running as the local kiosk.
+      if (!status || status.authenticated || !status.configured || isLocalAccess()) {
         fetchAll()
         startSse()
       } else {

@@ -91,11 +91,30 @@ export function getXtermTheme() {
   }
 }
 
+// The qrcode package's canvas renderer only accepts hex colors (see
+// hex2rgba in qrcode/lib/renderer/utils.js) and throws on anything else, but
+// our CSS custom properties (and any theme override dropped in by a user)
+// can be hsl(), rgb(), or a named color. Route through a 1x1 canvas to let
+// the browser resolve whatever was given into concrete RGB, rather than
+// trying to parse every CSS color syntax ourselves.
+function cssColorToHex(color) {
+  if (typeof document === 'undefined') return color
+  try {
+    const ctx = document.createElement('canvas').getContext('2d')
+    ctx.fillStyle = color
+    ctx.fillRect(0, 0, 1, 1)
+    const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data
+    return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('')
+  } catch {
+    return color
+  }
+}
+
 // QRCode.toCanvas() colors for the kiosk "scan to connect" screen. Same
 // call-time-not-import-time reasoning as getXtermTheme().
 export function getQrColors() {
   return {
-    dark: cssVar('--color-bg-canvas', palette.charcoal[950]),
-    light: cssVar('--nimbus-charcoal-50', '#FFF6EE'),
+    dark: cssColorToHex(cssVar('--color-bg-canvas', palette.charcoal[950])),
+    light: cssColorToHex(cssVar('--nimbus-charcoal-50', '#FFF6EE')),
   }
 }

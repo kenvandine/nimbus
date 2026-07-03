@@ -129,6 +129,32 @@ def _seed_theme_override_dir(directory: Path) -> None:
 
 _LOCALHOST_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
+# Header the relay stamps on a request when the *raw TCP peer* connecting to
+# the plain-HTTP port was genuinely loopback — never client-supplied. Because
+# every request proxied here re-originates as a fresh loopback connection to
+# the HTTPS backend, request.client.host alone can't tell the backend whether
+# a request actually came from this device or from any host on the LAN
+# hitting port 80; this header carries that distinction across the relay.
+TRUSTED_LOCAL_HEADER = b"x-nimbus-local"
+
+
+def _set_or_strip_header(raw: bytes, name: bytes, value: bytes | None) -> bytes:
+    """Remove any existing `name` header from a raw HTTP request and, if value
+    is given, add `name: value` instead. Leaves `raw` untouched if the header
+    block isn't fully present in the buffer yet (fails safe: no header added)."""
+    sep = b"\r\n\r\n"
+    idx = raw.find(sep)
+    if idx == -1:
+        return raw
+    head, rest = raw[:idx], raw[idx + len(sep):]
+    lines = head.split(b"\r\n")
+    request_line, header_lines = lines[0], lines[1:]
+    lname = name.lower()
+    header_lines = [l for l in header_lines if not l.lower().startswith(lname + b":")]
+    if value is not None:
+        header_lines.append(name + b": " + value)
+    return b"\r\n".join([request_line] + header_lines) + sep + rest
+
 
 async def _run_http_redirect(http_port: int, https_port: int) -> None:
     """Accept plain-HTTP connections.
@@ -157,7 +183,7 @@ async def _run_http_redirect(http_port: int, https_port: int) -> None:
                 pass
 
     async def _proxy_localhost(initial: bytes, client_r: asyncio.StreamReader,
-                               client_w: asyncio.StreamWriter) -> None:
+                                client_w: asyncio.StreamWriter, trust_local: bool) -> None:
         """Forward the HTTP request to the local HTTPS backend and pipe back the response."""
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         ctx.check_hostname = False
@@ -169,6 +195,9 @@ async def _run_http_redirect(http_port: int, https_port: int) -> None:
         except Exception as exc:
             logger.debug("localhost proxy connect failed: %s", exc)
             return
+        initial = _set_or_strip_header(
+            initial, TRUSTED_LOCAL_HEADER, b"1" if trust_local else None
+        )
         backend_w.write(initial)
         await backend_w.drain()
         await asyncio.gather(
@@ -177,9 +206,32 @@ async def _run_http_redirect(http_port: int, https_port: int) -> None:
             return_exceptions=True,
         )
 
+    async def _read_headers(reader: asyncio.StreamReader, limit: int = 65536) -> bytes:
+        """Buffer reads until the full HTTP header block has arrived.
+
+        A single reader.read(n) call returns as soon as *any* bytes are
+        available — real browsers routinely write a request's many headers
+        (Sec-*, User-Agent, ...) across more than one TCP segment, so one
+        read is not guaranteed to capture the \r\n\r\n terminator. Without
+        this loop, _set_or_strip_header silently sees a headers block it
+        can't find the end of and skips adding the trust header.
+        """
+        buf = b""
+        while b"\r\n\r\n" not in buf and len(buf) < limit:
+            chunk = await asyncio.wait_for(reader.read(4096), timeout=5.0)
+            if not chunk:
+                break
+            buf += chunk
+        return buf
+
     async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
-            raw = await asyncio.wait_for(reader.read(4096), timeout=5.0)
+            # The peer of *this* socket is the real, unspoofable network-layer
+            # origin of the request (unlike the Host header, which any client
+            # can set to whatever it wants) — trust it only when it's loopback.
+            peername = writer.get_extra_info("peername")
+            trust_local = bool(peername) and peername[0] in _LOCALHOST_HOSTS
+            raw = await _read_headers(reader)
             # Proxy all HTTP traffic straight through to the local HTTPS backend.
             # This enables the captive portal: when a phone on the nimbus AP
             # browses to any http:// URL, DNS (dnsmasq address=/#/10.42.0.1)
@@ -188,7 +240,7 @@ async def _run_http_redirect(http_port: int, https_port: int) -> None:
             # probes get the OOBE HTML (not a 204/specific body), which triggers
             # the "Sign in to network" notification. http://nimbus.local also
             # benefits: no browser cert warning on the home network.
-            await _proxy_localhost(raw, reader, writer)
+            await _proxy_localhost(raw, reader, writer, trust_local)
         except Exception:
             pass
         finally:
