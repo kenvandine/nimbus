@@ -32,8 +32,8 @@ export default function PasswordField({ value, onChange, placeholder, id, style,
       <button
         type="button"
         onClick={() => setVisible(v => !v)}
-        tabIndex={-1}
         aria-label={visible ? 'Hide password' : 'Show password'}
+        aria-pressed={visible}
         style={{
           position: 'absolute',
           right: 10,
