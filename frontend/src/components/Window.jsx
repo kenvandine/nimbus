@@ -18,7 +18,7 @@ export default function Window({ title, onClose, children, noPad = false }) {
       <div className="window-container" style={styles.window} onClick={event => event.stopPropagation()}>
         <div style={styles.titleBar}>
           <span style={styles.titleText}>{title}</span>
-          <button style={styles.closeBtn} onClick={onClose} title="Close">
+          <button type="button" aria-label="Close" style={styles.closeBtn} onClick={onClose} title="Close">
             <X size={14} />
           </button>
         </div>
