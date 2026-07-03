@@ -30,9 +30,13 @@ export default function ScreenLock({ deviceName, onUnlock, onFail }) {
   }
 
   function handleKeyDown(e) {
-    if (e.key >= '0' && e.key <= '9' && pin.length < PIN_LENGTH) setPin(pin + e.key)
-    else if (e.key === 'Backspace') setPin(p => p.slice(0, -1))
-    e.preventDefault()
+    if (e.key >= '0' && e.key <= '9' && pin.length < PIN_LENGTH) {
+      setPin(pin + e.key)
+      e.preventDefault()
+    } else if (e.key === 'Backspace') {
+      setPin(p => p.slice(0, -1))
+      e.preventDefault()
+    }
   }
 
   const hour = time.getHours()
