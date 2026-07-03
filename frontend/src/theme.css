@@ -186,3 +186,8 @@ button:hover:not(:disabled) { filter: brightness(1.12); }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--color-border-strong); border-radius: 3px; }
+
+select option {
+  background-color: var(--nimbus-charcoal-900);
+  color: var(--text-primary);
+}

@@ -4,8 +4,10 @@ import AppCard from './AppCard.jsx'
 import AppModal from './AppModal.jsx'
 import { refreshCatalog } from '../api.js'
 import Button from './ui/Button.jsx'
+import { useTranslation } from '../i18n.jsx'
 
 export default function AppStore({ apps, onRefresh, onOpenDetail, activeInstalls = [] }) {
+  const { t } = useTranslation()
   const [search, setSearch] = useState('')
   const [showUpdatesOnly, setShowUpdatesOnly] = useState(false)
   const [showUnsupported, setShowUnsupported] = useState(false)
@@ -45,7 +47,7 @@ export default function AppStore({ apps, onRefresh, onOpenDetail, activeInstalls
       <div className="store-toolbar" style={styles.toolbar}>
         <input
           type="search"
-          placeholder="Search apps…"
+          placeholder={t('app_store_search', 'Search apps…')}
           value={search}
           onChange={e => setSearch(e.target.value)}
           className="store-search"
@@ -55,32 +57,32 @@ export default function AppStore({ apps, onRefresh, onOpenDetail, activeInstalls
           variant={showUpdatesOnly ? 'soft' : 'secondary'}
           size="sm"
           onClick={() => setShowUpdatesOnly(v => !v)}
-          title="Show apps with updates only"
+          title={t('show_updates_only', 'Show apps with updates only')}
         >
-          <ArrowUp size={13} /> Updates{updatableCount > 0 && <span style={styles.filterBadge}>{updatableCount}</span>}
+          <ArrowUp size={13} /> {t('app_store_update_available', 'Update available')}{updatableCount > 0 && <span style={styles.filterBadge}>{updatableCount}</span>}
         </Button>
         <button
           style={{ ...styles.advancedBtn, ...(showUnsupported ? styles.advancedBtnActive : {}) }}
           onClick={() => setShowUnsupported(v => !v)}
-          title="Show untested apps"
+          title={t('show_untested_apps', 'Show untested apps')}
         >
-          Advanced
+          {t('advanced', 'Advanced')}
         </button>
-        <Button variant="secondary" size="sm" onClick={handleRefreshCatalog} disabled={refreshing} loading={refreshing} title="Refresh app catalog">
-          {refreshing ? 'Refreshing…' : <><RefreshCw size={13} /> Refresh</>}
+        <Button variant="secondary" size="sm" onClick={handleRefreshCatalog} disabled={refreshing} loading={refreshing} title={t('refresh_app_catalog', 'Refresh app catalog')}>
+          {refreshing ? t('app_store_updating', 'Updating…') : <><RefreshCw size={13} /> {t('app_store_refresh', 'Refresh Store')}</>}
         </Button>
-        <span style={styles.count}>{filtered.length} app{filtered.length !== 1 ? 's' : ''}</span>
+        <span style={styles.count}>{filtered.length} {t('apps', 'apps')}</span>
       </div>
 
       {showUnsupported && filtered.length > 0 && (
         <p style={styles.advancedNotice}>
-          Advanced mode — these apps are untested on this appliance and may not work correctly.
+          {t('advanced_notice', 'Advanced mode — these apps are untested on this appliance and may not work correctly.')}
         </p>
       )}
 
       {filtered.length === 0 ? (
         <p style={styles.empty}>
-          {showUpdatesOnly ? 'All installed apps are up to date.' : `No apps match "${search}"`}
+          {showUpdatesOnly ? t('apps_up_to_date', 'All installed apps are up to date.') : t('app_store_no_apps', 'No apps found matching search.')}
         </p>
       ) : (
         <div style={styles.grid}>

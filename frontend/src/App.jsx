@@ -21,6 +21,7 @@ import Login from './components/Login.jsx'
 import KioskReadyScreen from './components/KioskReadyScreen.jsx'
 import TerminalPanel from './components/TerminalPanel.jsx'
 import ScreenLock from './components/ScreenLock.jsx'
+import { useTranslation } from './i18n.jsx'
 
 const DEFAULT_IDLE_TIMEOUT_MS = 15 * 60 * 1000 // 15 minutes
 
@@ -29,6 +30,7 @@ const POLL_INTERVAL = 5000
 const ROUTE_TO_DOCK_ID = { '/app-store': 'appstore', '/files': 'files', '/device-info': 'deviceinfo', '/settings': 'settings', '/terminal': 'terminal' }
 
 function RemoteOnlyMessage({ name, remoteUrl }) {
+  const { t } = useTranslation()
   let nimbuUrl = remoteUrl || ''
   try {
     const { hostname } = new URL(remoteUrl)
@@ -38,9 +40,9 @@ function RemoteOnlyMessage({ name, remoteUrl }) {
     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 24px' }}>
       <div style={{ maxWidth: 480, textAlign: 'center', color: 'var(--text-primary)' }}>
         <div style={{ fontSize: 48, marginBottom: 20 }}>📱</div>
-        <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 12 }}>{name} requires a remote device</div>
+        <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 12 }}>{t('remote_only_title', '{{name}} requires a remote device', { name })}</div>
         <div style={{ fontSize: 15, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 28 }}>
-          This app cannot be displayed on the local screen. Open it on your computer or mobile device connected to the same Wi-Fi network.
+          {t('remote_only_desc', 'This app cannot be displayed on the local screen. Open it on your computer or mobile device connected to the same Wi-Fi network.')}
         </div>
         <div style={{ background: 'var(--color-accent-soft-bg)', border: '1px solid var(--color-accent-soft-border)', borderRadius: 12, padding: '14px 20px', fontSize: 18, fontWeight: 700, color: 'var(--color-accent-soft-text)', letterSpacing: '0.01em' }}>
           {nimbuUrl}
@@ -51,6 +53,7 @@ function RemoteOnlyMessage({ name, remoteUrl }) {
 }
 
 function AppFrameOverlay({ appFrame, onClose }) {
+  const { t } = useTranslation()
   const [fullscreen, setFullscreen] = useState(false)
 
   useEffect(() => {
@@ -66,17 +69,17 @@ function AppFrameOverlay({ appFrame, onClose }) {
     <div style={{ ...styles.frameOverlay, ...(fullscreen ? styles.frameOverlayFull : {}) }}>
       {!fullscreen && (
         <div style={styles.frameBar}>
-          <button style={styles.frameBack} onClick={onClose}>← Back to Nimbus</button>
+          <button style={styles.frameBack} onClick={onClose}>{t('frame_back', '← Back to Nimbus')}</button>
           {appFrame.name && <span style={styles.frameTitle}>{appFrame.name}</span>}
           <div style={{ display: 'flex', gap: 8 }}>
             {!appFrame.remoteOnly && (
               <a href={appFrame.url} target="_blank" rel="noopener noreferrer" style={styles.frameExternal}>
-                Open in new tab ↗
+                {t('frame_open_tab', 'Open in new tab ↗')}
               </a>
             )}
             {!appFrame.remoteOnly && (
               <button style={styles.frameExternal} onClick={() => setFullscreen(true)}>
-                ⛶ Fullscreen
+                {t('frame_fullscreen', '⛶ Fullscreen')}
               </button>
             )}
           </div>
@@ -84,7 +87,7 @@ function AppFrameOverlay({ appFrame, onClose }) {
       )}
       {fullscreen && (
         <button style={styles.fullscreenExit} onClick={() => setFullscreen(false)}>
-          ✕ Exit fullscreen
+          {t('frame_exit_fullscreen', '✕ Exit fullscreen')}
         </button>
       )}
       {appFrame.remoteOnly ? (
@@ -96,12 +99,12 @@ function AppFrameOverlay({ appFrame, onClose }) {
   )
 }
 
-function describeSetupState(stats, apps, activeInstalls) {
+function describeSetupState(stats, apps, activeInstalls, t) {
   if (!stats || stats.control_mode !== 'lxd') return null
   if (stats.bootstrap_error) {
     return {
-      title: 'Nimbus setup needs attention',
-      message: `The managed LXD container could not be prepared: ${stats.bootstrap_error}`,
+      title: t('setup_attention_title', 'Nimbus setup needs attention'),
+      message: t('setup_attention_msg', 'The managed LXD container could not be prepared: {{error}}', { error: stats.bootstrap_error }),
       ready: false,
       error: true,
     }
@@ -115,28 +118,28 @@ function describeSetupState(stats, apps, activeInstalls) {
   const firstSetup = !stats.container_bootstrapped
   const phaseMessage = firstSetup
     ? {
-        idle: 'Preparing the managed environment.',
-        'waiting-for-network': 'Waiting for network connectivity before setting up the managed environment.',
-        'ensuring-profile': 'Configuring the LXD profile for nested container support.',
-        'importing-image': 'Importing pre-built container image.',
-        'ensuring-container': 'Creating and starting the managed LXD container.',
-        'installing-runtime': 'Installing Docker and required system packages in the managed container.',
-        'pushing-agent': 'Copying Nimbus services into the managed container.',
-        'installing-agent-python': 'Installing Nimbus Python dependencies in the managed container.',
-        'starting-agent': 'Starting Nimbus services in the managed container.',
-        ready: 'Finalizing setup.',
-      }[stats.bootstrap_state || 'idle'] || 'Preparing the managed environment.'
+        idle: t('setup_phase_idle', 'Preparing the managed environment.'),
+        'waiting-for-network': t('setup_phase_waiting_network', 'Waiting for network connectivity before setting up the managed environment.'),
+        'ensuring-profile': t('setup_phase_ensuring_profile', 'Configuring the LXD profile for nested container support.'),
+        'importing-image': t('setup_phase_importing_image', 'Importing pre-built container image.'),
+        'ensuring-container': t('setup_phase_ensuring_container', 'Creating and starting the managed LXD container.'),
+        'installing-runtime': t('setup_phase_installing_runtime', 'Installing Docker and required system packages in the managed container.'),
+        'pushing-agent': t('setup_phase_pushing_agent', 'Copying Nimbus services into the managed container.'),
+        'installing-agent-python': t('setup_phase_installing_python', 'Installing Nimbus Python dependencies in the managed container.'),
+        'starting-agent': t('setup_phase_starting_agent', 'Starting Nimbus services in the managed container.'),
+        ready: t('setup_phase_ready', 'Finalizing setup.'),
+      }[stats.bootstrap_state || 'idle'] || t('setup_phase_idle', 'Preparing the managed environment.')
     : {
-        idle: 'Nimbus is checking the managed container and restoring app status.',
-        'ensuring-profile': 'Nimbus is checking the managed container configuration.',
-        'importing-image': 'Nimbus is importing the pre-built container image.',
-        'ensuring-container': 'Nimbus is starting the managed container.',
-        'starting-agent': 'Nimbus is starting the managed services.',
-        ready: 'Nimbus is finishing startup.',
-      }[stats.bootstrap_state || 'idle'] || 'Nimbus is checking the managed container and restoring app status.'
+        idle: t('start_phase_idle', 'Nimbus is checking the managed container and restoring app status.'),
+        'ensuring-profile': t('start_phase_ensuring_profile', 'Nimbus is checking the managed container configuration.'),
+        'importing-image': t('start_phase_importing_image', 'Nimbus is importing the pre-built container image.'),
+        'ensuring-container': t('start_phase_ensuring_container', 'Nimbus is starting the managed container.'),
+        'starting-agent': t('start_phase_starting_agent', 'Nimbus is starting the managed services.'),
+        ready: t('start_phase_ready', 'Nimbus is finishing startup.'),
+      }[stats.bootstrap_state || 'idle'] || t('start_phase_idle', 'Nimbus is checking the managed container and restoring app status.')
 
   return {
-    title: firstSetup ? 'Nimbus is setting up' : 'Nimbus is starting',
+    title: firstSetup ? t('setup_title_setting_up', 'Nimbus is setting up') : t('setup_title_starting', 'Nimbus is starting'),
     message: phaseMessage,
     ready: false,
     error: false,
@@ -147,6 +150,7 @@ function describeSetupState(stats, apps, activeInstalls) {
 // pages. Mounted only once auth/OOBE/kiosk gating (in the outer App
 // component) has determined the user should see the real app.
 export function Shell({ stats, apps, activeInstalls, loading, error, authStatus, onLogout, onRefresh, onUninstall, onServiceAction }) {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const location = useLocation()
   const [appFrame, setAppFrame] = useState(null)
@@ -207,10 +211,10 @@ export function Shell({ stats, apps, activeInstalls, loading, error, authStatus,
     try {
       if (action === 'restart') {
         await restartSystem()
-        setSystemNotice({ tone: 'info', message: 'Restart requested. Nimbus will disconnect while the device restarts.' })
+        setSystemNotice({ tone: 'info', message: t('settings_system_restart_success_msg', 'Restart requested.') })
       } else {
         await powerOffSystem()
-        setSystemNotice({ tone: 'info', message: 'Power off requested. Nimbus will disconnect while the device shuts down.' })
+        setSystemNotice({ tone: 'info', message: t('settings_system_poweroff_success_msg', 'Power off requested.') })
       }
     } catch (e) {
       setSystemNotice({ tone: 'error', message: e.message })
@@ -231,8 +235,8 @@ export function Shell({ stats, apps, activeInstalls, loading, error, authStatus,
   const odysseusInstalled = apps.some(a => a.id === 'odysseus' && a.installed)
   const hasWidgets = openclawInstalled || hermesInstalled || picoclawInstalled || nullclawInstalled || zeroclawInstalled || odysseusInstalled
 
-  const errorMessage = error?.startsWith('Cannot reach backend') ? error : `Cannot reach backend — ${error}`
-  const setupState = describeSetupState(stats, apps, activeInstalls)
+  const errorMessage = error?.startsWith('Cannot reach backend') ? error : t('cannot_reach_backend_prefix', 'Cannot reach backend — {{error}}', { error })
+  const setupState = describeSetupState(stats, apps, activeInstalls, t)
   const isHome = location.pathname === '/'
 
   const topBarControls = (
@@ -243,8 +247,8 @@ export function Shell({ stats, apps, activeInstalls, loading, error, authStatus,
         </div>
       )}
       {authStatus?.authenticated && authStatus?.configured && (
-        <button style={styles.logoutBtn} onClick={onLogout} title={`Signed in as ${authStatus.username || 'admin'}`}>
-          {authStatus.username || 'admin'} · Sign out
+        <button style={styles.logoutBtn} onClick={onLogout} title={t('signed_in_as', 'Signed in as {{username}}', { username: authStatus.username || 'admin' })}>
+          {authStatus.username || 'admin'} · {t('sign_out', 'Sign out')}
         </button>
       )}
       <div style={styles.powerWrap}>
@@ -256,8 +260,8 @@ export function Shell({ stats, apps, activeInstalls, loading, error, authStatus,
           }}
           title={
             stats?.device_management_available === false
-              ? 'Power controls are unavailable until Nimbus can access snapd on the host.'
-              : 'Power'
+              ? t('power_unavailable_hint', 'Power controls are unavailable until Nimbus can access snapd on the host.')
+              : t('power', 'Power')
           }
           onClick={e => {
             e.stopPropagation()
@@ -270,10 +274,10 @@ export function Shell({ stats, apps, activeInstalls, loading, error, authStatus,
         {powerMenuOpen && (
           <div style={styles.powerMenu} onClick={e => e.stopPropagation()}>
             <button style={styles.powerMenuItem} onClick={() => handlePowerAction('restart')} disabled={powerBusy}>
-              Restart
+              {t('restart', 'Restart')}
             </button>
             <button style={{ ...styles.powerMenuItem, ...styles.powerMenuItemDanger }} onClick={() => handlePowerAction('poweroff')} disabled={powerBusy}>
-              Power Off
+              {t('power_off', 'Power Off')}
             </button>
           </div>
         )}
@@ -322,27 +326,27 @@ export function Shell({ stats, apps, activeInstalls, loading, error, authStatus,
           />
         } />
         <Route path="/app-store" element={
-          <Page title="App Store" headerActions={topBarControls}>
+          <Page title={t('dock_appstore', 'App Store')} headerActions={topBarControls}>
             <AppStore apps={apps} onRefresh={onRefresh} onOpenDetail={setDetailApp} activeInstalls={activeInstalls} />
           </Page>
         } />
         <Route path="/files" element={
-          <Page title="Files" noPad headerActions={topBarControls}>
+          <Page title={t('dock_files', 'Files')} noPad headerActions={topBarControls}>
             <FileBrowser />
           </Page>
         } />
         <Route path="/device-info" element={
-          <Page title="Device Info" headerActions={topBarControls}>
+          <Page title={t('device_info_title', 'Device Info')} headerActions={topBarControls}>
             <DeviceInfo stats={stats} apps={apps} />
           </Page>
         } />
         <Route path="/settings" element={
-          <Page title="Settings" headerActions={topBarControls}>
+          <Page title={t('dock_settings', 'Settings')} headerActions={topBarControls}>
             <Settings stats={stats} onRefresh={onRefresh} />
           </Page>
         } />
         <Route path="/terminal" element={
-          <Page title="Container Terminal" noPad headerActions={topBarControls}>
+          <Page title={t('dock_terminal', 'Terminal')} noPad headerActions={topBarControls}>
             <TerminalPanel />
           </Page>
         } />

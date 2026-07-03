@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import PinPad, { PinDots } from './ui/PinPad.jsx'
+import { useTranslation } from '../i18n.jsx'
 
 const PIN_LENGTH = 4
 
 export default function ScreenLock({ deviceName, onUnlock, onFail }) {
+  const { t } = useTranslation()
   const [pin, setPin] = useState('')
   const [shake, setShake] = useState(false)
   const [time, setTime] = useState(new Date())
@@ -55,7 +57,7 @@ export default function ScreenLock({ deviceName, onUnlock, onFail }) {
           <PinDots length={PIN_LENGTH} value={pin} shake={shake} />
         </div>
 
-        <div style={styles.hint}>Enter PIN to unlock</div>
+        <div style={styles.hint}>{t('screen_lock_enter_pin', 'Enter PIN to unlock')}</div>
 
         <PinPad value={pin} onChange={setPin} length={PIN_LENGTH} onComplete={verifyPin} />
       </div>

@@ -3,6 +3,7 @@ import { login } from '../api.js'
 import Button from './ui/Button.jsx'
 import PasswordField from './ui/PasswordField.jsx'
 import NimbusMark from './ui/NimbusMark.jsx'
+import { useTranslation } from '../i18n.jsx'
 
 // If a login succeeds server-side but the session never takes effect (e.g. the
 // parent never flips to authenticated because the cookie didn't stick), this
@@ -11,6 +12,7 @@ import NimbusMark from './ui/NimbusMark.jsx'
 const STUCK_SESSION_TIMEOUT_MS = 6000
 
 export default function Login({ onLogin }) {
+  const { t } = useTranslation()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState(null)
@@ -30,7 +32,7 @@ export default function Login({ onLogin }) {
     try {
       await login(username.trim(), password)
     } catch (e) {
-      setError('Invalid username or password')
+      setError(t('login_failed', 'Invalid username or password'))
       setBusy(false)
       return
     }
@@ -39,7 +41,7 @@ export default function Login({ onLogin }) {
     clearTimeout(stuckTimer.current)
     stuckTimer.current = setTimeout(() => {
       setBusy(false)
-      setError('Signed in, but the session did not persist. Try reloading, or use https:// instead of http://.')
+      setError(t('login_session_stuck', 'Signed in, but the session did not persist. Try reloading, or use https:// instead of http://.'))
     }, STUCK_SESSION_TIMEOUT_MS)
     try {
       await onLogin()
@@ -56,16 +58,16 @@ export default function Login({ onLogin }) {
           <span style={s.logoText}>Nimbus</span>
         </div>
 
-        <h1 style={s.heading}>Welcome back</h1>
-        <p style={s.subheading}>Sign in to open your Nimbus.</p>
+        <h1 style={s.heading}>{t('login_welcome_back', 'Welcome back')}</h1>
+        <p style={s.subheading}>{t('login_subheading', 'Sign in to open your Nimbus.')}</p>
 
         <div style={s.fieldGroup}>
-          <label style={s.label}>Username</label>
+          <label style={s.label}>{t('login_username', 'Username')}</label>
           <input
             type="text"
             value={username}
             onChange={e => setUsername(e.target.value)}
-            placeholder="Username"
+            placeholder={t('login_username', 'Username')}
             style={s.input}
             autoFocus
             autoComplete="username"
@@ -74,12 +76,12 @@ export default function Login({ onLogin }) {
         </div>
 
         <div style={s.fieldGroup}>
-          <label style={s.label}>Password</label>
+          <label style={s.label}>{t('login_password', 'Password')}</label>
           <PasswordField
             id="login-pw"
             value={password}
             onChange={e => setPassword(e.target.value)}
-            placeholder="Password"
+            placeholder={t('login_password', 'Password')}
             autoComplete="current-password"
             onKeyDown={e => e.key === 'Enter' && handleLogin()}
           />
@@ -88,7 +90,7 @@ export default function Login({ onLogin }) {
         {error && <div style={s.errorBox}>{error}</div>}
 
         <Button variant="primary" fullWidth onClick={handleLogin} disabled={!canSubmit} loading={busy} style={{ marginTop: 6 }}>
-          {busy ? 'Signing in…' : 'Sign in'}
+          {busy ? t('login_busy', 'Signing in…') : t('login_button', 'Sign in')}
         </Button>
       </div>
       <style>{`@keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}`}</style>

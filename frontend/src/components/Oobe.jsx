@@ -9,6 +9,7 @@ import PasswordField from './ui/PasswordField.jsx'
 import PinPad, { PinDots } from './ui/PinPad.jsx'
 import Spinner from './ui/Spinner.jsx'
 import NimbusMark from './ui/NimbusMark.jsx'
+import { useTranslation, LanguageSelector } from '../i18n.jsx'
 
 const STATUS_IP_RETRY_DELAY_MS = 1500
 const STEP_ORDER = ['network', 'account', 'pin']
@@ -25,6 +26,7 @@ function StepDots({ current }) {
 }
 
 function NetworkStep({ online, onNext, reconnect }) {
+  const { t } = useTranslation()
   const [wifiStatus, setWifiStatus] = useState(null)
   const [networks, setNetworks] = useState(null)
   const [scanning, setScanning] = useState(false)
@@ -147,26 +149,23 @@ function NetworkStep({ online, onNext, reconnect }) {
     const { ssid, password: pwd } = pendingHandover
     return (
       <div style={s.transitionContainer}>
-        <h1 style={s.heading}>Almost there</h1>
+        <h1 style={s.heading}>{t('oobe_handover_title', 'Almost there')}</h1>
         <p style={s.subheading}>
-          Nimbus will join <strong>{ssid}</strong> and switch off its setup Wi-Fi.
-          This page will close on its own — that's expected.
+          {t('oobe_handover_desc', 'Nimbus will join {{ssid}} and switch off its setup Wi-Fi. This page will close on its own — that\'s expected.', { ssid })}
         </p>
         <div style={s.illustrationCard}>
           <div style={s.handoverIcon}>📶→🏠</div>
           <div style={s.instructionStep}>
-            <strong>1.</strong> Reconnect this phone to <strong>{ssid}</strong> (or any
-            network with internet).
+            {t('oobe_handover_step1', '1. Reconnect this phone to {{ssid}} (or any network with internet).', { ssid })}
           </div>
           <div style={s.instructionStep}>
-            <strong>2.</strong> Open <a href="http://nimbus.local" style={s.link}>nimbus.local</a> in
-            your browser to finish setup.
+            <strong>2.</strong> {t('oobe_handover_step2_open', 'Open')} <a href="http://nimbus.local" style={s.link}>nimbus.local</a> {t('oobe_handover_step2_finish', 'in your browser to finish setup.')}
           </div>
         </div>
         <Button variant="primary" fullWidth onClick={() => handleConnect(ssid, pwd)} style={{ marginBottom: 10 }}>
-          Connect &amp; continue
+          {t('oobe_handover_btn', 'Connect & continue')}
         </Button>
-        <Button variant="ghost" fullWidth onClick={() => setPendingHandover(null)}>Cancel</Button>
+        <Button variant="ghost" fullWidth onClick={() => setPendingHandover(null)}>{t('cancel', 'Cancel')}</Button>
       </div>
     )
   }
@@ -174,19 +173,18 @@ function NetworkStep({ online, onNext, reconnect }) {
   if (transitioningSsid) {
     return (
       <div style={s.transitionContainer}>
-        <h1 style={s.heading}>Connecting…</h1>
+        <h1 style={s.heading}>{t('oobe_transition_title', 'Connecting…')}</h1>
         <p style={s.subheading}>
-          Joining <strong>{transitioningSsid}</strong> and turning off the setup Wi-Fi.
+          {t('oobe_transition_desc', 'Joining {{ssid}} and turning off the setup Wi-Fi.', { ssid: transitioningSsid })}
         </p>
         <div style={s.illustrationCard}>
           <div style={s.spinnerContainer}><Spinner size={36} thickness={3} /></div>
           <div style={s.instructionStep}>
-            This will continue on its own once Nimbus is online.
+            {t('oobe_transition_auto', 'This will continue on its own once Nimbus is online.')}
           </div>
           {!isLocalAccess() && (
             <div style={s.instructionStep}>
-              Still here in a minute? Reconnect to <strong>{transitioningSsid}</strong> and open{' '}
-              <a href="http://nimbus.local" style={s.link}>nimbus.local</a>.
+              {t('oobe_transition_manual_part1', 'Still here in a minute? Reconnect to {{ssid}} and open', { ssid: transitioningSsid })} <a href="http://nimbus.local" style={s.link}>nimbus.local</a>.
             </div>
           )}
         </div>
@@ -197,25 +195,27 @@ function NetworkStep({ online, onNext, reconnect }) {
   return (
     <>
       {!reconnect && <StepDots current="network" />}
-      <h1 style={s.heading}>{reconnect ? 'Reconnect to Wi-Fi' : "Let's get you online"}</h1>
+      <h1 style={s.heading}>{reconnect ? t('oobe_step_network_reconnect_title', 'Reconnect to Wi-Fi') : t('oobe_step_network_title', "Let's get you online")}</h1>
       <p style={s.subheading}>
         {connected
-          ? "You're connected and ready to continue."
+          ? t('oobe_step_network_connected', "You're connected and ready to continue.")
           : reconnect
-            ? 'Nimbus lost its connection — reconnect to keep going.'
-            : 'Connect Nimbus to your home network to continue setup.'}
+            ? t('oobe_step_network_lost', 'Nimbus lost its connection — reconnect to keep going.')
+            : t('oobe_step_network_hint', 'Connect Nimbus to your home network to continue setup.')}
       </p>
 
       <Badge tone={connected ? 'success' : 'danger'} uppercase={false} style={{ marginBottom: 18 }}>
         {connected ? <Check size={13} /> : <X size={13} />}
         <span style={{ marginLeft: 6 }}>
           {connected
-            ? `Connected${wifiStatus?.ssid ? ` — ${wifiStatus.ssid}` : ' via Ethernet'}`
-            : 'Not connected'}
+            ? wifiStatus?.ssid
+              ? t('oobe_connected_ssid', 'Connected — {{ssid}}', { ssid: wifiStatus.ssid })
+              : t('oobe_connected_ethernet', 'Connected via Ethernet')
+            : t('oobe_not_connected', 'Not connected')}
         </span>
       </Badge>
       {connected && wifiStatus?.ip_address && (
-        <div style={s.connectionMeta}>IP address: {wifiStatus.ip_address}</div>
+        <div style={s.connectionMeta}>{t('oobe_ip_address', 'IP address: {{ip}}', { ip: wifiStatus.ip_address })}</div>
       )}
 
       {wifiAvailable && passwordSsid && (
@@ -228,17 +228,17 @@ function NetworkStep({ online, onNext, reconnect }) {
             <span style={s.wifiTitle}><Lock size={13} style={{ marginRight: 6, verticalAlign: -2 }} />{passwordSsid}</span>
           </div>
           <div style={s.pwPrompt}>
-            <label style={s.label}>Wi-Fi password</label>
+            <label style={s.label}>{t('oobe_wifi_password', 'Wi-Fi password')}</label>
             <PasswordField
               value={password}
               onChange={e => setPassword(e.target.value)}
-              placeholder="Enter password"
+              placeholder={t('oobe_enter_password', 'Enter password')}
               onKeyDown={e => e.key === 'Enter' && password && requestConnect(passwordSsid, password)}
               autoFocus
             />
             {error && <div style={{ ...s.netError, padding: '6px 0 0' }}>{error}</div>}
             <div style={{ display: 'flex', gap: 8, width: '100%', justifyContent: 'flex-end', marginTop: 12 }}>
-              <Button variant="ghost" size="sm" onClick={cancelPassword}>Cancel</Button>
+              <Button variant="ghost" size="sm" onClick={cancelPassword}>{t('cancel', 'Cancel')}</Button>
               <Button
                 variant="soft"
                 size="sm"
@@ -246,7 +246,7 @@ function NetworkStep({ online, onNext, reconnect }) {
                 disabled={!password || connecting === passwordSsid}
                 loading={connecting === passwordSsid}
               >
-                {connecting === passwordSsid ? 'Connecting…' : 'Connect'}
+                {connecting === passwordSsid ? t('connecting', 'Connecting…') : t('connect', 'Connect')}
               </Button>
             </div>
           </div>
@@ -256,14 +256,14 @@ function NetworkStep({ online, onNext, reconnect }) {
       {wifiAvailable && !passwordSsid && (
         <div style={s.wifiPanel}>
           <div style={s.wifiHeader}>
-            <span style={s.wifiTitle}><Wifi size={14} style={{ marginRight: 6, verticalAlign: -2 }} />Wi-Fi networks</span>
+            <span style={s.wifiTitle}><Wifi size={14} style={{ marginRight: 6, verticalAlign: -2 }} />{t('oobe_wifi_networks', 'Wi-Fi networks')}</span>
             <Button variant="ghost" size="sm" onClick={handleScan} loading={scanning}>
-              {scanning ? 'Scanning…' : 'Scan'}
+              {scanning ? t('oobe_scanning', 'Scanning…') : t('oobe_scan', 'Scan')}
             </Button>
           </div>
           {error && <div style={s.netError}>{error}</div>}
-          {networks === null && <div style={s.netHint}>Tap Scan to find nearby networks</div>}
-          {networks?.length === 0 && <div style={s.netHint}>No networks found — try scanning again</div>}
+          {networks === null && <div style={s.netHint}>{t('oobe_scan_hint', 'Tap Scan to find nearby networks')}</div>}
+          {networks?.length === 0 && <div style={s.netHint}>{t('oobe_no_networks', 'No networks found — try scanning again')}</div>}
           {networks?.map(net => (
             <div key={net.ssid} style={s.netRow}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
@@ -282,7 +282,7 @@ function NetworkStep({ online, onNext, reconnect }) {
                   disabled={connecting === net.ssid}
                   loading={connecting === net.ssid}
                 >
-                  {connecting === net.ssid ? 'Connecting…' : 'Connect'}
+                  {connecting === net.ssid ? t('connecting', 'Connecting…') : t('connect', 'Connect')}
                 </Button>
               )}
             </div>
@@ -291,16 +291,17 @@ function NetworkStep({ online, onNext, reconnect }) {
       )}
 
       <Button variant="primary" fullWidth onClick={onNext} disabled={!connected} style={{ marginBottom: 10 }}>
-        {reconnect ? 'Continue' : 'Next'}
+        {reconnect ? t('continue', 'Continue') : t('next', 'Next')}
       </Button>
       {!connected && (
-        <Button variant="ghost" fullWidth onClick={onNext}>Skip — I'm using Ethernet</Button>
+        <Button variant="ghost" fullWidth onClick={onNext}>{t('oobe_skip_ethernet', "Skip — I'm using Ethernet")}</Button>
       )}
     </>
   )
 }
 
 function AccountStep({ onNext }) {
+  const { t } = useTranslation()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -327,18 +328,18 @@ function AccountStep({ onNext }) {
   return (
     <>
       <StepDots current="account" />
-      <h1 style={s.heading}>Create your account</h1>
+      <h1 style={s.heading}>{t('oobe_account_title', 'Create your account')}</h1>
       <p style={s.subheading}>
-        This protects access to your Nimbus.
+        {t('oobe_account_desc', 'This protects access to your Nimbus.')}
       </p>
 
       <div style={s.fieldGroup}>
-        <label style={s.label}>Username</label>
+        <label style={s.label}>{t('oobe_username', 'Username')}</label>
         <input
           type="text"
           value={username}
           onChange={e => setUsername(e.target.value)}
-          placeholder="e.g. admin"
+          placeholder={t('oobe_username_placeholder', 'e.g. admin')}
           style={s.input}
           autoFocus
           autoComplete="username"
@@ -347,40 +348,40 @@ function AccountStep({ onNext }) {
       </div>
 
       <div style={s.fieldGroup}>
-        <label style={s.label}>Password</label>
+        <label style={s.label}>{t('oobe_password', 'Password')}</label>
         <PasswordField
           id="nimbus-pw"
           value={password}
           onChange={e => setPassword(e.target.value)}
-          placeholder="At least 8 characters"
+          placeholder={t('oobe_password_placeholder', 'At least 8 characters')}
           autoComplete="new-password"
           onKeyDown={e => e.key === 'Enter' && document.getElementById('nimbus-confirm')?.focus()}
         />
         {password.length > 0 && !pwValid && (
-          <div style={s.fieldHint}>Password must be at least 8 characters</div>
+          <div style={s.fieldHint}>{t('oobe_password_hint', 'Password must be at least 8 characters')}</div>
         )}
       </div>
 
       <div style={s.fieldGroup}>
-        <label style={s.label}>Confirm password</label>
+        <label style={s.label}>{t('oobe_confirm_password', 'Confirm password')}</label>
         <PasswordField
           id="nimbus-confirm"
           value={confirm}
           onChange={e => setConfirm(e.target.value)}
-          placeholder="Re-enter password"
+          placeholder={t('oobe_confirm_password_placeholder', 'Re-enter password')}
           inputStyle={confirm.length > 0 && !pwMatch ? { borderColor: 'var(--color-danger)' } : {}}
           autoComplete="new-password"
           onKeyDown={e => e.key === 'Enter' && handleSubmit()}
         />
         {confirm.length > 0 && !pwMatch && (
-          <div style={s.fieldHint}>Passwords do not match</div>
+          <div style={s.fieldHint}>{t('oobe_password_mismatch', 'Passwords do not match')}</div>
         )}
       </div>
 
       {error && <div style={s.errorBox}>{error}</div>}
 
       <Button variant="primary" fullWidth onClick={handleSubmit} disabled={!canSubmit} loading={busy}>
-        {busy ? 'Creating account…' : 'Next'}
+        {busy ? t('oobe_creating_account', 'Creating account…') : t('next', 'Next')}
       </Button>
     </>
   )
@@ -389,6 +390,7 @@ function AccountStep({ onNext }) {
 const OOBE_PIN_LENGTH = 4
 
 function PinStep({ onComplete }) {
+  const { t } = useTranslation()
   const [mode, setMode] = useState('set') // set | confirm
   const [pin, setPin] = useState('')
   const [firstPin, setFirstPin] = useState('')
@@ -402,7 +404,7 @@ function PinStep({ onComplete }) {
         localStorage.setItem('nimbus_lock_pin', entered)
         onComplete()
       } else {
-        setError('PINs did not match — try again'); setPin(''); setMode('set'); setFirstPin('')
+        setError(t('oobe_pin_mismatch', 'PINs did not match — try again')); setPin(''); setMode('set'); setFirstPin('')
       }
     }
   }
@@ -410,29 +412,30 @@ function PinStep({ onComplete }) {
   return (
     <>
       <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 4 }}>
-        <Badge tone="neutral">Optional</Badge>
+        <Badge tone="neutral">{t('optional', 'Optional')}</Badge>
       </div>
-      <h1 style={{ ...s.heading, textAlign: 'center' }}>Add a screen lock PIN</h1>
+      <h1 style={{ ...s.heading, textAlign: 'center' }}>{t('oobe_pin_title', 'Add a screen lock PIN')}</h1>
       <p style={{ ...s.subheading, textAlign: 'center' }}>
-        Choose a 4-digit PIN to lock the screen after inactivity. You can add this anytime in Settings instead.
+        {t('oobe_pin_desc', 'Choose a 4-digit PIN to lock the screen after inactivity. You can add this anytime in Settings instead.')}
       </p>
 
       {error && <div style={{ ...s.errorBox, marginBottom: 12 }}>{error}</div>}
 
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, marginBottom: 12 }}>
         <div style={{ fontSize: 13, color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)' }}>
-          {mode === 'set' ? 'Enter a 4-digit PIN' : 'Confirm your PIN'}
+          {mode === 'set' ? t('oobe_pin_enter', 'Enter a 4-digit PIN') : t('oobe_pin_confirm', 'Confirm your PIN')}
         </div>
         <PinDots length={OOBE_PIN_LENGTH} value={pin} />
         <PinPad value={pin} onChange={setPin} length={OOBE_PIN_LENGTH} onComplete={advance} size={64} />
       </div>
 
-      <Button variant="ghost" fullWidth onClick={onComplete}>Skip for now</Button>
+      <Button variant="ghost" fullWidth onClick={onComplete}>{t('oobe_pin_skip', 'Skip for now')}</Button>
     </>
   )
 }
 
 export default function Oobe({ online, onComplete, networkOnly }) {
+  const { t } = useTranslation()
   const [step, setStep] = useState('network')
 
   async function finishOobe() {
@@ -444,8 +447,11 @@ export default function Oobe({ online, onComplete, networkOnly }) {
     <div style={{ ...s.overlay, alignItems: isLocalAccess() ? 'center' : 'flex-start' }}>
       <div className="oobe-card" style={s.card}>
         <div style={s.logoRow}>
-          <NimbusMark size={30} />
-          <span style={s.logoText}>Nimbus</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <NimbusMark size={30} />
+            <span style={s.logoText}>Nimbus</span>
+          </div>
+          <LanguageSelector />
         </div>
 
         {step === 'network'
@@ -486,7 +492,7 @@ const s = {
     backdropFilter: 'blur(var(--blur-lg))', animation: 'fadeIn 0.4s ease',
     display: 'flex', flexDirection: 'column',
   },
-  logoRow: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24 },
+  logoRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 },
   logoText: { fontSize: 17, fontWeight: 'var(--font-weight-bold)', color: 'var(--text-primary)', letterSpacing: '-0.02em' },
   stepDots: { display: 'flex', gap: 6, marginBottom: 14 },
   stepDot: { width: 20, height: 4, borderRadius: 2, background: 'var(--color-border-strong)' },
