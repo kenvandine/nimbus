@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { MoreVertical } from 'lucide-react'
+import { useTranslation } from '../../i18n.jsx'
 
 // Launcher grid tile. Replaces the old desktop-icon + right-click-only
 // context menu: secondary actions (restart/stop/uninstall/logs/info) now
@@ -7,6 +8,7 @@ import { MoreVertical } from 'lucide-react'
 // click and touch tap, instead of needing separate right-click vs.
 // long-press handling.
 export default function AppTile({ app, onOpen, onAction }) {
+  const { t } = useTranslation()
   const [menuOpen, setMenuOpen] = useState(false)
   const wrapRef = useRef(null)
 
@@ -27,18 +29,18 @@ export default function AppTile({ app, onOpen, onAction }) {
   }, [menuOpen])
 
   const actions = []
-  if (app.open_url) actions.push({ key: 'open', label: 'Open' })
-  if (!app.is_system) actions.push({ key: 'info', label: 'View info' })
-  if (!app.is_system) actions.push({ key: 'logs', label: 'View logs' })
+  if (app.open_url) actions.push({ key: 'open', label: t('app_tile_action_open', 'Open') })
+  if (!app.is_system) actions.push({ key: 'info', label: t('app_tile_action_info', 'View info') })
+  if (!app.is_system) actions.push({ key: 'logs', label: t('app_tile_action_logs', 'View logs') })
   if (app.has_service) {
     if (app.running) {
-      actions.push({ key: 'restart', label: 'Restart service' })
-      actions.push({ key: 'stop', label: 'Stop service' })
+      actions.push({ key: 'restart', label: t('app_tile_action_restart', 'Restart service') })
+      actions.push({ key: 'stop', label: t('app_tile_action_stop', 'Stop service') })
     } else {
-      actions.push({ key: 'start', label: 'Start service' })
+      actions.push({ key: 'start', label: t('app_tile_action_start', 'Start service') })
     }
   }
-  if (!app.is_system) actions.push({ key: 'uninstall', label: 'Uninstall', danger: true })
+  if (!app.is_system) actions.push({ key: 'uninstall', label: t('app_tile_action_uninstall', 'Uninstall'), danger: true })
 
   return (
     <div ref={wrapRef} style={styles.tile}>
@@ -50,7 +52,7 @@ export default function AppTile({ app, onOpen, onAction }) {
             style={styles.icon}
             onError={e => { e.currentTarget.onerror = null; e.currentTarget.src = `/api/apps/${app.id}/icon.svg` }}
           />
-          {app.update_available && <span style={styles.updateDot} title="Update available" />}
+          {app.update_available && <span style={styles.updateDot} title={t('app_store_update_available', 'Update available')} />}
         </div>
         <span style={styles.label}>{app.name}</span>
       </button>
@@ -59,7 +61,7 @@ export default function AppTile({ app, onOpen, onAction }) {
         <button
           type="button"
           style={styles.menuBtn}
-          aria-label={`${app.name} actions`}
+          aria-label={t('app_tile_actions_label', '{{name}} actions', { name: app.name })}
           onClick={e => { e.stopPropagation(); setMenuOpen(o => !o) }}
         >
           <MoreVertical size={15} />

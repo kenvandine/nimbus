@@ -294,6 +294,16 @@ const translations = {
     app_modal_restart: 'Restart',
     app_modal_show_logs: 'Show logs',
 
+    // App Tile (Home screen launcher context menu)
+    app_tile_action_open: 'Open',
+    app_tile_action_info: 'View info',
+    app_tile_action_logs: 'View logs',
+    app_tile_action_restart: 'Restart service',
+    app_tile_action_stop: 'Stop service',
+    app_tile_action_start: 'Start service',
+    app_tile_action_uninstall: 'Uninstall',
+    app_tile_actions_label: '{{name}} actions',
+
     // Screen Lock
     screen_lock_locked: 'Locked',
     screen_lock_enter_pin: 'Enter PIN to unlock',
@@ -715,6 +725,16 @@ const translations = {
     app_modal_restart: 'Reiniciar',
     app_modal_show_logs: 'Mostrar registros',
 
+    // App Tile (menú contextual del launcher en la pantalla de inicio)
+    app_tile_action_open: 'Abrir',
+    app_tile_action_info: 'Ver información',
+    app_tile_action_logs: 'Ver registros',
+    app_tile_action_restart: 'Reiniciar servicio',
+    app_tile_action_stop: 'Detener servicio',
+    app_tile_action_start: 'Iniciar servicio',
+    app_tile_action_uninstall: 'Desinstalar',
+    app_tile_actions_label: 'Acciones de {{name}}',
+
     // Screen Lock
     screen_lock_locked: 'Bloqueado',
     screen_lock_enter_pin: 'Introduce el PIN para desbloquear',
@@ -1135,6 +1155,16 @@ const translations = {
     app_modal_stop: 'Arrêter',
     app_modal_restart: 'Redémarrer',
     app_modal_show_logs: 'Afficher les journaux',
+
+    // App Tile (menu contextuel du lanceur sur l'écran d'accueil)
+    app_tile_action_open: 'Ouvrir',
+    app_tile_action_info: 'Voir les infos',
+    app_tile_action_logs: 'Voir les journaux',
+    app_tile_action_restart: 'Redémarrer le service',
+    app_tile_action_stop: 'Arrêter le service',
+    app_tile_action_start: 'Démarrer le service',
+    app_tile_action_uninstall: 'Désinstaller',
+    app_tile_actions_label: 'Actions de {{name}}',
 
     // Screen Lock
     screen_lock_locked: 'Verrouillé',
