@@ -1,0 +1,86 @@
+/* Nimbus theme override — "Daylight"
+ *
+ * A light-background counterpart to Nimbus's own default dark theme —
+ * same warm amber/orange identity, same accent color, just flipped to a
+ * bright canvas with dark ink text instead of a dark canvas with light text.
+ *
+ * A naive version of this (just flipping --color-bg-canvas and --text-*)
+ * breaks two things that a straight swap doesn't cover:
+ *
+ * 1. The Home screen's ambient gradient (theme.js ambientGradient()) had
+ *    its base lightness hardcoded dark, so it stayed a near-black glow
+ *    even with everything else flipped to light — dark text over a dark
+ *    background, unreadable. Fixed by adding a --nimbus-gradient-lightness
+ *    override point (see theme.js / theme.css) alongside the existing
+ *    --nimbus-gradient-hue one; this file sets it to 88.
+ *
+ * 2. The soft accent/status triplets (--color-accent-soft-bg/-border/-text
+ *    and the info/success/warning/danger equivalents) pair a faint
+ *    translucent tint with a *light* text color, tuned to pop against a
+ *    dark surface. On a white surface that same light text reads as
+ *    low-contrast wash (this is what made the Settings "Download" button
+ *    and the active dock icon look washed-out in initial testing). Each
+ *    soft-text below is redeclared as a deep, saturated shade instead so
+ *    labels stay legible on their pale tinted backgrounds.
+ *
+ * Known minor inconsistency, left as-is rather than over-fixing: the
+ * hover-tooltip and native <select> option backgrounds
+ * (--nimbus-charcoal-900) are deliberately NOT inverted here, because that
+ * same token doubles as the terminal's ANSI "black" text color
+ * (theme.js getXtermTheme()) — inverting it would keep dropdown/tooltip
+ * chips dark (a small, unsurprising native-chrome-style exception) while
+ * keeping terminal text properly dark against the now-light terminal
+ * background (which, like the rest of the app, follows --color-bg-canvas).
+ *
+ * Install on the device:
+ *   scp examples/daylight-theme.css ubuntu@nimbus.local:/tmp/override.css
+ *   ssh ubuntu@nimbus.local 'sudo cp /tmp/override.css /var/snap/nimbus/common/theme/override.css'
+ * Remove the file (or `sudo rm .../theme/override.css`) to go back to the
+ * default Nimbus theme — nothing needs reinstalling.
+ */
+
+:root {
+  /* ---- Semantic: surfaces & background ---- */
+  --color-bg-canvas: #ffffff;
+  --color-surface-1: rgba(20, 24, 36, 0.035);
+  --color-surface-2: rgba(20, 24, 36, 0.06);
+  --color-surface-3: rgba(20, 24, 36, 0.10);
+  --color-overlay-scrim: rgba(20, 24, 36, 0.35);
+  --color-border-subtle: rgba(20, 24, 36, 0.08);
+  --color-border-strong: rgba(20, 24, 36, 0.16);
+
+  /* ---- Semantic: accent & status ----
+     Base accent/info/success/warning/danger colors and their soft-bg /
+     soft-border stay Nimbus's defaults — a translucent tint reads fine as
+     a pale panel over white just as it does over black. Only soft-text
+     (the part that was actually low-contrast on white) and the
+     hover/active accent shades (darker-on-light instead of
+     lighter-on-dark, matching how emphasis usually flips between the two
+     modes) are redeclared. */
+  --color-accent-hover: #C85F2C;
+  --color-accent-active: #9C4A22;
+  --color-accent-soft-text: #A34A1E;
+
+  --color-info-soft-text: #1F6E86;
+  --color-success-soft-text: #2F7A3B;
+  --color-warning-soft-text: #8A5C0E;
+  --color-danger-soft-text: #A83B30;
+
+  /* ---- Semantic: text (dark ink ladder, inverted from the default) ---- */
+  --text-primary: rgba(20, 24, 36, 0.92);
+  --text-secondary: rgba(20, 24, 36, 0.62);
+  --text-tertiary: rgba(20, 24, 36, 0.44);
+  --text-disabled: rgba(20, 24, 36, 0.28);
+
+  /* ---- Shadow: light UIs read best with much softer, less inky shadows
+     than a dark canvas needs for the same sense of depth ---- */
+  --shadow-sm: 0 4px 12px rgba(20, 24, 36, 0.10);
+  --shadow-md: 0 12px 28px rgba(20, 24, 36, 0.12);
+  --shadow-lg: 0 24px 60px rgba(20, 24, 36, 0.14);
+  --shadow-xl: 0 32px 80px rgba(20, 24, 36, 0.18);
+
+  /* Flips the Home screen's ambient gradient from a dark glow to a light
+     wash; hue is left at Nimbus's own default (25) since this is a mode
+     switch, not a re-brand. */
+  --nimbus-gradient-lightness: 88;
+}

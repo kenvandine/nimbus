@@ -6,7 +6,7 @@ colors, radii, shadows, blur — without rebuilding the frontend, by dropping
 an `override.css` file into a writable directory the backend serves at
 `/theme/override.css` (see `backend/main.py` / `backend/config.py`).
 
-This directory contains three ready-to-use example override files so you
+This directory contains four ready-to-use example override files so you
 can confirm theming works end-to-end on a real device:
 
 | File | Look |
@@ -14,13 +14,20 @@ can confirm theming works end-to-end on a real device:
 | `ubuntu-vanilla-theme.css` | Matches Canonical's [Vanilla design system](https://design.ubuntu.com/vanilla) — Ubuntu orange accent, neutral dark-grey surfaces, small/flat corners. |
 | `business-theme.css` | Restrained and professional — cool slate-navy base, muted steel-blue accent, moderate corners. Aimed at a mid-sized-company deployment. |
 | `family-fun-theme.css` | Vivid and playful — bubblegum-pink accent, candy-colored status colors, bubbly rounded corners. Aimed at a household with kids. |
+| `daylight-theme.css` | Nimbus's own default identity on a light canvas instead of dark — dark ink text, pale surfaces, softer shadows. |
 
-All three keep Nimbus's dark canvas rather than switching to a light
-background. The Home screen's ambient gradient (`frontend/src/theme.js`,
-`ambientGradient()`) only reads `--nimbus-gradient-hue` for its color — its
-lightness is hardcoded assuming a dark canvas — so a light-background theme
-would leave a dark patch behind the Home screen's app icons. Each file's
-header comment explains its specific color choices.
+The first three keep Nimbus's dark canvas rather than switching to a light
+background — the Home screen's ambient gradient (`frontend/src/theme.js`,
+`ambientGradient()`) only reads `--nimbus-gradient-hue` for its color by
+default, and its lightness used to be hardcoded assuming a dark canvas, so
+a light-background theme would otherwise leave a dark, unreadable patch
+behind the Home screen's app icons. `daylight-theme.css` is the one example
+that goes light, using a new `--nimbus-gradient-lightness` override point
+(added alongside the existing hue one specifically to make this possible)
+plus re-tuned soft-accent text colors — see its header comment for the
+details and the one deliberate remaining inconsistency (dropdown/tooltip
+chip backgrounds stay dark, since that token doubles as the terminal's
+ANSI black). Each file's header comment explains its own specific choices.
 
 ## Try one on a running device
 
