@@ -300,7 +300,7 @@ function AiModelTab() {
             )}
             {isPulling && (
               <div style={styles.infoRow}>
-                <span style={styles.infoLabel}>{t('settings_https_download', 'Download')}</span>
+                <span style={styles.infoLabel}>{t('device_info_ai_download_status', 'Download')}</span>
                 <span style={styles.infoValue}>
                   {pull.status} {pull.percent > 0 ? `(${Math.round(pull.percent)}%)` : ''}
                   {pull.total_files > 0 ? ` — file ${pull.file_index}/${pull.total_files}` : ''}

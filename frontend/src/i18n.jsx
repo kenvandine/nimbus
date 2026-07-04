@@ -117,7 +117,7 @@ const translations = {
     settings_system_restart: "Restart system",
     settings_system_restart_desc: "Reboot the device",
     settings_system_restart_busy: "Restarting…",
-    settings_system_restart_success_msg: "Restart requested.",
+    settings_system_restart_success_msg: "Restart requested. Nimbus will disconnect while the system restarts.",
 
     settings_ip_title: "IP Addresses",
     settings_ip_loading: "Loading…",
@@ -330,7 +330,7 @@ const translations = {
     signed_in_as: "Signed in as {{username}}",
     power: "Power",
     power_unavailable_hint: "Power controls are unavailable until Nimbus can access snapd on the host.",
-    settings_system_poweroff_success_msg: "Power off requested.",
+    settings_system_poweroff_success_msg: "Power off requested. Nimbus will disconnect while the system shuts down.",
     cannot_reach_backend_prefix: "Cannot reach backend — {{error}}",
 
     // App Store (additional)
@@ -404,6 +404,7 @@ const translations = {
     device_info_ai_pull_apply: "Pull & Apply",
     device_info_ai_apply_desc: "Will load the model and re-run auto-config for installed apps.",
     device_info_ai_pull_desc: "Will download the model, then re-run auto-config for installed apps.",
+    device_info_ai_download_status: "Download",
     device_info_ai_ready_msg: "Model ready.",
     device_info_ai_pull_failed: "Pull failed.",
     device_info_ai_pull_started: "Model download started. This may take a while.",
@@ -522,7 +523,7 @@ const translations = {
     settings_system_restart: "Reiniciar sistema",
     settings_system_restart_desc: "Reiniciar el dispositivo",
     settings_system_restart_busy: "Reiniciando…",
-    settings_system_restart_success_msg: "Reinicio solicitado.",
+    settings_system_restart_success_msg: "Reinicio solicitado. Nimbus se desconectará mientras el sistema se reinicia.",
 
     settings_ip_title: "Direcciones IP",
     settings_ip_loading: "Cargando…",
@@ -735,7 +736,7 @@ const translations = {
     signed_in_as: "Conectado como {{username}}",
     power: "Energía",
     power_unavailable_hint: "Los controles de energía no están disponibles hasta que Nimbus pueda acceder a snapd en el host.",
-    settings_system_poweroff_success_msg: "Apagado solicitado.",
+    settings_system_poweroff_success_msg: "Apagado solicitado. Nimbus se desconectará mientras el sistema se apaga.",
     cannot_reach_backend_prefix: "No se puede conectar al backend — {{error}}",
 
     // App Store (additional)
@@ -809,6 +810,7 @@ const translations = {
     device_info_ai_pull_apply: "Descargar y aplicar",
     device_info_ai_apply_desc: "Cargará el modelo y volverá a ejecutar la configuración automática de las aplicaciones instaladas.",
     device_info_ai_pull_desc: "Descargará el modelo y luego volverá a ejecutar la configuración automática de las aplicaciones instaladas.",
+    device_info_ai_download_status: "Descarga",
     device_info_ai_ready_msg: "Modelo listo.",
     device_info_ai_pull_failed: "Descarga fallida.",
     device_info_ai_pull_started: "Descarga del modelo iniciada. Esto puede tardar.",
@@ -927,7 +929,7 @@ const translations = {
     settings_system_restart: "Redémarrer le système",
     settings_system_restart_desc: "Redémarrer l'appareil",
     settings_system_restart_busy: "Redémarrage…",
-    settings_system_restart_success_msg: "Redémarrage demandé.",
+    settings_system_restart_success_msg: "Redémarrage demandé. Nimbus se déconnectera pendant le redémarrage du système.",
 
     settings_ip_title: "Adresses IP",
     settings_ip_loading: "Chargement…",
@@ -1140,7 +1142,7 @@ const translations = {
     signed_in_as: "Connecté en tant que {{username}}",
     power: "Alimentation",
     power_unavailable_hint: "Les contrôles d'alimentation ne sont pas disponibles tant que Nimbus ne peut pas accéder à snapd sur l'hôte.",
-    settings_system_poweroff_success_msg: "Extinction demandée.",
+    settings_system_poweroff_success_msg: "Extinction demandée. Nimbus se déconnectera pendant l'arrêt du système.",
     cannot_reach_backend_prefix: "Impossible de contacter le backend — {{error}}",
 
     // App Store (additional)
@@ -1214,6 +1216,7 @@ const translations = {
     device_info_ai_pull_apply: "Télécharger et appliquer",
     device_info_ai_apply_desc: "Chargera le modèle et relancera la configuration automatique des applications installées.",
     device_info_ai_pull_desc: "Téléchargera le modèle, puis relancera la configuration automatique des applications installées.",
+    device_info_ai_download_status: "Téléchargement",
     device_info_ai_ready_msg: "Modèle prêt.",
     device_info_ai_pull_failed: "Téléchargement échoué.",
     device_info_ai_pull_started: "Téléchargement du modèle commencé. Cela peut prendre un moment.",

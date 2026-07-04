@@ -211,10 +211,10 @@ export function Shell({ stats, apps, activeInstalls, loading, error, authStatus,
     try {
       if (action === 'restart') {
         await restartSystem()
-        setSystemNotice({ tone: 'info', message: t('settings_system_restart_success_msg', 'Restart requested.') })
+        setSystemNotice({ tone: 'info', message: t('settings_system_restart_success_msg', 'Restart requested. Nimbus will disconnect while the system restarts.') })
       } else {
         await powerOffSystem()
-        setSystemNotice({ tone: 'info', message: t('settings_system_poweroff_success_msg', 'Power off requested.') })
+        setSystemNotice({ tone: 'info', message: t('settings_system_poweroff_success_msg', 'Power off requested. Nimbus will disconnect while the system shuts down.') })
       }
     } catch (e) {
       setSystemNotice({ tone: 'error', message: e.message })
