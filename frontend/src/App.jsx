@@ -326,27 +326,27 @@ export function Shell({ stats, apps, activeInstalls, loading, error, authStatus,
           />
         } />
         <Route path="/app-store" element={
-          <Page title={t('dock_appstore', 'App Store')} headerActions={topBarControls}>
+          <Page key="/app-store" title={t('dock_appstore', 'App Store')} headerActions={topBarControls}>
             <AppStore apps={apps} onRefresh={onRefresh} onOpenDetail={setDetailApp} activeInstalls={activeInstalls} />
           </Page>
         } />
         <Route path="/files" element={
-          <Page title={t('dock_files', 'Files')} noPad headerActions={topBarControls}>
+          <Page key="/files" title={t('dock_files', 'Files')} noPad headerActions={topBarControls}>
             <FileBrowser />
           </Page>
         } />
         <Route path="/device-info" element={
-          <Page title={t('device_info_title', 'Device Info')} headerActions={topBarControls}>
+          <Page key="/device-info" title={t('device_info_title', 'Device Info')} headerActions={topBarControls}>
             <DeviceInfo stats={stats} apps={apps} />
           </Page>
         } />
         <Route path="/settings" element={
-          <Page title={t('dock_settings', 'Settings')} headerActions={topBarControls}>
+          <Page key="/settings" title={t('dock_settings', 'Settings')} headerActions={topBarControls}>
             <Settings stats={stats} onRefresh={onRefresh} />
           </Page>
         } />
         <Route path="/terminal" element={
-          <Page title={t('dock_terminal', 'Terminal')} noPad headerActions={topBarControls}>
+          <Page key="/terminal" title={t('dock_terminal', 'Terminal')} noPad headerActions={topBarControls}>
             <TerminalPanel />
           </Page>
         } />
