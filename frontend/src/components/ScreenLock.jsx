@@ -47,7 +47,7 @@ export default function ScreenLock({ deviceName, onUnlock, onFail }) {
     <div style={styles.overlay} tabIndex={-1} onKeyDown={handleKeyDown} ref={wrapRef}>
       <div style={styles.content}>
         <div style={styles.clock}>{formattedTime}</div>
-        <div style={styles.date}>{time.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</div>
+        <div style={styles.date}>{time.toLocaleDateString(currentLanguage, { weekday: 'long', month: 'long', day: 'numeric' })}</div>
         {deviceName && <div style={styles.deviceName}>{deviceName}</div>}
 
         <div style={styles.pinRow}>
