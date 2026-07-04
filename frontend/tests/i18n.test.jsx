@@ -110,7 +110,7 @@ describe('i18n with unavailable localStorage', () => {
   })
 
   test('still switches language in memory when persisting it throws', () => {
-    const spy = vi.spyOn(window.localStorage.__proto__, 'setItem').mockImplementation(() => {
+    const spy = vi.spyOn(Object.getPrototypeOf(window.localStorage), 'setItem').mockImplementation(() => {
       throw new Error('storage disabled')
     })
     renderProbe()
