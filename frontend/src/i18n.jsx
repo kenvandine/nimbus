@@ -1293,14 +1293,7 @@ export function LanguageSelector({ style }) {
         }}
       >
         {languages.map((l) => (
-          <option
-            key={l.code}
-            value={l.code}
-            style={{
-              background: 'var(--nimbus-charcoal-900)',
-              color: 'var(--text-primary)',
-            }}
-          >
+          <option key={l.code} value={l.code}>
             {l.label}
           </option>
         ))}
