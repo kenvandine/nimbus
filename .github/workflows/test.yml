@@ -43,8 +43,15 @@ jobs:
           pip install pytest pytest-asyncio pytest-mock pytest-cov
 
       - name: Run Backend Tests
+        shell: bash
         run: |
-          PYTHONPATH=backend pytest --cov=auth --cov=config --cov=services.device_id --cov=services.tls --cov=agent.daemon backend/tests/
+          set -o pipefail
+          echo "### Backend Test & Coverage Report" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          PYTHONPATH=backend pytest --cov=auth --cov=config --cov=services.device_id --cov=services.tls --cov=agent.daemon backend/tests/ | tee -a $GITHUB_STEP_SUMMARY
+          EXIT_CODE=$?
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          exit $EXIT_CODE
 
   frontend:
     name: Frontend Unit & Component Tests
@@ -64,9 +71,16 @@ jobs:
           npm ci || npm install
 
       - name: Run Frontend Tests
+        shell: bash
         run: |
+          set -o pipefail
+          echo "### Frontend Test & Coverage Report" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
           cd frontend
-          npx vitest run --coverage
+          npx vitest run --coverage | tee -a $GITHUB_STEP_SUMMARY
+          EXIT_CODE=$?
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          exit $EXIT_CODE
 
   smoke:
     name: Service Smoke Tests
