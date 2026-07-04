@@ -167,6 +167,48 @@
   --duration-ambient: 3000ms;
 }
 
+/* Light mode, driven by the OS/browser's prefers-color-scheme signal rather
+   than a manual toggle. Only what actually needs to flip is redeclared here:
+   canvas/surfaces/borders/text go light-on-dark -> dark-on-light, the four
+   soft-status text tints get deepened (they're translucent-bg + light-text
+   pairs tuned to pop on a dark surface; the same light text is a low-contrast
+   wash on a light one), shadows get softer, and the Home screen's ambient
+   gradient gets its lightness raised — ambientGradient() in theme.js reads
+   --nimbus-gradient-lightness live, so this alone re-shades it without any
+   JS change. Hue, accent colors, radius, and blur are unchanged: this is a
+   light/dark mode switch, not a re-brand. */
+@media (prefers-color-scheme: light) {
+  :root {
+    --color-bg-canvas: #ffffff;
+    --color-surface-1: rgba(20, 24, 36, 0.035);
+    --color-surface-2: rgba(20, 24, 36, 0.06);
+    --color-surface-3: rgba(20, 24, 36, 0.10);
+    --color-border-subtle: rgba(20, 24, 36, 0.08);
+    --color-border-strong: rgba(20, 24, 36, 0.16);
+
+    --color-accent-hover: var(--nimbus-sun-700);
+    --color-accent-active: var(--nimbus-sun-800);
+    --color-accent-soft-text: #A34A1E;
+
+    --color-info-soft-text: #1F6E86;
+    --color-success-soft-text: #2F7A3B;
+    --color-warning-soft-text: #8A5C0E;
+    --color-danger-soft-text: #A83B30;
+
+    --text-primary: rgba(20, 24, 36, 0.92);
+    --text-secondary: rgba(20, 24, 36, 0.62);
+    --text-tertiary: rgba(20, 24, 36, 0.44);
+    --text-disabled: rgba(20, 24, 36, 0.28);
+
+    --shadow-sm: 0 4px 12px rgba(20, 24, 36, 0.10);
+    --shadow-md: 0 12px 28px rgba(20, 24, 36, 0.12);
+    --shadow-lg: 0 24px 60px rgba(20, 24, 36, 0.14);
+    --shadow-xl: 0 32px 80px rgba(20, 24, 36, 0.18);
+
+    --nimbus-gradient-lightness: 88;
+  }
+}
+
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
@@ -192,6 +234,12 @@ button:hover:not(:disabled) { filter: brightness(1.12); }
 ::-webkit-scrollbar-thumb { background: var(--color-border-strong); border-radius: 3px; }
 
 select option {
-  background-color: var(--nimbus-charcoal-900);
+  /* --color-bg-canvas (not a --nimbus-charcoal-* primitive) since those
+     primitives stay fixed-dark across light/dark mode on purpose — e.g.
+     --nimbus-charcoal-900 doubles as the terminal's ANSI black and must not
+     flip light, or "black" terminal text would vanish against a light
+     terminal background. --color-bg-canvas is the one already guaranteed to
+     track the current mode. */
+  background-color: var(--color-bg-canvas);
   color: var(--text-primary);
 }

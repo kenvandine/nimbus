@@ -134,3 +134,42 @@
      above. */
   --nimbus-gradient-hue: 340;
 }
+
+/* Vanilla's light theme (same _settings_colors.scss): background-default
+   #fff, background-alt #f7f7f7, text-default #000, text-muted rgba(#000,
+   0.6), border-default rgba(#000, 0.2), border-low-contrast rgba(#000,
+   0.1), and the light-theme tinted-border status colors (which are just
+   vanilla-framework's plain $color-positive/caution/negative/information —
+   already the exact values this file's --nimbus-*-600 primitives above use,
+   so they're reused via var() rather than restated). */
+@media (prefers-color-scheme: light) {
+  :root {
+    --color-bg-canvas: #ffffff;
+    --color-surface-1: rgba(0, 0, 0, 0.04);
+    --color-surface-2: rgba(0, 0, 0, 0.05);
+    --color-surface-3: rgba(0, 0, 0, 0.08);
+    --color-border-subtle: rgba(0, 0, 0, 0.1);
+    --color-border-strong: rgba(0, 0, 0, 0.2);
+
+    --color-accent-hover: var(--nimbus-sun-600);
+    --color-accent-active: var(--nimbus-sun-700);
+    --color-accent-soft-text: var(--nimbus-sun-800);
+
+    --color-info-soft-text: var(--nimbus-sky-600);
+    --color-success-soft-text: var(--nimbus-green-600);
+    --color-warning-soft-text: var(--nimbus-amber-600);
+    --color-danger-soft-text: var(--nimbus-red-600);
+
+    --text-primary: rgba(0, 0, 0, 0.92);
+    --text-secondary: rgba(0, 0, 0, 0.6);
+    --text-tertiary: rgba(0, 0, 0, 0.42);
+    --text-disabled: rgba(0, 0, 0, 0.28);
+
+    --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.10);
+    --shadow-md: 0 12px 28px rgba(0, 0, 0, 0.12);
+    --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.14);
+    --shadow-xl: 0 32px 80px rgba(0, 0, 0, 0.18);
+
+    --nimbus-gradient-lightness: 90;
+  }
+}

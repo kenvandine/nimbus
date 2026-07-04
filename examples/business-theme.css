@@ -119,3 +119,37 @@
   /* Cool slate-blue hue for the ambient home-screen background gradient */
   --nimbus-gradient-hue: 215;
 }
+
+@media (prefers-color-scheme: light) {
+  :root {
+    /* Pale cool blue-grey rather than pure white, keeping a hint of the
+       slate-navy identity instead of going fully neutral. */
+    --color-bg-canvas: #f5f7fb;
+    --color-surface-1: rgba(20, 30, 50, 0.035);
+    --color-surface-2: rgba(20, 30, 50, 0.06);
+    --color-surface-3: rgba(20, 30, 50, 0.10);
+    --color-border-subtle: rgba(20, 30, 50, 0.08);
+    --color-border-strong: rgba(20, 30, 50, 0.16);
+
+    --color-accent-hover: var(--nimbus-sun-600);
+    --color-accent-active: var(--nimbus-sun-700);
+    --color-accent-soft-text: var(--nimbus-sun-800);
+
+    --color-info-soft-text: var(--nimbus-sky-600);
+    --color-success-soft-text: var(--nimbus-green-600);
+    --color-warning-soft-text: #7a5c1e;
+    --color-danger-soft-text: #8a3a3a;
+
+    --text-primary: rgba(20, 30, 50, 0.92);
+    --text-secondary: rgba(20, 30, 50, 0.62);
+    --text-tertiary: rgba(20, 30, 50, 0.44);
+    --text-disabled: rgba(20, 30, 50, 0.28);
+
+    --shadow-sm: 0 4px 12px rgba(20, 30, 50, 0.10);
+    --shadow-md: 0 12px 28px rgba(20, 30, 50, 0.12);
+    --shadow-lg: 0 24px 60px rgba(20, 30, 50, 0.14);
+    --shadow-xl: 0 32px 80px rgba(20, 30, 50, 0.18);
+
+    --nimbus-gradient-lightness: 88;
+  }
+}
