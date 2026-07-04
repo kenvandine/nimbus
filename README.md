@@ -802,3 +802,48 @@ sudo nimbus.reset
 - **App compatibility**: The default snap-based catalog only includes apps explicitly curated for the appliance experience. The deprecated Docker/Umbrel backend supports a broader set of apps but may encounter compatibility issues with apps that depend on Umbrel-specific infrastructure.
 - **Single user**: Only one account is supported. The UI is intended for local-network use.
 - **Remote mode**: `NIMBUS_CONTROL_MODE=remote` exists in the code but `lxd` mode is the primary supported path.
+
+---
+
+## Contributing Translations
+
+Nimbus supports multilingual experiences. If you want to contribute translations for a new language, follow these steps:
+
+1. **Locate the Translation File**:
+   All translations are stored in [frontend/src/i18n.jsx](frontend/src/i18n.jsx).
+
+2. **Add Your Language Dictionary**:
+   Inside `i18n.jsx`, find the `translations` constant. Add a new dictionary with your language's ISO 639-1 code (e.g., `de` for German, `it` for Italian) alongside `en`, `es`, and `fr`. Copy the keys from `en` and translate their values:
+   ```javascript
+   const translations = {
+     en: { ... },
+     es: { ... },
+     fr: { ... },
+     de: {
+       loading: "Laden…",
+       cancel: "Abbrechen",
+       // Add the rest of translated keys here
+     }
+   };
+   ```
+   *Note: Preserve formatting parameters enclosed in double curly braces, such as `{{ssid}}` or `{{error}}` (e.g., `Conectado a "{{ssid}}"`).*
+
+3. **Register the Language**:
+   Register your language in the `languages` array inside the `TranslationProvider` component near the bottom of `i18n.jsx`:
+   ```javascript
+   const languages = [
+     { code: 'en', label: 'English' },
+     { code: 'es', label: 'Español' },
+     { code: 'fr', label: 'Français' },
+     { code: 'de', label: 'Deutsch' }, // Add your language here
+   ];
+   ```
+
+4. **Verify Locally**:
+   To test your translations, navigate to the `frontend/` directory and compile the interface:
+   ```bash
+   cd frontend
+   npm run build
+   ```
+   Select your language from the dropdown menu in the OOBE (Out-of-Box Experience) setup screen or in the settings panel to verify correct contrast and word wrapping.
+

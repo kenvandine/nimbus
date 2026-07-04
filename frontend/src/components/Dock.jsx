@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from '../i18n.jsx'
 
 function buildApps(appstoreVisible, terminalAvailable) {
   const apps = []
@@ -63,14 +64,24 @@ function buildApps(appstoreVisible, terminalAvailable) {
   return apps
 }
 
-export default function Dock({ onOpen, activeId, updatableCount, appUpdateCount = 0, appstoreVisible = true, terminalAvailable = false }) {
+export default function Dock({ onOpen, activeId, updatableCount, appUpdateCount = 0, appstoreVisible = true, terminalAvailable = false, background }) {
+  const { t } = useTranslation()
   const [hovered, setHovered] = useState(null)
-  const APPS = buildApps(appstoreVisible, terminalAvailable)
+  const APPS = buildApps(appstoreVisible, terminalAvailable).map(app => ({
+    ...app,
+    label: {
+      appstore: t('dock_appstore', 'App Store'),
+      files: t('dock_files', 'Files'),
+      deviceinfo: t('dock_deviceinfo', 'Device Info'),
+      settings: t('dock_settings', 'Settings'),
+      terminal: t('dock_terminal', 'Terminal'),
+    }[app.id] || app.label
+  }))
 
   const totalUpdates = Math.max(updatableCount || 0, appUpdateCount || 0)
 
   return (
-    <div className="dock-bar" style={styles.bar}>
+    <div className="dock-bar" style={{ ...styles.bar, ...(background ? { background } : {}) }}>
       <div style={styles.dock}>
         {APPS.map(app => (
           <DockIcon

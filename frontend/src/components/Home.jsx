@@ -3,8 +3,10 @@ import { openApp } from '../utils.js'
 import AppTile from './ui/AppTile.jsx'
 import Badge from './ui/Badge.jsx'
 import Button from './ui/Button.jsx'
+import { useTranslation } from '../i18n.jsx'
 
 export default function Home({ apps, loading, error, errorMessage, setupState, onOpenDetail, onOpenLogs, onServiceAction, onUninstall }) {
+  const { t } = useTranslation()
   const runningApps = apps.filter(a => a.running)
   const navigate = useNavigate()
 
@@ -18,16 +20,16 @@ export default function Home({ apps, loading, error, errorMessage, setupState, o
 
   return (
     <div style={styles.area}>
-      {loading && <div style={styles.loadingMsg}>Loading…</div>}
+      {loading && <div style={styles.loadingMsg}>{t('loading', 'Loading…')}</div>}
       {error && !loading && <div style={styles.errorMsg}>{errorMessage}</div>}
 
       {!loading && !error && setupState && !setupState.ready && (
         <div style={styles.setupCard}>
-          <Badge tone={setupState.error ? 'danger' : 'accent'}>{setupState.error ? 'Setup Error' : 'Setup in Progress'}</Badge>
+          <Badge tone={setupState.error ? 'danger' : 'accent'}>{setupState.error ? t('home_setup_error', 'Setup Error') : t('home_setup_in_progress', 'Setup in Progress')}</Badge>
           <h2 style={styles.setupTitle}>{setupState.title}</h2>
           <p style={styles.setupMessage}>{setupState.message}</p>
           <p style={styles.setupHint}>
-            Nimbus will be ready once the managed LXD container is running and fully bootstrapped.
+            {t('home_setup_hint', 'Nimbus will be ready once the managed LXD container is running and fully bootstrapped.')}
           </p>
         </div>
       )}
@@ -35,9 +37,9 @@ export default function Home({ apps, loading, error, errorMessage, setupState, o
       {!loading && !error && (!setupState || setupState.ready) && (
         runningApps.length === 0 ? (
           <div style={styles.emptyState}>
-            <div style={styles.emptyTitle}>No apps running yet</div>
-            <p style={styles.emptyMessage}>Open the App Store to install Immich, Nextcloud, or a personal AI agent.</p>
-            <Button variant="primary" onClick={() => navigate('/app-store')}>Browse the App Store</Button>
+            <div style={styles.emptyTitle}>{t('home_empty_title', 'No apps running yet')}</div>
+            <p style={styles.emptyMessage}>{t('home_empty_desc', 'Open the App Store to install Immich, Nextcloud, or a personal AI agent.')}</p>
+            <Button variant="primary" onClick={() => navigate('/app-store')}>{t('home_browse_store', 'Browse the App Store')}</Button>
           </div>
         ) : (
           <div style={styles.grid}>

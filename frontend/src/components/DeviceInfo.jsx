@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import SystemLogViewer from './SystemLogViewer'
 import { getModelStatus, pullModel, ensureModel, getAvailableModels, selectModel, getHardwareInfo } from '../api.js'
 import Button from './ui/Button.jsx'
+import { useTranslation } from '../i18n.jsx'
 
 const BASE = import.meta.env.VITE_API_BASE ?? '/api'
 
@@ -39,22 +40,23 @@ function InfoRow({ label, value }) {
   )
 }
 
-function formatBootstrapState(state) {
+function formatBootstrapState(state, t) {
   const labels = {
-    idle: 'Waiting to start',
-    'ensuring-profile': 'Configuring LXD profile',
-    'ensuring-container': 'Creating managed container',
-    'installing-runtime': 'Installing container runtime',
-    'pushing-agent': 'Copying Nimbus services',
-    'installing-agent-python': 'Installing Python dependencies',
-    'starting-agent': 'Starting Nimbus agent',
-    ready: 'Ready',
-    error: 'Error',
+    idle: t('device_info_phase_idle', 'Preparing the managed environment.'),
+    'ensuring-profile': t('device_info_phase_ensuring_profile', 'Configuring LXD profile'),
+    'ensuring-container': t('device_info_phase_ensuring_container', 'Creating managed container'),
+    'installing-runtime': t('device_info_phase_installing_runtime', 'Installing container runtime'),
+    'pushing-agent': t('device_info_phase_pushing_agent', 'Copying Nimbus services'),
+    'installing-agent-python': t('device_info_phase_installing_python', 'Installing Python dependencies'),
+    'starting-agent': t('device_info_phase_starting_agent', 'Starting Nimbus agent'),
+    ready: t('device_info_ready', 'Ready'),
+    error: t('error', 'Error'),
   }
-  return labels[state] || state || 'Unknown'
+  return labels[state] || state || t('unknown', 'Unknown')
 }
 
 function SnapshotsTab({ containerReady }) {
+  const { t } = useTranslation()
   const [snapshots, setSnapshots] = useState(null)
   const [busy, setBusy] = useState(null)
   const [newName, setNewName] = useState('')
@@ -119,7 +121,7 @@ function SnapshotsTab({ containerReady }) {
   }
 
   if (!containerReady) {
-    return <p style={styles.muted}>Container must be running and ready to manage snapshots.</p>
+    return <p style={styles.muted}>{t('device_info_snapshots_not_ready', 'Container must be running and ready to manage snapshots.')}</p>
   }
 
   return (
@@ -127,21 +129,21 @@ function SnapshotsTab({ containerReady }) {
       <div style={styles.snapshotRow}>
         <input
           style={styles.snapInput}
-          placeholder="Snapshot name"
+          placeholder={t('device_info_snapshots_placeholder', 'Snapshot name')}
           value={newName}
           onChange={e => setNewName(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && handleCreate()}
         />
         <Button variant="soft" size="sm" onClick={handleCreate} disabled={busy === 'create' || !newName.trim()} loading={busy === 'create'}>
-          {busy === 'create' ? 'Creating…' : 'Create'}
+          {busy === 'create' ? t('creating', 'Creating…') : t('create', 'Create')}
         </Button>
       </div>
 
       {error && <div style={styles.errorText}>{error}</div>}
 
-      {snapshots === null && <p style={styles.muted}>Loading…</p>}
+      {snapshots === null && <p style={styles.muted}>{t('loading', 'Loading…')}</p>}
       {snapshots !== null && snapshots.length === 0 && (
-        <p style={styles.muted}>No snapshots yet. Create one to save the container state.</p>
+        <p style={styles.muted}>{t('device_info_snapshots_none', 'No snapshots yet. Create one to save the container state.')}</p>
       )}
       {snapshots !== null && snapshots.map(snap => (
         <div key={snap.name} style={styles.snapCard}>
@@ -153,10 +155,10 @@ function SnapshotsTab({ containerReady }) {
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <Button variant="secondary" size="sm" onClick={() => setConfirmRestore(snap.name)} disabled={Boolean(busy)}>
-              Restore
+              {t('device_info_snapshots_restore', 'Restore')}
             </Button>
             <Button variant="danger" size="sm" onClick={() => handleDelete(snap.name)} disabled={Boolean(busy)} loading={busy === `del-${snap.name}`}>
-              {busy === `del-${snap.name}` ? 'Deleting…' : 'Delete'}
+              {busy === `del-${snap.name}` ? t('deleting', 'Deleting…') : t('delete', 'Delete')}
             </Button>
           </div>
         </div>
@@ -165,15 +167,14 @@ function SnapshotsTab({ containerReady }) {
       {confirmRestore && (
         <div style={styles.confirmOverlay}>
           <div style={styles.confirmCard}>
-            <div style={styles.confirmTitle}>Restore Snapshot</div>
+            <div style={styles.confirmTitle}>{t('device_info_snapshots_restore_title', 'Restore Snapshot')}</div>
             <p style={styles.confirmMsg}>
-              Restoring <strong>{confirmRestore}</strong> will revert the container to that state.
-              All changes since the snapshot will be lost.
+              {t('device_info_snapshots_restore_desc', 'Restoring {{name}} will revert the container to that state. All changes since the snapshot will be lost.', { name: confirmRestore })}
             </p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <Button variant="secondary" size="sm" onClick={() => setConfirmRestore(null)}>Cancel</Button>
+              <Button variant="secondary" size="sm" onClick={() => setConfirmRestore(null)}>{t('cancel', 'Cancel')}</Button>
               <Button variant="danger" size="sm" onClick={() => handleRestore(confirmRestore)} disabled={Boolean(busy)} loading={busy === `restore-${confirmRestore}`}>
-                {busy === `restore-${confirmRestore}` ? 'Restoring…' : 'Restore'}
+                {busy === `restore-${confirmRestore}` ? t('restoring', 'Restoring…') : t('device_info_snapshots_restore', 'Restore')}
               </Button>
             </div>
           </div>
@@ -184,6 +185,7 @@ function SnapshotsTab({ containerReady }) {
 }
 
 function AiModelTab() {
+  const { t } = useTranslation()
   const [modelStatus, setModelStatus] = useState(null)
   const [availableModels, setAvailableModels] = useState([])
   const [selectedModel, setSelectedModel] = useState(null)
@@ -217,8 +219,8 @@ function AiModelTab() {
           if (['idle', 'ready', 'failed', 'skipped'].includes(s?.pull?.status)) {
             clearInterval(pollRef.current)
             pollRef.current = null
-            if (s?.pull?.status === 'ready') setMsg('Model ready.')
-            if (s?.pull?.status === 'failed') setError(s.pull.error || 'Pull failed.')
+            if (s?.pull?.status === 'ready') setMsg(t('device_info_ai_ready_msg', 'Model ready.'))
+            if (s?.pull?.status === 'failed') setError(s.pull.error || t('device_info_ai_pull_failed', 'Pull failed.'))
             setBusy(null)
           }
         } catch {}
@@ -231,13 +233,13 @@ function AiModelTab() {
 
   async function handlePull() {
     setBusy('pull'); setError(null); setMsg(null)
-    try { await pullModel(); setMsg('Model download started. This may take a while.'); await load() }
+    try { await pullModel(); setMsg(t('device_info_ai_pull_started', 'Model download started. This may take a while.')); await load() }
     catch (e) { setError(e.message); setBusy(null) }
   }
 
   async function handleEnsure() {
     setBusy('ensure'); setError(null); setMsg(null)
-    try { await ensureModel(); setMsg('Model verification started.'); await load() }
+    try { await ensureModel(); setMsg(t('device_info_ai_verification_started', 'Model verification started.')); await load() }
     catch (e) { setError(e.message); setBusy(null) }
   }
 
@@ -246,7 +248,7 @@ function AiModelTab() {
     setBusy('select'); setError(null); setMsg(null)
     try {
       await selectModel(selectedModel)
-      setMsg('Switching model… this may take a while.')
+      setMsg(t('device_info_ai_switching_msg', 'Switching model… this may take a while.'))
       await load()
     } catch (e) { setError(e.message); setBusy(null) }
   }
@@ -268,22 +270,22 @@ function AiModelTab() {
       {error && <div style={{ color: 'var(--color-danger)', fontSize: 12 }}>{error}</div>}
       {msg && <div style={{ color: 'var(--color-success)', fontSize: 12 }}>{msg}</div>}
 
-      {modelStatus === null && <p style={styles.muted}>Loading…</p>}
+      {modelStatus === null && <p style={styles.muted}>{t('loading', 'Loading…')}</p>}
       {modelStatus !== null && (
         <>
           <div style={styles.infoTable}>
             <div style={styles.infoRow}>
-              <span style={styles.infoLabel}>Provider</span>
+              <span style={styles.infoLabel}>{t('device_info_ai_provider', 'Provider')}</span>
               <span style={styles.infoValue}>{modelStatus.provider || '—'}</span>
             </div>
             <div style={styles.infoRow}>
-              <span style={styles.infoLabel}>Active Model</span>
+              <span style={styles.infoLabel}>{t('device_info_ai_active', 'Active Model')}</span>
               <span style={{ ...styles.infoValue, fontFamily: 'var(--font-mono)', fontSize: 11 }}>
                 {friendlyModelName(currentModelId)}
               </span>
             </div>
             <div style={styles.infoRow}>
-              <span style={styles.infoLabel}>Status</span>
+              <span style={styles.infoLabel}>{t('device_info_ai_status', 'Status')}</span>
               <span style={{ ...styles.infoValue, color: modelStatus.status === 'ready' ? 'var(--color-success)' : 'var(--text-secondary)' }}>
                 {modelStatus.status || '—'}
               </span>
@@ -292,13 +294,13 @@ function AiModelTab() {
               <div style={styles.infoRow}>
                 <span style={styles.infoLabel}>Lemonade</span>
                 <span style={{ ...styles.infoValue, color: lemon.reachable ? 'var(--color-success)' : 'var(--color-danger)' }}>
-                  {lemon.reachable ? 'Running' : 'Not reachable'}
+                  {lemon.reachable ? t('app_modal_running', 'Running') : t('device_info_not_reachable', 'Not reachable')}
                 </span>
               </div>
             )}
             {isPulling && (
               <div style={styles.infoRow}>
-                <span style={styles.infoLabel}>Download</span>
+                <span style={styles.infoLabel}>{t('device_info_ai_download_status', 'Download')}</span>
                 <span style={styles.infoValue}>
                   {pull.status} {pull.percent > 0 ? `(${Math.round(pull.percent)}%)` : ''}
                   {pull.total_files > 0 ? ` — file ${pull.file_index}/${pull.total_files}` : ''}
@@ -309,7 +311,7 @@ function AiModelTab() {
 
           {availableModels.length > 1 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <label style={{ fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)' }}>Change Model</label>
+              <label style={{ fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)' }}>{t('device_info_ai_change', 'Change Model')}</label>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <select
                   value={selectedModel || currentModelId || ''}
@@ -327,14 +329,14 @@ function AiModelTab() {
                   ))}
                 </select>
                 <Button variant="soft" size="sm" onClick={handleSelect} disabled={!isDifferent || Boolean(busy)} loading={busy === 'select'} style={{ whiteSpace: 'nowrap' }}>
-                  {busy === 'select' ? 'Switching…' : selectedModelInfo?.downloaded ? 'Apply' : 'Pull & Apply'}
+                  {busy === 'select' ? t('device_info_ai_switching', 'Switching…') : selectedModelInfo?.downloaded ? t('apply', 'Apply') : t('device_info_ai_pull_apply', 'Pull & Apply')}
                 </Button>
               </div>
               {isDifferent && (
                 <p style={{ fontSize: 11, color: 'var(--text-tertiary)', margin: 0, fontFamily: 'var(--font-sans)' }}>
                   {selectedModelInfo?.downloaded
-                    ? 'Will load the model and re-run auto-config for installed apps.'
-                    : 'Will download the model, then re-run auto-config for installed apps.'}
+                    ? t('device_info_ai_apply_desc', 'Will load the model and re-run auto-config for installed apps.')
+                    : t('device_info_ai_pull_desc', 'Will download the model, then re-run auto-config for installed apps.')}
                 </p>
               )}
             </div>
@@ -342,10 +344,10 @@ function AiModelTab() {
 
           <div style={{ display: 'flex', gap: 8 }}>
             <Button variant="soft" size="sm" onClick={handleEnsure} disabled={Boolean(busy)} loading={busy === 'ensure'}>
-              {busy === 'ensure' ? 'Verifying…' : 'Verify / Load'}
+              {busy === 'ensure' ? t('device_info_ai_verifying', 'Verifying…') : t('device_info_ai_verify_load', 'Verify / Load')}
             </Button>
             <Button variant="secondary" size="sm" onClick={handlePull} disabled={Boolean(busy)} loading={busy === 'pull'}>
-              {busy === 'pull' ? 'Pulling…' : 'Re-pull Model'}
+              {busy === 'pull' ? t('device_info_ai_pulling', 'Pulling…') : t('device_info_ai_repull', 'Re-pull Model')}
             </Button>
           </div>
         </>
@@ -355,6 +357,7 @@ function AiModelTab() {
 }
 
 export default function DeviceInfo({ stats, apps }) {
+  const { t } = useTranslation()
   const running = apps?.filter(a => a.running).length ?? 0
   const installed = apps?.filter(a => a.installed).length ?? 0
   const updates = apps?.filter(a => a.update_available).length ?? 0
@@ -371,21 +374,21 @@ export default function DeviceInfo({ stats, apps }) {
   }, [])
 
   const tabs = [
-    { id: 'overview', label: 'Overview' },
-    ...(isLxd ? [{ id: 'snapshots', label: 'Snapshots' }] : []),
-    { id: 'ai', label: 'AI Model' },
-    { id: 'logs', label: 'Logs' },
+    { id: 'overview', label: t('device_info_overview', 'Overview') },
+    ...(isLxd ? [{ id: 'snapshots', label: t('device_info_snapshots', 'Snapshots') }] : []),
+    { id: 'ai', label: t('device_info_ai', 'AI Model') },
+    { id: 'logs', label: t('device_info_logs', 'Logs') },
   ]
 
   return (
     <div style={styles.container}>
       {setupPending && (
         <section style={styles.setupBanner}>
-          <div style={styles.setupBannerTitle}>{firstSetup ? 'Nimbus is still being set up' : 'Nimbus is still starting'}</div>
+          <div style={styles.setupBannerTitle}>{firstSetup ? t('device_info_setup_title_setting_up', 'Nimbus is still being set up') : t('device_info_setup_title_starting', 'Nimbus is still starting')}</div>
           <div style={styles.setupBannerText}>
             {stats?.bootstrap_error
-              ? `Setup failed: ${stats.bootstrap_error}`
-              : `${formatBootstrapState(stats?.bootstrap_state)}. ${firstSetup ? 'The managed LXD container is not ready for normal use yet.' : 'Nimbus is reconnecting to the managed container and restoring app state.'}`}
+              ? `${t('device_info_setup_failed', 'Setup failed')}: ${stats.bootstrap_error}`
+              : `${formatBootstrapState(stats?.bootstrap_state, t)}. ${firstSetup ? t('device_info_setup_lxd_not_ready', 'The managed LXD container is not ready for normal use yet.') : t('device_info_setup_lxd_reconnecting', 'Nimbus is reconnecting to the managed container and restoring app state.')}`}
           </div>
         </section>
       )}
@@ -405,37 +408,37 @@ export default function DeviceInfo({ stats, apps }) {
       {activeTab === 'overview' && (
         <>
           <section style={styles.section}>
-            <h3 style={styles.sectionTitle}>System Resources</h3>
+            <h3 style={styles.sectionTitle}>{t('device_info_system_status', 'System Status')}</h3>
             {stats ? (
               <>
-                <Gauge label="CPU" value={stats.cpu_pct} color="var(--color-accent)" />
+                <Gauge label={t('device_info_cpu_usage', 'CPU Usage')} value={stats.cpu_pct} color="var(--color-accent)" />
                 <Gauge
-                  label="Memory"
+                  label={t('device_info_memory_usage', 'Memory Usage')}
                   value={stats.mem_pct}
                   color="var(--color-info)"
                   subtitle={stats.mem_total_gb ? `${stats.mem_used_gb} / ${hardware?.ram_gb ?? stats.mem_total_gb} GB` : undefined}
                 />
                 <Gauge
-                  label="Disk"
+                  label={t('device_info_disk_usage', 'Storage (host root)')}
                   value={stats.disk_pct}
                   color="var(--nimbus-sky-300)"
                   subtitle={stats.disk_total_gb ? `${stats.disk_used_gb} / ${stats.disk_total_gb} GB` : undefined}
                 />
               </>
             ) : (
-              <p style={styles.muted}>Loading…</p>
+              <p style={styles.muted}>{t('loading', 'Loading…')}</p>
             )}
           </section>
 
           {hardware && (
             <section style={styles.section}>
-              <h3 style={styles.sectionTitle}>Hardware</h3>
+              <h3 style={styles.sectionTitle}>{t('device_info_hardware_title', 'Hardware')}</h3>
               <div style={styles.infoTable}>
-                {hardware.system_name && <InfoRow label="System" value={hardware.system_name} />}
-                {hardware.chassis_type && <InfoRow label="Form Factor" value={hardware.chassis_type} />}
+                {hardware.system_name && <InfoRow label={t('device_info_hardware_system', 'System')} value={hardware.system_name} />}
+                {hardware.chassis_type && <InfoRow label={t('device_info_hardware_form_factor', 'Form Factor')} value={hardware.chassis_type} />}
                 {hardware.cpu_model && (
                   <InfoRow
-                    label="CPU"
+                    label={t('device_info_cpu_model', 'CPU')}
                     value={
                       hardware.cpu_cores_physical
                         ? `${hardware.cpu_model} (${hardware.cpu_cores_physical}C / ${hardware.cpu_cores_logical}T)`
@@ -444,36 +447,36 @@ export default function DeviceInfo({ stats, apps }) {
                   />
                 )}
                 {hardware.gpu && <InfoRow label="GPU" value={hardware.gpu} />}
-                {hardware.ram_gb && <InfoRow label="RAM" value={`${hardware.ram_gb} GB`} />}
+                {hardware.ram_gb && <InfoRow label={t('device_info_memory', 'RAM')} value={`${hardware.ram_gb} GB`} />}
               </div>
             </section>
           )}
 
           <section style={styles.section}>
-            <h3 style={styles.sectionTitle}>Apps</h3>
+            <h3 style={styles.sectionTitle}>{t('device_info_apps_title', 'Apps')}</h3>
             <div style={styles.statGrid}>
-              <StatTile value={installed} label="Installed" color="var(--color-info)" />
-              <StatTile value={running} label="Running" color="var(--color-success)" />
-              <StatTile value={updates} label="Updates" color="var(--color-warning)" />
+              <StatTile value={installed} label={t('app_store_installed', 'Installed')} color="var(--color-info)" />
+              <StatTile value={running} label={t('app_modal_running', 'Running')} color="var(--color-success)" />
+              <StatTile value={updates} label={t('app_store_update_available', 'Update available')} color="var(--color-warning)" />
             </div>
           </section>
 
           <section style={styles.section}>
-            <h3 style={styles.sectionTitle}>Platform</h3>
+            <h3 style={styles.sectionTitle}>{t('device_info_platform_title', 'Platform')}</h3>
             <div style={styles.infoTable}>
-              <InfoRow label="Service" value={stats?.version ? `Nimbus v${stats.version}` : 'Nimbus'} />
-              <InfoRow label="Runtime" value={stats?.control_mode === 'lxd' ? 'SnapD + LXD' : 'Docker + LXD'} />
-              <InfoRow label="App Catalog" value={stats?.app_store_type === 'umbrel' ? 'Umbrel App Store' : 'Nimbus App Store'} />
-              {stats?.container_name && <InfoRow label="Managed Container" value={stats.container_name} />}
-              {stats?.container_status && <InfoRow label="Container State" value={stats.container_status} />}
-              {stats?.container_ip && <InfoRow label="Container IP" value={stats.container_ip} />}
-              {stats?.bootstrap_state && <InfoRow label="Bootstrap" value={formatBootstrapState(stats.bootstrap_state)} />}
+              <InfoRow label={t('device_info_service_label', 'Service')} value={stats?.version ? `Nimbus v${stats.version}` : 'Nimbus'} />
+              <InfoRow label={t('device_info_runtime_label', 'Runtime')} value={stats?.control_mode === 'lxd' ? 'SnapD + LXD' : 'Docker + LXD'} />
+              <InfoRow label={t('device_info_catalog_label', 'App Catalog')} value={stats?.app_store_type === 'umbrel' ? 'Umbrel App Store' : 'Nimbus App Store'} />
+              {stats?.container_name && <InfoRow label={t('device_info_managed_environment', 'Managed Container')} value={stats.container_name} />}
+              {stats?.container_status && <InfoRow label={t('device_info_container_status', 'Container State')} value={stats.container_status} />}
+              {stats?.container_ip && <InfoRow label={t('device_info_ip_address', 'Container IP')} value={stats.container_ip} />}
+              {stats?.bootstrap_state && <InfoRow label={t('device_info_bootstrap_phase', 'Bootstrap')} value={formatBootstrapState(stats.bootstrap_state, t)} />}
               {stats?.tls_enabled && stats?.tls_fingerprint && (
-                <InfoRow label="TLS Fingerprint" value={stats.tls_fingerprint} />
+                <InfoRow label={t('settings_https_fingerprint', 'TLS Fingerprint')} value={stats.tls_fingerprint} />
               )}
             </div>
             {stats?.bootstrap_error && (
-              <p style={styles.errorText}>Container bootstrap error: {stats.bootstrap_error}</p>
+              <p style={styles.errorText}>{t('device_info_bootstrap_error', 'Container bootstrap error')}: {stats.bootstrap_error}</p>
             )}
           </section>
         </>
@@ -481,34 +484,34 @@ export default function DeviceInfo({ stats, apps }) {
 
       {activeTab === 'snapshots' && (
         <section style={styles.section}>
-          <h3 style={styles.sectionTitle}>Container Snapshots</h3>
+          <h3 style={styles.sectionTitle}>{t('device_info_snapshots_heading', 'Container Snapshots')}</h3>
           <SnapshotsTab containerReady={containerReady} />
         </section>
       )}
 
       {activeTab === 'ai' && (
         <section style={styles.section}>
-          <h3 style={styles.sectionTitle}>AI Model</h3>
+          <h3 style={styles.sectionTitle}>{t('device_info_ai', 'AI Model')}</h3>
           <AiModelTab />
         </section>
       )}
 
       {activeTab === 'logs' && (
         <section style={styles.section}>
-          <h3 style={styles.sectionTitle}>Logs</h3>
+          <h3 style={styles.sectionTitle}>{t('device_info_logs', 'Logs')}</h3>
           <div style={styles.logTabs}>
             <button
               style={{ ...styles.tab, ...(logSource === 'host' ? styles.tabActive : {}) }}
               onClick={() => setLogSource('host')}
             >
-              Host
+              {t('device_info_logs_host', 'Host')}
             </button>
             {isLxd && (
               <button
                 style={{ ...styles.tab, ...(logSource === 'lxc' ? styles.tabActive : {}) }}
                 onClick={() => setLogSource('lxc')}
               >
-                Container
+                {t('device_info_logs_container', 'Container')}
               </button>
             )}
           </div>

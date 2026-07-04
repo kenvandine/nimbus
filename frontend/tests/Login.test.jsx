@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, test, expect, vi } from 'vitest'
 import React from 'react'
 import Login from '../src/components/Login.jsx'
+import { TranslationProvider } from '../src/i18n.jsx'
 
 // Mock api login
 vi.mock('../src/api.js', () => ({
@@ -10,16 +11,25 @@ vi.mock('../src/api.js', () => ({
 
 import { login } from '../src/api.js'
 
+function renderLogin(props) {
+  window.localStorage.clear()
+  return render(
+    <TranslationProvider>
+      <Login {...props} />
+    </TranslationProvider>
+  )
+}
+
 describe('Login Component', () => {
   test('submit button is disabled when fields are empty', () => {
-    render(<Login onLogin={vi.fn()} />)
-    
+    renderLogin({ onLogin: vi.fn() })
+
     const submitButton = screen.getByRole('button', { name: 'Sign in' })
     expect(submitButton).toBeDisabled()
   })
 
   test('enables submit button when inputs are filled', () => {
-    render(<Login onLogin={vi.fn()} />)
+    renderLogin({ onLogin: vi.fn() })
     
     const usernameInput = screen.getByPlaceholderText('Username')
     const passwordInput = screen.getByPlaceholderText('Password')
@@ -35,7 +45,7 @@ describe('Login Component', () => {
     login.mockResolvedValueOnce({ status: 'ok', username: 'admin' })
     const handleLoginSuccess = vi.fn()
 
-    render(<Login onLogin={handleLoginSuccess} />)
+    renderLogin({ onLogin: handleLoginSuccess })
 
     const usernameInput = screen.getByPlaceholderText('Username')
     const passwordInput = screen.getByPlaceholderText('Password')
@@ -56,7 +66,7 @@ describe('Login Component', () => {
     login.mockRejectedValueOnce(new Error('Invalid username or password'))
     const handleLoginSuccess = vi.fn()
 
-    render(<Login onLogin={handleLoginSuccess} />)
+    renderLogin({ onLogin: handleLoginSuccess })
 
     const usernameInput = screen.getByPlaceholderText('Username')
     const passwordInput = screen.getByPlaceholderText('Password')

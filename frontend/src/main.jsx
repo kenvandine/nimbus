@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import './theme.css'
 import App from './App.jsx'
+import { TranslationProvider } from './i18n.jsx'
 
 // Sets --vh to the layout viewport height so the app fills the screen without
 // being clipped by the Android nav bar. Uses innerHeight (not visualViewport)
@@ -25,6 +26,8 @@ document.head.appendChild(overrideLink)
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <App />
+    <TranslationProvider>
+      <App />
+    </TranslationProvider>
   </React.StrictMode>
 )

@@ -22,19 +22,21 @@ import Badge from './ui/Badge.jsx'
 import SignalBars from './ui/SignalBars.jsx'
 import PasswordField from './ui/PasswordField.jsx'
 import PinPad, { PinDots } from './ui/PinPad.jsx'
+import { useTranslation, LanguageSelector } from '../i18n.jsx'
 
 const STATUS_REFRESH_DELAY_MS = 3000
 const STATUS_IP_RETRY_DELAY_MS = 1500
 
 // ── Network Addresses ─────────────────────────────────────────────────────────
 function NetworkAddressesPanel() {
+  const { t } = useTranslation()
   const [addresses, setAddresses] = useState(null)
   useEffect(() => { getNetworkAddresses().then(setAddresses).catch(() => setAddresses([])) }, [])
 
   return (
-    <SettingsSection icon={<Network size={16} />} title="IP Addresses">
-      {addresses === null && <SettingsRow label="Loading…" />}
-      {addresses !== null && addresses.length === 0 && <SettingsRow label="No network addresses found" />}
+    <SettingsSection icon={<Network size={16} />} title={t('settings_ip_title', 'IP Addresses')}>
+      {addresses === null && <SettingsRow label={t('settings_ip_loading', 'Loading…')} />}
+      {addresses !== null && addresses.length === 0 && <SettingsRow label={t('settings_ip_none', 'No network addresses found')} />}
       {addresses !== null && addresses.map((a, i) => (
         <SettingsRow key={i} label={a.interface}>
           <span style={styles.addressPill}>{a.address}</span>
@@ -46,6 +48,7 @@ function NetworkAddressesPanel() {
 
 // ── Wi-Fi ──────────────────────────────────────────────────────────────────────
 function WifiPanel() {
+  const { t } = useTranslation()
   const [status, setStatus] = useState(null)
   const [networks, setNetworks] = useState(null)
   const [scanning, setScanning] = useState(false)
@@ -103,14 +106,22 @@ function WifiPanel() {
   const unavailable = status && !status.available
 
   return (
-    <SettingsSection icon={<WifiIcon size={16} />} title="Wi-Fi">
+    <SettingsSection icon={<WifiIcon size={16} />} title={t('settings_wifi_title', 'Wi-Fi')}>
       <SettingsRow
-        label={unavailable ? 'Not available' : status === null ? 'Loading…' : status.connected ? `Connected to "${status.ssid}"` : 'Not connected'}
-        sub={unavailable && status.error ? status.error : (status?.connected && status?.ip_address ? `IP: ${status.ip_address}` : undefined)}
+        label={
+          unavailable
+            ? t('settings_wifi_unavailable', 'Not available')
+            : status === null
+              ? t('settings_ip_loading', 'Loading…')
+              : status.connected
+                ? t('settings_wifi_status_connected', 'Connected to "{{ssid}}"', { ssid: status.ssid })
+                : t('settings_wifi_status_disconnected', 'Not connected')
+        }
+        sub={unavailable && status.error ? status.error : (status?.connected && status?.ip_address ? t('settings_wifi_ip', 'IP: {{ip}}', { ip: status.ip_address }) : undefined)}
       >
-        {status?.connected && <Button variant="danger" size="sm" onClick={handleDisconnect}>Disconnect</Button>}
+        {status?.connected && <Button variant="danger" size="sm" onClick={handleDisconnect}>{t('disconnect', 'Disconnect')}</Button>}
         <Button variant="soft" size="sm" onClick={handleScan} disabled={scanning || !!unavailable} loading={scanning}>
-          {scanning ? 'Scanning…' : 'Scan'}
+          {scanning ? t('oobe_scanning', 'Scanning…') : t('oobe_scan', 'Scan')}
         </Button>
       </SettingsRow>
       {error && <div style={styles.errorRow}>{error}</div>}
@@ -123,7 +134,7 @@ function WifiPanel() {
                 <span style={{ color: net.in_use ? 'var(--color-info-soft-text)' : 'var(--text-primary)' }}>
                   {net.ssid}
                   {net.secured && <Lock size={11} style={{ marginLeft: 5, opacity: 0.5, verticalAlign: -1 }} />}
-                  {net.in_use && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--color-success)' }}><Check size={10} style={{ verticalAlign: -1 }} /> connected</span>}
+                  {net.in_use && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--color-success)' }}><Check size={10} style={{ verticalAlign: -1 }} /> {t('settings_wifi_connected_status', 'connected')}</span>}
                 </span>
               </span>
             }
@@ -139,7 +150,7 @@ function WifiPanel() {
                 disabled={connecting === net.ssid}
                 loading={connecting === net.ssid}
               >
-                {connecting === net.ssid ? 'Connecting…' : 'Connect'}
+                {connecting === net.ssid ? t('connecting', 'Connecting…') : t('connect', 'Connect')}
               </Button>
             )}
           </SettingsRow>
@@ -148,28 +159,29 @@ function WifiPanel() {
               <PasswordField
                 value={password}
                 onChange={e => setPassword(e.target.value)}
-                placeholder="Password"
+                placeholder={t('settings_wifi_password_placeholder', 'Password')}
                 onKeyDown={e => e.key === 'Enter' && handleConnect(net.ssid, password)}
                 autoFocus
               />
               <div style={{ display: 'flex', gap: '8px', width: '100%', justifyContent: 'flex-end', marginTop: '4px' }}>
-                <Button variant="ghost" size="sm" onClick={() => setExpandedSsid(null)}>Cancel</Button>
+                <Button variant="ghost" size="sm" onClick={() => setExpandedSsid(null)}>{t('cancel', 'Cancel')}</Button>
                 <Button variant="soft" size="sm" onClick={() => handleConnect(net.ssid, password)} disabled={connecting === net.ssid || !password} loading={connecting === net.ssid}>
-                  {connecting === net.ssid ? 'Connecting…' : 'Connect'}
+                  {connecting === net.ssid ? t('connecting', 'Connecting…') : t('connect', 'Connect')}
                 </Button>
               </div>
             </div>
           )}
         </div>
       ))}
-      {networks !== null && networks.length === 0 && <SettingsRow label="No networks found" />}
-      {networks === null && <SettingsRow label="Press Scan to discover available networks" />}
+      {networks !== null && networks.length === 0 && <SettingsRow label={t('settings_wifi_no_networks', 'No networks found')} />}
+      {networks === null && <SettingsRow label={t('settings_wifi_scan_hint', 'Press Scan to discover available networks')} />}
     </SettingsSection>
   )
 }
 
 // ── DNS ────────────────────────────────────────────────────────────────────────
 function DnsPanel() {
+  const { t } = useTranslation()
   const [servers, setServers] = useState(null)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
@@ -193,11 +205,11 @@ function DnsPanel() {
   }
 
   return (
-    <SettingsSection icon={<Globe size={16} />} title="DNS Servers">
+    <SettingsSection icon={<Globe size={16} />} title={t('settings_dns_title', 'DNS Servers')}>
       {!editing ? (
-        <SettingsRow label="Upstream resolvers" sub={servers ? servers.join(', ') : 'Loading…'}>
-          <Button variant="secondary" size="sm" onClick={() => { setDraft(servers?.join('\n') || ''); setEditing(true) }}>Edit</Button>
-          <Button variant="secondary" size="sm" onClick={() => { setDraft('1.1.1.1\n1.0.0.1'); setEditing(true) }}>Reset</Button>
+        <SettingsRow label={t('settings_dns_resolvers', 'Upstream resolvers')} sub={servers ? servers.join(', ') : t('settings_ip_loading', 'Loading…')}>
+          <Button variant="secondary" size="sm" onClick={() => { setDraft(servers?.join('\n') || ''); setEditing(true) }}>{t('edit', 'Edit')}</Button>
+          <Button variant="secondary" size="sm" onClick={() => { setDraft('1.1.1.1\n1.0.0.1'); setEditing(true) }}>{t('reset', 'Reset')}</Button>
         </SettingsRow>
       ) : (
         <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -209,8 +221,8 @@ function DnsPanel() {
           />
           {error && <div style={styles.errorRow}>{error}</div>}
           <div style={{ display: 'flex', gap: 8 }}>
-            <Button variant="soft" size="sm" onClick={handleSave} disabled={busy} loading={busy}>{busy ? 'Saving…' : 'Save'}</Button>
-            <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>Cancel</Button>
+            <Button variant="soft" size="sm" onClick={handleSave} disabled={busy} loading={busy}>{busy ? t('saving', 'Saving…') : t('save', 'Save')}</Button>
+            <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>{t('cancel', 'Cancel')}</Button>
           </div>
         </div>
       )}
@@ -220,6 +232,7 @@ function DnsPanel() {
 
 // ── SSH Keys ───────────────────────────────────────────────────────────────────
 function SshPanel() {
+  const { t } = useTranslation()
   const [keys, setKeys] = useState(null)
   const [newKey, setNewKey] = useState('')
   const [busy, setBusy] = useState(null)
@@ -246,27 +259,27 @@ function SshPanel() {
   }
 
   return (
-    <SettingsSection icon={<KeySquare size={16} />} title="SSH Access">
+    <SettingsSection icon={<KeySquare size={16} />} title={t('settings_ssh_title', 'SSH Access')}>
       <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
         <textarea
           style={{ ...styles.input, resize: 'vertical', minHeight: 64, padding: 10, fontFamily: 'var(--font-mono)', fontSize: 11 }}
           value={newKey}
           onChange={e => setNewKey(e.target.value)}
-          placeholder="ssh-rsa AAAA… or ssh-ed25519 AAAA…"
+          placeholder={t('settings_ssh_placeholder', 'ssh-rsa AAAA… or ssh-ed25519 AAAA…')}
         />
         {error && <div style={styles.errorRow}>{error}</div>}
         <Button variant="soft" size="sm" onClick={handleAdd} disabled={busy === 'add' || !newKey.trim()} loading={busy === 'add'} style={{ alignSelf: 'flex-end' }}>
-          {busy === 'add' ? 'Adding…' : 'Add Key'}
+          {busy === 'add' ? t('adding', 'Adding…') : t('settings_ssh_btn', 'Add Key')}
         </Button>
       </div>
-      {keys !== null && keys.length === 0 && <SettingsRow label="No authorized keys" />}
+      {keys !== null && keys.length === 0 && <SettingsRow label={t('settings_ssh_none', 'No authorized keys')} />}
       {keys !== null && keys.map(k => (
         <SettingsRow
           key={k.fingerprint}
           label={<span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>{k.fingerprint}</span>}
           sub={`${k.type}${k.comment ? ` — ${k.comment}` : ''}`}
         >
-          <Button variant="danger" size="sm" onClick={() => handleRemove(k.fingerprint)} disabled={!!busy} loading={busy === k.fingerprint}>Remove</Button>
+          <Button variant="danger" size="sm" onClick={() => handleRemove(k.fingerprint)} disabled={!!busy} loading={busy === k.fingerprint}>{t('remove', 'Remove')}</Button>
         </SettingsRow>
       ))}
     </SettingsSection>
@@ -275,6 +288,7 @@ function SshPanel() {
 
 // ── Firewall ───────────────────────────────────────────────────────────────────
 function FirewallPanel() {
+  const { t } = useTranslation()
   const [fwStatus, setFwStatus] = useState(null)
   const [rules, setRules] = useState(null)
   const [newPort, setNewPort] = useState('')
@@ -318,37 +332,37 @@ function FirewallPanel() {
   }
 
   return (
-    <SettingsSection icon={<ShieldAlert size={16} />} title="Firewall (UFW)">
+    <SettingsSection icon={<ShieldAlert size={16} />} title={t('settings_firewall_title', 'Firewall (UFW)')}>
       <SettingsRow
-        label="Firewall status"
-        sub={fwStatus === null ? 'Loading…' : fwStatus.enabled ? 'Active — traffic is filtered' : 'Inactive — all traffic allowed'}
+        label={t('settings_firewall_status', 'Firewall status')}
+        sub={fwStatus === null ? t('settings_ip_loading', 'Loading…') : fwStatus.enabled ? t('settings_firewall_active', 'Active — traffic is filtered') : t('settings_firewall_inactive', 'Inactive — all traffic allowed')}
       >
         <Button variant="soft" size="sm" onClick={handleToggle} disabled={busy === 'toggle'} loading={busy === 'toggle'}>
-          {fwStatus?.enabled ? 'Disable' : 'Enable'}
+          {fwStatus?.enabled ? t('disable', 'Disable') : t('enable', 'Enable')}
         </Button>
       </SettingsRow>
 
       <div style={{ padding: '10px 16px 4px', display: 'flex', gap: 8, alignItems: 'center' }}>
-        <input style={{ ...styles.input, width: 80, padding: '6px 10px' }} placeholder="Port" value={newPort}
+        <input style={{ ...styles.input, width: 80, padding: '6px 10px' }} placeholder={t('settings_firewall_port_placeholder', 'Port')} value={newPort}
           onChange={e => setNewPort(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAdd()} />
         <select style={styles.select} value={newProto} onChange={e => setNewProto(e.target.value)}>
           <option value="tcp">TCP</option>
           <option value="udp">UDP</option>
         </select>
         <select style={styles.select} value={newAction} onChange={e => setNewAction(e.target.value)}>
-          <option value="allow">Allow</option>
-          <option value="deny">Deny</option>
-          <option value="reject">Reject</option>
+          <option value="allow">{t('settings_firewall_action_allow', 'Allow')}</option>
+          <option value="deny">{t('settings_firewall_action_deny', 'Deny')}</option>
+          <option value="reject">{t('settings_firewall_action_reject', 'Reject')}</option>
         </select>
         <Button variant="soft" size="sm" onClick={handleAdd} disabled={busy === 'add' || !newPort} loading={busy === 'add'}>
-          {busy === 'add' ? 'Adding…' : 'Add Rule'}
+          {busy === 'add' ? t('adding', 'Adding…') : t('settings_firewall_add_btn', 'Add Rule')}
         </Button>
       </div>
       {error && <div style={styles.errorRow}>{error}</div>}
-      {rules !== null && rules.length === 0 && <SettingsRow label="No rules configured" />}
+      {rules !== null && rules.length === 0 && <SettingsRow label={t('settings_firewall_none', 'No rules configured')} />}
       {rules !== null && rules.map(r => (
         <SettingsRow key={r.number} label={r.to} sub={`${r.action} from ${r.from}`}>
-          <Button variant="danger" size="sm" onClick={() => handleDelete(r.number)} disabled={!!busy}>Delete</Button>
+          <Button variant="danger" size="sm" onClick={() => handleDelete(r.number)} disabled={!!busy}>{t('delete', 'Delete')}</Button>
         </SettingsRow>
       ))}
     </SettingsSection>
@@ -357,6 +371,7 @@ function FirewallPanel() {
 
 // ── Change Password ────────────────────────────────────────────────────────────
 function ChangePasswordPanel() {
+  const { t } = useTranslation()
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -366,29 +381,29 @@ function ChangePasswordPanel() {
 
   async function handleSubmit(e) {
     e.preventDefault()
-    if (next !== confirm) { setError('New passwords do not match'); return }
+    if (next !== confirm) { setError(t('settings_password_mismatch', 'New passwords do not match')); return }
     setBusy(true); setError(null); setMsg(null)
     try {
       await changePassword(current, next)
       setCurrent(''); setNext(''); setConfirm('')
-      setMsg('Password changed successfully.')
+      setMsg(t('settings_password_success', 'Password changed successfully.'))
     } catch (e) { setError(e.message) }
     finally { setBusy(false) }
   }
 
   return (
-    <SettingsSection icon={<Lock size={16} />} title="Change Password">
+    <SettingsSection icon={<Lock size={16} />} title={t('settings_password_title', 'Change Password')}>
       <form onSubmit={handleSubmit} style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <input type="password" placeholder="Current password" value={current}
+        <input type="password" placeholder={t('settings_password_current', 'Current password')} value={current}
           onChange={e => setCurrent(e.target.value)} style={styles.input} autoComplete="current-password" />
-        <PasswordField placeholder="New password (min 8 chars)" value={next}
+        <PasswordField placeholder={t('settings_password_new', 'New password (min 8 chars)')} value={next}
           onChange={e => setNext(e.target.value)} autoComplete="new-password" />
-        <PasswordField placeholder="Confirm new password" value={confirm}
+        <PasswordField placeholder={t('settings_password_confirm', 'Confirm new password')} value={confirm}
           onChange={e => setConfirm(e.target.value)} autoComplete="new-password" />
         {error && <div style={styles.errorRow}>{error}</div>}
         {msg && <div style={{ ...styles.errorRow, color: 'var(--color-success)' }}>{msg}</div>}
         <Button type="submit" variant="soft" size="sm" disabled={busy || !current || !next || !confirm} loading={busy} style={{ alignSelf: 'flex-start' }}>
-          {busy ? 'Changing…' : 'Change Password'}
+          {busy ? t('settings_password_btn_busy', 'Changing…') : t('settings_password_btn', 'Change Password')}
         </Button>
       </form>
     </SettingsSection>
@@ -399,6 +414,7 @@ function ChangePasswordPanel() {
 const PIN_LENGTH = 4
 
 function ScreenLockPanel() {
+  const { t } = useTranslation()
   const [hasPin, setHasPin] = useState(() => Boolean(localStorage.getItem('nimbus_lock_pin')))
   const [mode, setMode] = useState('idle') // idle | set | confirm
   const [pin, setPin] = useState('')
@@ -413,9 +429,9 @@ function ScreenLockPanel() {
       if (entered === firstPin) {
         localStorage.setItem('nimbus_lock_pin', entered)
         setHasPin(true); setMode('idle'); setPin(''); setFirstPin(''); setError(null)
-        setSaved('PIN saved — screen lock is now active.'); setTimeout(() => setSaved(null), 3000)
+        setSaved(t('settings_pin_success_saved', 'PIN saved — screen lock is now active.')); setTimeout(() => setSaved(null), 3000)
       } else {
-        setError('PINs did not match — try again'); setPin(''); setMode('set'); setFirstPin('')
+        setError(t('oobe_pin_mismatch', 'PINs did not match — try again')); setPin(''); setMode('set'); setFirstPin('')
       }
     }
   }
@@ -423,7 +439,7 @@ function ScreenLockPanel() {
   function handleRemove() {
     localStorage.removeItem('nimbus_lock_pin')
     setHasPin(false); setMode('idle'); setPin(''); setFirstPin('')
-    setSaved('PIN removed — screen lock disabled.'); setTimeout(() => setSaved(null), 3000)
+    setSaved(t('settings_pin_success_removed', 'PIN removed — screen lock disabled.')); setTimeout(() => setSaved(null), 3000)
   }
 
   function handleCancel() {
@@ -431,17 +447,17 @@ function ScreenLockPanel() {
   }
 
   return (
-    <SettingsSection icon={<LockKeyhole size={16} />} title="Screen Lock PIN">
+    <SettingsSection icon={<LockKeyhole size={16} />} title={t('settings_pin_title', 'Screen Lock PIN')}>
       {mode === 'idle' ? (
         <>
           <SettingsRow
-            label="Screen lock PIN"
-            sub={hasPin ? 'A 4-digit PIN is required after idle timeout.' : 'No PIN set — screen will not lock on idle.'}
+            label={t('settings_pin_title', 'Screen Lock PIN')}
+            sub={hasPin ? t('settings_pin_status_has', 'A 4-digit PIN is required after idle timeout.') : t('settings_pin_status_none', 'No PIN set — screen will not lock on idle.')}
           >
             <Button variant="soft" size="sm" onClick={() => { setMode('set'); setPin(''); setError(null) }}>
-              {hasPin ? 'Change' : 'Set PIN'}
+              {hasPin ? t('settings_pin_btn_change', 'Change') : t('settings_pin_btn_set', 'Set PIN')}
             </Button>
-            {hasPin && <Button variant="danger" size="sm" onClick={handleRemove}>Remove</Button>}
+            {hasPin && <Button variant="danger" size="sm" onClick={handleRemove}>{t('remove', 'Remove')}</Button>}
           </SettingsRow>
           {saved && (
             <div style={{ padding: '6px 16px 10px', fontSize: 12, color: 'var(--color-success)', fontFamily: 'var(--font-sans)' }}>
@@ -453,14 +469,14 @@ function ScreenLockPanel() {
         <>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '12px 16px 16px' }}>
             <div style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500, fontFamily: 'var(--font-sans)' }}>
-              {mode === 'set' ? 'Enter a new 4-digit PIN' : 'Confirm your PIN'}
+              {mode === 'set' ? t('settings_pin_prompt_new', 'Enter a new 4-digit PIN') : t('settings_pin_prompt_confirm', 'Confirm your PIN')}
             </div>
             {error && <div style={{ fontSize: 12, color: 'var(--color-danger)', fontFamily: 'var(--font-sans)' }}>{error}</div>}
             <PinDots length={PIN_LENGTH} value={pin} size={12} />
             <PinPad value={pin} onChange={setPin} length={PIN_LENGTH} onComplete={advance} size={54} />
           </div>
           <div style={{ padding: '0 16px 14px', display: 'flex', justifyContent: 'center' }}>
-            <Button variant="ghost" size="sm" onClick={handleCancel}>Cancel</Button>
+            <Button variant="ghost" size="sm" onClick={handleCancel}>{t('cancel', 'Cancel')}</Button>
           </div>
         </>
       )}
@@ -470,6 +486,7 @@ function ScreenLockPanel() {
 
 // ── Resource Limits ─────────────────────────────────────────────────────────
 function ResourceLimitsPanel({ stats }) {
+  const { t } = useTranslation()
   const [limits, setLimits] = useState(null)
   const [cpu, setCpu] = useState('')
   const [mem, setMem] = useState('')
@@ -498,7 +515,7 @@ function ResourceLimitsPanel({ stats }) {
         cpu ? parseInt(cpu, 10) : null,
         mem ? parseInt(mem, 10) : null,
       )
-      setMsg('Resource limits updated.')
+      setMsg(t('settings_resources_success', 'Resource limits updated.'))
       await load()
     } catch (e) { setError(e.message) }
     finally { setBusy(false) }
@@ -507,33 +524,35 @@ function ResourceLimitsPanel({ stats }) {
   if (!isLxd) return null
 
   return (
-    <SettingsSection icon={<SlidersHorizontal size={16} />} title="Container Resource Limits">
+    <SettingsSection icon={<SlidersHorizontal size={16} />} title={t('settings_resources_title', 'Container Resource Limits')}>
       {!containerReady ? (
-        <SettingsRow label="Container must be ready to configure resource limits." />
+        <SettingsRow label={t('settings_resources_not_ready', 'Container must be ready to configure resource limits.')} />
       ) : (
         <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-            <label style={{ color: 'var(--text-tertiary)', fontSize: 12, width: 90, fontFamily: 'var(--font-sans)' }}>CPU cores</label>
-            <input style={{ ...styles.input, width: 80, padding: '6px 10px' }} placeholder="auto"
+            <label style={{ color: 'var(--text-tertiary)', fontSize: 12, width: 90, fontFamily: 'var(--font-sans)' }}>{t('settings_resources_cpu', 'CPU cores')}</label>
+            <input style={{ ...styles.input, width: 80, padding: '6px 10px' }} placeholder={t('settings_resources_auto', 'auto')}
               value={cpu} onChange={e => setCpu(e.target.value.replace(/\D/g, ''))} />
-            <span style={{ color: 'var(--text-disabled)', fontSize: 11, fontFamily: 'var(--font-sans)' }}>leave blank to use all</span>
+            <span style={{ color: 'var(--text-disabled)', fontSize: 11, fontFamily: 'var(--font-sans)' }}>{t('settings_resources_cpu_hint', 'leave blank to use all')}</span>
           </div>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-            <label style={{ color: 'var(--text-tertiary)', fontSize: 12, width: 90, fontFamily: 'var(--font-sans)' }}>Memory (MB)</label>
-            <input style={{ ...styles.input, width: 100, padding: '6px 10px' }} placeholder="auto"
+            <label style={{ color: 'var(--text-tertiary)', fontSize: 12, width: 90, fontFamily: 'var(--font-sans)' }}>{t('settings_resources_mem', 'Memory (MB)')}</label>
+            <input style={{ ...styles.input, width: 100, padding: '6px 10px' }} placeholder={t('settings_resources_auto', 'auto')}
               value={mem} onChange={e => setMem(e.target.value.replace(/\D/g, ''))} />
-            <span style={{ color: 'var(--text-disabled)', fontSize: 11, fontFamily: 'var(--font-sans)' }}>e.g. 4096 for 4 GB</span>
+            <span style={{ color: 'var(--text-disabled)', fontSize: 11, fontFamily: 'var(--font-sans)' }}>{t('settings_resources_mem_hint', 'e.g. 4096 for 4 GB')}</span>
           </div>
           {limits && (
             <div style={{ color: 'var(--text-disabled)', fontSize: 11, fontFamily: 'var(--font-sans)' }}>
-              Current: {limits.cpu_cores != null ? `${limits.cpu_cores} vCPU` : 'unlimited CPU'},{' '}
-              {limits.memory_mb != null ? `${limits.memory_mb} MB RAM` : 'unlimited RAM'}
+              {t('settings_resources_current', 'Current: {{cpu}}, {{mem}}', {
+                cpu: limits.cpu_cores != null ? t('settings_resources_current_cpu_cores', '{{cores}} vCPU', { cores: limits.cpu_cores }) : t('settings_resources_current_unlimited_cpu', 'unlimited CPU'),
+                mem: limits.memory_mb != null ? t('settings_resources_current_mem_mb', '{{mb}} MB RAM', { mb: limits.memory_mb }) : t('settings_resources_current_unlimited_mem', 'unlimited RAM'),
+              })}
             </div>
           )}
           {error && <div style={styles.errorRow}>{error}</div>}
           {msg && <div style={{ ...styles.errorRow, color: 'var(--color-success)' }}>{msg}</div>}
           <Button variant="soft" size="sm" onClick={handleSave} disabled={busy} loading={busy} style={{ alignSelf: 'flex-start' }}>
-            {busy ? 'Saving…' : 'Apply Limits'}
+            {busy ? t('saving', 'Saving…') : t('settings_resources_apply', 'Apply Limits')}
           </Button>
         </div>
       )}
@@ -543,6 +562,7 @@ function ResourceLimitsPanel({ stats }) {
 
 // ── API Keys ───────────────────────────────────────────────────────────────────
 function ApiKeysPanel() {
+  const { t } = useTranslation()
   const [keys, setKeys] = useState(null)
   const [name, setName] = useState('')
   const [value, setValue] = useState('')
@@ -556,9 +576,9 @@ function ApiKeysPanel() {
   useEffect(() => { load() }, [])
 
   async function handleSave() {
-    if (!name.trim() || !value.trim()) { setError('Name and value are required'); return }
+    if (!name.trim() || !value.trim()) { setError(t('settings_api_error_required', 'Name and value are required')); return }
     setBusy('save'); setError(null); setMsg(null)
-    try { await setApiKey(name.trim(), value.trim()); setName(''); setValue(''); setMsg('Key saved.'); await load() }
+    try { await setApiKey(name.trim(), value.trim()); setName(''); setValue(''); setMsg(t('settings_api_success', 'Key saved.')); await load() }
     catch (e) { setError(e.message) }
     finally { setBusy(null) }
   }
@@ -571,26 +591,26 @@ function ApiKeysPanel() {
   }
 
   return (
-    <SettingsSection icon={<KeyRound size={16} />} title="API Keys">
+    <SettingsSection icon={<KeyRound size={16} />} title={t('settings_api_title', 'API Keys')}>
       <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
         <div style={{ display: 'flex', gap: 8 }}>
-          <input style={{ ...styles.input, width: 120 }} placeholder="Key name" value={name}
+          <input style={{ ...styles.input, width: 120 }} placeholder={t('settings_api_name_placeholder', 'Key name')} value={name}
             onChange={e => setName(e.target.value)} />
-          <input style={{ ...styles.input, flex: 1 }} placeholder="Value (e.g. sk-…)" value={value}
+          <input style={{ ...styles.input, flex: 1 }} placeholder={t('settings_api_value_placeholder', 'Value (e.g. sk-…)')} value={value}
             onChange={e => setValue(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleSave()} />
           <Button variant="soft" size="sm" onClick={handleSave} disabled={busy === 'save' || !name.trim() || !value.trim()} loading={busy === 'save'}>
-            {busy === 'save' ? 'Saving…' : 'Save'}
+            {busy === 'save' ? t('saving', 'Saving…') : t('save', 'Save')}
           </Button>
         </div>
         {error && <div style={styles.errorRow}>{error}</div>}
         {msg && <div style={{ ...styles.errorRow, color: 'var(--color-success)' }}>{msg}</div>}
       </div>
-      {keys !== null && keys.length === 0 && <SettingsRow label="No API keys stored" />}
+      {keys !== null && keys.length === 0 && <SettingsRow label={t('settings_api_none', 'No API keys stored')} />}
       {keys !== null && keys.map(k => (
         <SettingsRow key={k.name} label={<span style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{k.name}</span>} sub={k.hint}>
           <Button variant="danger" size="sm" onClick={() => handleDelete(k.name)} disabled={!!busy} loading={busy === k.name}>
-            {busy === k.name ? 'Deleting…' : 'Delete'}
+            {busy === k.name ? t('deleting', 'Deleting…') : t('delete', 'Delete')}
           </Button>
         </SettingsRow>
       ))}
@@ -600,6 +620,7 @@ function ApiKeysPanel() {
 
 // ── Tailscale ─────────────────────────────────────────────────────────────────
 function TailscalePanel() {
+  const { t } = useTranslation()
   const [status, setStatus] = useState(null)
 
   async function load() {
@@ -626,29 +647,29 @@ function TailscalePanel() {
   const ip = status?.tailscale_ip
 
   return (
-    <SettingsSection icon={<Link2 size={16} />} title="Tailscale">
+    <SettingsSection icon={<Link2 size={16} />} title={t('settings_tailscale_title', 'Tailscale')}>
       <SettingsRow
-        label={status === null ? 'Loading…' : connected ? 'Connected to tailnet' : 'Not connected'}
-        sub={connected && ip ? `Tailscale IP: ${ip}` : 'Join your tailnet to access this device remotely'}
+        label={status === null ? t('settings_ip_loading', 'Loading…') : connected ? t('settings_tailscale_connected', 'Connected to tailnet') : t('settings_tailscale_disconnected', 'Not connected')}
+        sub={connected && ip ? t('settings_tailscale_ip', 'Tailscale IP: {{ip}}', { ip }) : t('settings_tailscale_hint', 'Join your tailnet to access this device remotely')}
       >
-        <Badge tone={connected ? 'success' : 'danger'}>{connected ? 'Connected' : 'Offline'}</Badge>
+        <Badge tone={connected ? 'success' : 'danger'}>{connected ? t('settings_tailscale_badge_connected', 'Connected') : t('settings_tailscale_badge_offline', 'Offline')}</Badge>
       </SettingsRow>
 
       {!connected && (
         <div style={{ padding: '10px 16px 12px', borderBottom: '1px solid var(--color-border-subtle)' }}>
           <div style={styles.itemSub}>
-            To connect this device to your tailnet, open the Tailscale web client below and sign in.
+            {t('settings_tailscale_instructions', 'To connect this device to your tailnet, open the Tailscale web client below and sign in.')}
           </div>
         </div>
       )}
 
-      <SettingsRow label="Tailscale Web Client" sub="Manage tailscale settings, routes, and exit nodes">
-        <Button variant="soft" size="sm" onClick={openWebClient}>Open</Button>
+      <SettingsRow label={t('settings_tailscale_webclient_title', 'Tailscale Web Client')} sub={t('settings_tailscale_webclient_desc', 'Manage tailscale settings, routes, and exit nodes')}>
+        <Button variant="soft" size="sm" onClick={openWebClient}>{t('settings_tailscale_webclient_open', 'Open')}</Button>
       </SettingsRow>
 
       {connected && ip && (
-        <SettingsRow label="Remote Web Client" sub={`Access from any tailnet device at ${ip}:5252`}>
-          <Button variant="secondary" size="sm" onClick={openDirectWebClient}>Open (port 5252)</Button>
+        <SettingsRow label={t('settings_tailscale_remote_client_title', 'Remote Web Client')} sub={t('settings_tailscale_remote_client_desc', 'Access from any tailnet device at {{ip}}:5252', { ip })}>
+          <Button variant="secondary" size="sm" onClick={openDirectWebClient}>{t('settings_tailscale_remote_client_open', 'Open (port 5252)')}</Button>
         </SettingsRow>
       )}
     </SettingsSection>
@@ -657,6 +678,7 @@ function TailscalePanel() {
 
 // ── Main Settings Component ────────────────────────────────────────────────────
 export default function Settings({ stats, onRefresh }) {
+  const { t } = useTranslation()
   const [busyAction, setBusyAction] = useState(null)
   const [localMessage, setLocalMessage] = useState(null)
 
@@ -665,41 +687,48 @@ export default function Settings({ stats, onRefresh }) {
 
   async function handleRestart() {
     setBusyAction('restart'); setLocalMessage(null)
-    try { await restartSystem(); setLocalMessage('Restart requested.') }
+    try { await restartSystem(); setLocalMessage(t('settings_system_restart_success_msg', 'Restart requested.')) }
     catch (e) { setLocalMessage(e.message) }
     finally { setBusyAction(null) }
   }
 
   return (
     <div style={styles.container}>
+      {/* Language */}
+      <SettingsSection icon={<Globe size={16} />} title={t('language', 'Language')}>
+        <SettingsRow label={t('language_select', 'Select Language')}>
+          <LanguageSelector />
+        </SettingsRow>
+      </SettingsSection>
+
       {/* HTTPS Certificate */}
-      <SettingsSection icon={<ShieldCheck size={16} />} title="HTTPS Certificate">
-        <SettingsRow label="Trust Nimbus CA" sub="Install on each device to remove the HTTPS warning">
-          <a href="/api/system/ca-cert" download="nimbus-ca.crt" style={styles.btnDownload}>Download</a>
+      <SettingsSection icon={<ShieldCheck size={16} />} title={t('settings_https_title', 'HTTPS Certificate')}>
+        <SettingsRow label={t('settings_https_trust', 'Trust Nimbus CA')} sub={t('settings_https_desc', 'Install on each device to remove the HTTPS warning')}>
+          <a href="/api/system/ca-cert" download="nimbus-ca.crt" style={styles.btnDownload}>{t('settings_https_download', 'Download')}</a>
         </SettingsRow>
         {stats?.tls_fingerprint && (
-          <SettingsRow label="Fingerprint">
+          <SettingsRow label={t('settings_https_fingerprint', 'Fingerprint')}>
             <span style={{ ...styles.addressPill, fontSize: 10, maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {stats.tls_fingerprint}
             </span>
           </SettingsRow>
         )}
-        <SettingsRow label="iOS / macOS"><span style={styles.pillInfo}>Download → open → Settings → trust</span></SettingsRow>
-        <SettingsRow label="Android"><span style={styles.pillInfo}>Settings → Security → Install cert</span></SettingsRow>
-        <SettingsRow label="Linux"><span style={styles.pillInfo}>cp nimbus-ca.crt /usr/local/share/ca-certificates/ && update-ca-certificates</span></SettingsRow>
+        <SettingsRow label={t('settings_https_ios_macos', 'iOS / macOS')}><span style={styles.pillInfo}>{t('settings_https_ios_macos_desc', 'Download → open → Settings → trust')}</span></SettingsRow>
+        <SettingsRow label={t('settings_https_android', 'Android')}><span style={styles.pillInfo}>{t('settings_https_android_desc', 'Settings → Security → Install cert')}</span></SettingsRow>
+        <SettingsRow label={t('settings_https_linux', 'Linux')}><span style={styles.pillInfo}>{t('settings_https_linux_desc', 'cp nimbus-ca.crt /usr/local/share/ca-certificates/ && update-ca-certificates')}</span></SettingsRow>
       </SettingsSection>
 
       {/* System Updates */}
-      <SettingsSection icon={<ArrowUpCircle size={16} />} title="System">
-        <SettingsRow label="Snap auto-refresh" sub="Nimbus and its dependencies update automatically on snapd's schedule. No manual trigger needed.">
-          <Badge tone="success">Auto</Badge>
+      <SettingsSection icon={<ArrowUpCircle size={16} />} title={t('settings_system_title', 'System')}>
+        <SettingsRow label={t('settings_system_auto_refresh', 'Snap auto-refresh')} sub={t('settings_system_auto_desc', "Nimbus and its dependencies update automatically on snapd's schedule. No manual trigger needed.")}>
+          <Badge tone="success">{t('settings_system_auto_badge', 'Auto')}</Badge>
         </SettingsRow>
         {stats?.version && (
-          <SettingsRow label="Version"><span style={styles.addressPill}>v{stats.version}</span></SettingsRow>
+          <SettingsRow label={t('version', 'Version')}><span style={styles.addressPill}>v{stats.version}</span></SettingsRow>
         )}
-        <SettingsRow label="Restart system" sub="Reboot the device">
+        <SettingsRow label={t('settings_system_restart', 'Restart system')} sub={t('settings_system_restart_desc', 'Reboot the device')}>
           <Button variant="soft" size="sm" onClick={handleRestart} disabled={!powerSupported || busyAction === 'restart'} loading={busyAction === 'restart'}>
-            {busyAction === 'restart' ? 'Restarting…' : 'Restart'}
+            {busyAction === 'restart' ? t('settings_system_restart_busy', 'Restarting…') : t('restart', 'Restart')}
           </Button>
         </SettingsRow>
         {localMessage && (

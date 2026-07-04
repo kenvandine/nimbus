@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, test, expect, vi, beforeEach } from 'vitest'
 import React from 'react'
 import ScreenLock from '../src/components/ScreenLock.jsx'
+import { TranslationProvider } from '../src/i18n.jsx'
 
 describe('ScreenLock Component', () => {
   beforeEach(() => {
@@ -14,11 +15,13 @@ describe('ScreenLock Component', () => {
     const handleFail = vi.fn()
 
     render(
-      <ScreenLock 
-        deviceName="Nimbus-Test" 
-        onUnlock={handleUnlock} 
-        onFail={handleFail} 
-      />
+      <TranslationProvider>
+        <ScreenLock
+          deviceName="Nimbus-Test"
+          onUnlock={handleUnlock}
+          onFail={handleFail}
+        />
+      </TranslationProvider>
     )
 
     // Click buttons "1", "2", "3", "4" on the PinPad
@@ -39,11 +42,13 @@ describe('ScreenLock Component', () => {
     const handleFail = vi.fn()
 
     render(
-      <ScreenLock 
-        deviceName="Nimbus-Test" 
-        onUnlock={handleUnlock} 
-        onFail={handleFail} 
-      />
+      <TranslationProvider>
+        <ScreenLock
+          deviceName="Nimbus-Test"
+          onUnlock={handleUnlock}
+          onFail={handleFail}
+        />
+      </TranslationProvider>
     )
 
     // Click incorrect PIN buttons: "1", "1", "1", "1"
@@ -63,10 +68,12 @@ describe('ScreenLock Component', () => {
     const handleUnlock = vi.fn()
 
     render(
-      <ScreenLock 
-        deviceName="Nimbus-Test" 
-        onUnlock={handleUnlock} 
-      />
+      <TranslationProvider>
+        <ScreenLock
+          deviceName="Nimbus-Test"
+          onUnlock={handleUnlock}
+        />
+      </TranslationProvider>
     )
 
     // Type 1, then backspace, then 1, 2, 3, 4
