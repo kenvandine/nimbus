@@ -387,7 +387,7 @@ export default function DeviceInfo({ stats, apps }) {
           <div style={styles.setupBannerTitle}>{firstSetup ? t('setup_title_setting_up', 'Nimbus is still being set up') : t('setup_title_starting', 'Nimbus is still starting')}</div>
           <div style={styles.setupBannerText}>
             {stats?.bootstrap_error
-              ? `${t('device_info_error', 'Setup failed')}: ${stats.bootstrap_error}`
+              ? `${t('device_info_setup_failed', 'Setup failed')}: ${stats.bootstrap_error}`
               : `${formatBootstrapState(stats?.bootstrap_state, t)}. ${firstSetup ? t('device_info_setup_lxd_not_ready', 'The managed LXD container is not ready for normal use yet.') : t('device_info_setup_lxd_reconnecting', 'Nimbus is reconnecting to the managed container and restoring app state.')}`}
           </div>
         </section>
@@ -438,7 +438,7 @@ export default function DeviceInfo({ stats, apps }) {
                 {hardware.chassis_type && <InfoRow label={t('device_info_hardware_form_factor', 'Form Factor')} value={hardware.chassis_type} />}
                 {hardware.cpu_model && (
                   <InfoRow
-                    label={t('device_info_cpu_cores', 'CPU')}
+                    label={t('device_info_cpu_model', 'CPU')}
                     value={
                       hardware.cpu_cores_physical
                         ? `${hardware.cpu_model} (${hardware.cpu_cores_physical}C / ${hardware.cpu_cores_logical}T)`

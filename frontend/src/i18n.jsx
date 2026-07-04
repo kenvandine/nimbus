@@ -210,6 +210,7 @@ const translations = {
     // Language Selector
     language: "Language",
     language_select: "Select Language",
+    language_selector: "Language",
 
     // Dock
     dock_home: "Home",
@@ -236,12 +237,14 @@ const translations = {
     device_info_running: "Running",
     device_info_stopped: "Stopped",
     device_info_error: "Error",
+    device_info_setup_failed: "Setup failed",
     device_info_ready: "Ready",
     device_info_container_status: "Container status",
     device_info_ip_address: "IP address",
     device_info_uptime: "Uptime",
     device_info_bootstrap_phase: "Bootstrap phase",
     device_info_cpu_cores: "CPU cores",
+    device_info_cpu_model: "CPU",
     device_info_memory: "Memory",
     device_info_disk_space: "Disk space",
     device_info_network_traffic: "Network Traffic",
@@ -612,6 +615,7 @@ const translations = {
     // Language Selector
     language: "Idioma",
     language_select: "Seleccionar idioma",
+    language_selector: "Idioma",
 
     // Dock
     dock_home: "Inicio",
@@ -638,12 +642,14 @@ const translations = {
     device_info_running: "En ejecución",
     device_info_stopped: "Detenido",
     device_info_error: "Error",
+    device_info_setup_failed: "Error de configuración",
     device_info_ready: "Listo",
     device_info_container_status: "Estado del contenedor",
     device_info_ip_address: "Dirección IP",
     device_info_uptime: "Tiempo activo",
     device_info_bootstrap_phase: "Fase de arranque",
     device_info_cpu_cores: "Núcleos de CPU",
+    device_info_cpu_model: "CPU",
     device_info_memory: "Memoria",
     device_info_disk_space: "Espacio en disco",
     device_info_network_traffic: "Tráfico de red",
@@ -1014,6 +1020,7 @@ const translations = {
     // Language Selector
     language: "Langue",
     language_select: "Sélectionner la langue",
+    language_selector: "Langue",
 
     // Dock
     dock_home: "Accueil",
@@ -1040,12 +1047,14 @@ const translations = {
     device_info_running: "En cours d'exécution",
     device_info_stopped: "Arrêté",
     device_info_error: "Erreur",
+    device_info_setup_failed: "Échec de la configuration",
     device_info_ready: "Prêt",
     device_info_container_status: "État du conteneur",
     device_info_ip_address: "Adresse IP",
     device_info_uptime: "Temps d'activité",
     device_info_bootstrap_phase: "Phase d'initialisation",
     device_info_cpu_cores: "Cœurs CPU",
+    device_info_cpu_model: "CPU",
     device_info_memory: "Mémoire",
     device_info_disk_space: "Espace disque",
     device_info_network_traffic: "Trafic Réseau",
@@ -1235,7 +1244,7 @@ export function TranslationProvider({ children }) {
     }
     if (replacements && typeof translation === 'string') {
       Object.entries(replacements).forEach(([k, v]) => {
-        translation = translation.replace(new RegExp(`{{${k}}}`, 'g'), String(v));
+        translation = translation.replace(new RegExp(`\\{\\{${k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\}\\}`, 'g'), String(v));
       });
     }
     return translation;
@@ -1263,13 +1272,14 @@ export function useTranslation() {
 }
 
 export function LanguageSelector({ style }) {
-  const { currentLanguage, changeLanguage, languages } = useTranslation();
+  const { t, currentLanguage, changeLanguage, languages } = useTranslation();
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, ...style }}>
       <Globe size={14} style={{ color: 'var(--text-secondary)' }} />
       <select
         value={currentLanguage}
         onChange={(e) => changeLanguage(e.target.value)}
+        aria-label={t('language_selector', 'Language')}
         style={{
           background: 'var(--color-surface-2)',
           border: '1px solid var(--color-border-strong)',
