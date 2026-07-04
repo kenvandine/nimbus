@@ -810,7 +810,7 @@ sudo nimbus.reset
 Nimbus supports multilingual experiences. If you want to contribute translations for a new language, follow these steps:
 
 1. **Locate the Translation File**:
-   All translations are stored in [frontend/src/i18n.jsx](file:///home/ken/src/github/kenvandine/nimbus-appliance/nimbus/frontend/src/i18n.jsx).
+   All translations are stored in [frontend/src/i18n.jsx](frontend/src/i18n.jsx).
 
 2. **Add Your Language Dictionary**:
    Inside `i18n.jsx`, find the `translations` constant. Add a new dictionary with your language's ISO 639-1 code (e.g., `de` for German, `it` for Italian) alongside `en`, `es`, and `fr`. Copy the keys from `en` and translate their values:

@@ -59,7 +59,7 @@ export default function AppStore({ apps, onRefresh, onOpenDetail, activeInstalls
           onClick={() => setShowUpdatesOnly(v => !v)}
           title={t('show_updates_only', 'Show apps with updates only')}
         >
-          <ArrowUp size={13} /> {t('app_store_update_available', 'Update available')}{updatableCount > 0 && <span style={styles.filterBadge}>{updatableCount}</span>}
+          <ArrowUp size={13} /> {t('app_store_updates', 'Updates')}{updatableCount > 0 && <span style={styles.filterBadge}>{updatableCount}</span>}
         </Button>
         <button
           style={{ ...styles.advancedBtn, ...(showUnsupported ? styles.advancedBtnActive : {}) }}
