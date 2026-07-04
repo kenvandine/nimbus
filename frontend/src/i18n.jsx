@@ -127,6 +127,7 @@ const translations = {
     settings_wifi_unavailable: "Not available",
     settings_wifi_status_connected: "Connected to \"{{ssid}}\"",
     settings_wifi_status_disconnected: "Not connected",
+    settings_wifi_ip: "IP: {{ip}}",
     settings_wifi_no_networks: "No networks found",
     settings_wifi_scan_hint: "Press Scan to discover available networks",
     settings_wifi_password_placeholder: "Password",
@@ -196,6 +197,7 @@ const translations = {
     settings_tailscale_title: "Tailscale",
     settings_tailscale_connected: "Connected to tailnet",
     settings_tailscale_disconnected: "Not connected",
+    settings_tailscale_ip: "Tailscale IP: {{ip}}",
     settings_tailscale_hint: "Join your tailnet to access this device remotely",
     settings_tailscale_badge_connected: "Connected",
     settings_tailscale_badge_offline: "Offline",
@@ -533,6 +535,7 @@ const translations = {
     settings_wifi_unavailable: "No disponible",
     settings_wifi_status_connected: "Conectado a \"{{ssid}}\"",
     settings_wifi_status_disconnected: "No conectado",
+    settings_wifi_ip: "IP: {{ip}}",
     settings_wifi_no_networks: "No se encontraron redes",
     settings_wifi_scan_hint: "Pulsa Buscar para descubrir redes disponibles",
     settings_wifi_password_placeholder: "Contraseña",
@@ -602,6 +605,7 @@ const translations = {
     settings_tailscale_title: "Tailscale",
     settings_tailscale_connected: "Conectado a la tailnet",
     settings_tailscale_disconnected: "No conectado",
+    settings_tailscale_ip: "IP de Tailscale: {{ip}}",
     settings_tailscale_hint: "Únete a tu tailnet para acceder a este dispositivo de forma remota",
     settings_tailscale_badge_connected: "Conectado",
     settings_tailscale_badge_offline: "Desconectado",
@@ -939,6 +943,7 @@ const translations = {
     settings_wifi_unavailable: "Non disponible",
     settings_wifi_status_connected: "Connecté à \"{{ssid}}\"",
     settings_wifi_status_disconnected: "Non connecté",
+    settings_wifi_ip: "IP : {{ip}}",
     settings_wifi_no_networks: "Aucun réseau trouvé",
     settings_wifi_scan_hint: "Appuyez sur Rechercher pour découvrir les réseaux disponibles",
     settings_wifi_password_placeholder: "Mot de passe",
@@ -1008,6 +1013,7 @@ const translations = {
     settings_tailscale_title: "Tailscale",
     settings_tailscale_connected: "Connecté au tailnet",
     settings_tailscale_disconnected: "Non connecté",
+    settings_tailscale_ip: "IP Tailscale : {{ip}}",
     settings_tailscale_hint: "Rejoignez votre tailnet pour accéder à cet appareil à distance",
     settings_tailscale_badge_connected: "Connecté",
     settings_tailscale_badge_offline: "Hors ligne",
@@ -1227,7 +1233,8 @@ const translations = {
 export function TranslationProvider({ children }) {
   const [lang, setLang] = useState(() => {
     try {
-      return localStorage.getItem('nimbus_lang') || 'en';
+      const storedLang = localStorage.getItem('nimbus_lang');
+      return storedLang && translations[storedLang] ? storedLang : 'en';
     } catch {
       return 'en';
     }
@@ -1255,7 +1262,10 @@ export function TranslationProvider({ children }) {
     }
     if (replacements && typeof translation === 'string') {
       Object.entries(replacements).forEach(([k, v]) => {
-        translation = translation.replace(new RegExp(`\\{\\{${k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\}\\}`, 'g'), String(v));
+        translation = translation.replace(
+          new RegExp(`\\{\\{${k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\}\\}`, 'g'),
+          () => String(v),
+        );
       });
     }
     return translation;

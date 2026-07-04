@@ -117,7 +117,7 @@ function WifiPanel() {
                 ? t('settings_wifi_status_connected', 'Connected to "{{ssid}}"', { ssid: status.ssid })
                 : t('settings_wifi_status_disconnected', 'Not connected')
         }
-        sub={unavailable && status.error ? status.error : (status?.connected && status?.ip_address ? `IP: ${status.ip_address}` : undefined)}
+        sub={unavailable && status.error ? status.error : (status?.connected && status?.ip_address ? t('settings_wifi_ip', 'IP: {{ip}}', { ip: status.ip_address }) : undefined)}
       >
         {status?.connected && <Button variant="danger" size="sm" onClick={handleDisconnect}>{t('disconnect', 'Disconnect')}</Button>}
         <Button variant="soft" size="sm" onClick={handleScan} disabled={scanning || !!unavailable} loading={scanning}>
@@ -650,7 +650,7 @@ function TailscalePanel() {
     <SettingsSection icon={<Link2 size={16} />} title={t('settings_tailscale_title', 'Tailscale')}>
       <SettingsRow
         label={status === null ? t('settings_ip_loading', 'Loading…') : connected ? t('settings_tailscale_connected', 'Connected to tailnet') : t('settings_tailscale_disconnected', 'Not connected')}
-        sub={connected && ip ? `Tailscale IP: ${ip}` : t('settings_tailscale_hint', 'Join your tailnet to access this device remotely')}
+        sub={connected && ip ? t('settings_tailscale_ip', 'Tailscale IP: {{ip}}', { ip }) : t('settings_tailscale_hint', 'Join your tailnet to access this device remotely')}
       >
         <Badge tone={connected ? 'success' : 'danger'}>{connected ? t('settings_tailscale_badge_connected', 'Connected') : t('settings_tailscale_badge_offline', 'Offline')}</Badge>
       </SettingsRow>
