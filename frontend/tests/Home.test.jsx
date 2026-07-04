@@ -9,40 +9,45 @@ vi.mock('react-router-dom', () => ({
 }))
 
 import Home from '../src/components/Home.jsx'
+import { TranslationProvider } from '../src/i18n.jsx'
 
 describe('Home Component', () => {
   test('renders empty state message when no apps are running', () => {
     render(
-      <Home 
-        apps={[]} 
-        loading={false} 
-        error={null} 
-        errorMessage="" 
-        setupState={null} 
-        onOpenDetail={vi.fn()} 
-        onOpenLogs={vi.fn()} 
-        onServiceAction={vi.fn()} 
-        onUninstall={vi.fn()} 
-      />
+      <TranslationProvider>
+        <Home
+          apps={[]}
+          loading={false}
+          error={null}
+          errorMessage=""
+          setupState={null}
+          onOpenDetail={vi.fn()}
+          onOpenLogs={vi.fn()}
+          onServiceAction={vi.fn()}
+          onUninstall={vi.fn()}
+        />
+      </TranslationProvider>
     )
-    
+
     expect(screen.getByText('No apps running yet')).toBeInTheDocument()
     expect(screen.getByText('Browse the App Store')).toBeInTheDocument()
   })
 
   test('clicking Browse the App Store navigates to /app-store', () => {
     render(
-      <Home 
-        apps={[]} 
-        loading={false} 
-        error={null} 
-        errorMessage="" 
-        setupState={null} 
-        onOpenDetail={vi.fn()} 
-        onOpenLogs={vi.fn()} 
-        onServiceAction={vi.fn()} 
-        onUninstall={vi.fn()} 
-      />
+      <TranslationProvider>
+        <Home
+          apps={[]}
+          loading={false}
+          error={null}
+          errorMessage=""
+          setupState={null}
+          onOpenDetail={vi.fn()}
+          onOpenLogs={vi.fn()}
+          onServiceAction={vi.fn()}
+          onUninstall={vi.fn()}
+        />
+      </TranslationProvider>
     )
     
     const browseButton = screen.getByText('Browse the App Store')

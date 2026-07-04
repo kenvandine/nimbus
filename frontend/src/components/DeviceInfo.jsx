@@ -42,13 +42,13 @@ function InfoRow({ label, value }) {
 
 function formatBootstrapState(state, t) {
   const labels = {
-    idle: t('setup_phase_idle', 'Preparing the managed environment.'),
-    'ensuring-profile': t('setup_phase_ensuring_profile', 'Configuring LXD profile'),
-    'ensuring-container': t('setup_phase_ensuring_container', 'Creating managed container'),
-    'installing-runtime': t('setup_phase_installing_runtime', 'Installing container runtime'),
-    'pushing-agent': t('setup_phase_pushing_agent', 'Copying Nimbus services'),
-    'installing-agent-python': t('setup_phase_installing_python', 'Installing Python dependencies'),
-    'starting-agent': t('setup_phase_starting_agent', 'Starting Nimbus agent'),
+    idle: t('device_info_phase_idle', 'Preparing the managed environment.'),
+    'ensuring-profile': t('device_info_phase_ensuring_profile', 'Configuring LXD profile'),
+    'ensuring-container': t('device_info_phase_ensuring_container', 'Creating managed container'),
+    'installing-runtime': t('device_info_phase_installing_runtime', 'Installing container runtime'),
+    'pushing-agent': t('device_info_phase_pushing_agent', 'Copying Nimbus services'),
+    'installing-agent-python': t('device_info_phase_installing_python', 'Installing Python dependencies'),
+    'starting-agent': t('device_info_phase_starting_agent', 'Starting Nimbus agent'),
     ready: t('device_info_ready', 'Ready'),
     error: t('error', 'Error'),
   }
@@ -384,7 +384,7 @@ export default function DeviceInfo({ stats, apps }) {
     <div style={styles.container}>
       {setupPending && (
         <section style={styles.setupBanner}>
-          <div style={styles.setupBannerTitle}>{firstSetup ? t('setup_title_setting_up', 'Nimbus is still being set up') : t('setup_title_starting', 'Nimbus is still starting')}</div>
+          <div style={styles.setupBannerTitle}>{firstSetup ? t('device_info_setup_title_setting_up', 'Nimbus is still being set up') : t('device_info_setup_title_starting', 'Nimbus is still starting')}</div>
           <div style={styles.setupBannerText}>
             {stats?.bootstrap_error
               ? `${t('device_info_setup_failed', 'Setup failed')}: ${stats.bootstrap_error}`
@@ -484,7 +484,7 @@ export default function DeviceInfo({ stats, apps }) {
 
       {activeTab === 'snapshots' && (
         <section style={styles.section}>
-          <h3 style={styles.sectionTitle}>{t('device_info_snapshots', 'Container Snapshots')}</h3>
+          <h3 style={styles.sectionTitle}>{t('device_info_snapshots_heading', 'Container Snapshots')}</h3>
           <SnapshotsTab containerReady={containerReady} />
         </section>
       )}
