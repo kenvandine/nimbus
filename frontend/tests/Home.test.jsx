@@ -13,6 +13,7 @@ import { TranslationProvider } from '../src/i18n.jsx'
 
 describe('Home Component', () => {
   test('renders empty state message when no apps are running', () => {
+    window.localStorage.clear()
     render(
       <TranslationProvider>
         <Home
@@ -34,6 +35,7 @@ describe('Home Component', () => {
   })
 
   test('clicking Browse the App Store navigates to /app-store', () => {
+    window.localStorage.clear()
     render(
       <TranslationProvider>
         <Home

@@ -12,6 +12,7 @@ vi.mock('../src/api.js', () => ({
 import { login } from '../src/api.js'
 
 function renderLogin(props) {
+  window.localStorage.clear()
   return render(
     <TranslationProvider>
       <Login {...props} />

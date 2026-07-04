@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, test, expect, vi, beforeEach } from 'vitest'
+import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import React from 'react'
 import { TranslationProvider, useTranslation, LanguageSelector } from '../src/i18n.jsx'
 
@@ -122,6 +122,10 @@ describe('i18n with unavailable localStorage', () => {
 })
 
 describe('LanguageSelector', () => {
+  afterEach(() => {
+    window.localStorage.clear()
+  })
+
   test('renders an option for every supported language', () => {
     render(
       <TranslationProvider>
