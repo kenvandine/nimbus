@@ -142,7 +142,12 @@
 
     --text-primary: rgba(20, 30, 50, 0.92);
     --text-secondary: rgba(20, 30, 50, 0.62);
-    --text-tertiary: rgba(20, 30, 50, 0.44);
+    /* Higher than the dark variant's 0.44: dark ink over a light surface
+       needs more opacity than light ink over dark to hit the same contrast
+       ratio (see the equivalent comment in frontend/src/theme.css). 0.44
+       measured well under WCAG AA's 4.5:1 against this canvas; 0.62
+       measures ~4.7:1. */
+    --text-tertiary: rgba(20, 30, 50, 0.62);
     --text-disabled: rgba(20, 30, 50, 0.28);
 
     --shadow-sm: 0 4px 12px rgba(20, 30, 50, 0.10);

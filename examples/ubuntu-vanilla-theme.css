@@ -162,7 +162,11 @@
 
     --text-primary: rgba(0, 0, 0, 0.92);
     --text-secondary: rgba(0, 0, 0, 0.6);
-    --text-tertiary: rgba(0, 0, 0, 0.42);
+    /* Higher than the dark variant's 0.42: dark ink over white needs more
+       opacity than light ink over dark to hit the same contrast ratio (see
+       the equivalent comment in frontend/src/theme.css). 0.42 measured
+       ~3.4:1 against white here, under WCAG AA's 4.5:1; 0.6 measures ~5.7:1. */
+    --text-tertiary: rgba(0, 0, 0, 0.6);
     --text-disabled: rgba(0, 0, 0, 0.28);
 
     --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.10);

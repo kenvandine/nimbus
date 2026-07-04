@@ -149,7 +149,12 @@
        in the text color rather than going flat/corporate. */
     --text-primary: rgba(40, 20, 45, 0.90);
     --text-secondary: rgba(40, 20, 45, 0.62);
-    --text-tertiary: rgba(40, 20, 45, 0.42);
+    /* Higher than the dark variant's 0.44: dark ink over a light surface
+       needs more opacity than light ink over dark to hit the same contrast
+       ratio (see the equivalent comment in frontend/src/theme.css). 0.42
+       measured well under WCAG AA's 4.5:1 against this canvas; 0.6 measures
+       ~4.6:1. */
+    --text-tertiary: rgba(40, 20, 45, 0.6);
     --text-disabled: rgba(40, 20, 45, 0.26);
 
     --shadow-sm: 0 4px 14px rgba(200, 60, 150, 0.14);
