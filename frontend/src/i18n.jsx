@@ -271,7 +271,7 @@ const translations = {
     app_store_refreshing: "Refreshing…",
     app_store_refresh: "Refresh Store",
     app_store_search: "Search apps…",
-    app_store_no_apps: "No apps found matching search.",
+    app_store_no_apps: 'No apps match "{{query}}".',
 
     // App Modal / Detail
     app_modal_by: "by",
@@ -677,7 +677,7 @@ const translations = {
     app_store_refreshing: "Actualizando catálogo…",
     app_store_refresh: "Actualizar tienda",
     app_store_search: "Buscar aplicaciones…",
-    app_store_no_apps: "No se encontraron aplicaciones coincidiendo con la búsqueda.",
+    app_store_no_apps: 'No se encontraron aplicaciones que coincidan con "{{query}}".',
 
     // App Modal / Detail
     app_modal_by: "por",
@@ -1083,7 +1083,7 @@ const translations = {
     app_store_refreshing: "Actualisation…",
     app_store_refresh: "Actualiser la boutique",
     app_store_search: "Rechercher des applications…",
-    app_store_no_apps: "Aucune application ne correspond à votre recherche.",
+    app_store_no_apps: 'Aucune application ne correspond à "{{query}}".',
 
     // App Modal / Detail
     app_modal_by: "par",
@@ -1226,13 +1226,21 @@ const translations = {
 
 export function TranslationProvider({ children }) {
   const [lang, setLang] = useState(() => {
-    return localStorage.getItem('nimbus_lang') || 'en';
+    try {
+      return localStorage.getItem('nimbus_lang') || 'en';
+    } catch {
+      return 'en';
+    }
   });
 
   function changeLanguage(newLang) {
     if (translations[newLang]) {
       setLang(newLang);
-      localStorage.setItem('nimbus_lang', newLang);
+      try {
+        localStorage.setItem('nimbus_lang', newLang);
+      } catch {
+        // Storage unavailable; language still updates in memory
+      }
     }
   }
 
@@ -1241,7 +1249,7 @@ export function TranslationProvider({ children }) {
       replacements = defaultVal;
       defaultVal = undefined;
     }
-    let translation = translations[lang]?.[key] || translations['en']?.[key];
+    let translation = translations[lang]?.[key] ?? translations['en']?.[key];
     if (translation === undefined) {
       translation = defaultVal !== undefined ? defaultVal : key;
     }

@@ -82,7 +82,7 @@ export default function AppStore({ apps, onRefresh, onOpenDetail, activeInstalls
 
       {filtered.length === 0 ? (
         <p style={styles.empty}>
-          {showUpdatesOnly ? t('apps_up_to_date', 'All installed apps are up to date.') : t('app_store_no_apps', 'No apps found matching search.')}
+          {showUpdatesOnly ? t('apps_up_to_date', 'All installed apps are up to date.') : t('app_store_no_apps', 'No apps match "{{query}}".', { query: search })}
         </p>
       ) : (
         <div style={styles.grid}>
