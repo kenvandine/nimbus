@@ -359,6 +359,7 @@ export function Shell({ stats, apps, activeInstalls, loading, error, authStatus,
         appUpdateCount={stats?.update_available_count ?? 0}
         appstoreVisible={stats?.appstore_visible !== false}
         terminalAvailable={Boolean(stats?.terminal_available)}
+        background={isHome ? undefined : 'var(--color-bg-canvas)'}
       />
 
       {logApp && (

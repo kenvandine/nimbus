@@ -64,7 +64,7 @@ function buildApps(appstoreVisible, terminalAvailable) {
   return apps
 }
 
-export default function Dock({ onOpen, activeId, updatableCount, appUpdateCount = 0, appstoreVisible = true, terminalAvailable = false }) {
+export default function Dock({ onOpen, activeId, updatableCount, appUpdateCount = 0, appstoreVisible = true, terminalAvailable = false, background }) {
   const { t } = useTranslation()
   const [hovered, setHovered] = useState(null)
   const APPS = buildApps(appstoreVisible, terminalAvailable).map(app => ({
@@ -81,7 +81,7 @@ export default function Dock({ onOpen, activeId, updatableCount, appUpdateCount 
   const totalUpdates = Math.max(updatableCount || 0, appUpdateCount || 0)
 
   return (
-    <div className="dock-bar" style={styles.bar}>
+    <div className="dock-bar" style={{ ...styles.bar, ...(background ? { background } : {}) }}>
       <div style={styles.dock}>
         {APPS.map(app => (
           <DockIcon
