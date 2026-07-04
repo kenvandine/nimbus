@@ -189,8 +189,12 @@ const styles = {
     position: 'absolute',
     bottom: '100%',
     marginBottom: 6,
+    // charcoal-900/-50 (not --color-bg-canvas/--text-primary): this chip is
+    // meant to always be a dark tooltip, so its text must stay fixed-light
+    // to match — text-primary would flip to dark ink in light mode, making
+    // the label unreadable against this unchanging dark background.
     background: 'var(--nimbus-charcoal-900)',
-    color: 'var(--text-primary)',
+    color: 'var(--nimbus-charcoal-50)',
     fontFamily: 'var(--font-sans)',
     fontSize: 11,
     fontWeight: 500,

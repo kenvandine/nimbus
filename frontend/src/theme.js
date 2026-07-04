@@ -51,24 +51,39 @@ export const palette = {
 export const textOnAccent = '#1A0E06'
 
 // Ambient background gradient, driven by system load (0-100ish). Base hue
-// reads from --nimbus-gradient-hue (default 25, warm amber/brown) so an
-// override can re-tint the ambient background on its own; as load rises the
-// gradient both saturates and lightens slightly, reading as "warming up".
+// reads from --nimbus-gradient-hue (default 25, warm amber/brown) and base
+// lightness from --nimbus-gradient-lightness (default 7, dark) so an
+// override can both re-tint the ambient background and, for a light theme,
+// flip it to a light wash instead — without either, a light theme's text
+// stays dark while this background stays hardcoded near-black, becoming
+// unreadable. As load rises the gradient both saturates and lightens
+// slightly, reading as "warming up".
 export function ambientGradient(load) {
   const t = Math.max(0, Math.min(100, Number(load) || 0))
-  const baseHue = Number(cssVar('--nimbus-gradient-hue', '25')) || 25
+  const parsedHue = Number(cssVar('--nimbus-gradient-hue', '25'))
+  const baseHue = Number.isNaN(parsedHue) ? 25 : parsedHue
+  const parsedLightness = Number(cssVar('--nimbus-gradient-lightness', '7'))
+  const baseLightness = Number.isNaN(parsedLightness) ? 7 : parsedLightness
   const hue = baseHue + t * 0.25
-  const light = 7 + t * 0.05
+  const light = baseLightness + t * 0.05
   return `linear-gradient(145deg, hsl(${hue}, 55%, ${light}%) 0%, hsl(${hue + 8}, 45%, ${light + 7}%) 60%, hsl(${hue + 15}, 40%, ${light + 20}%) 100%)`
 }
 
 // xterm.js reads colors as a JS object at construction time; it does not see
 // the page's CSS, so this must be called (not imported as a static value)
 // after the page's stylesheets — including any override — have loaded.
+//
+// background/foreground deliberately read the --nimbus-charcoal-950/-50
+// primitives instead of --color-bg-canvas/--text-primary: the terminal is
+// meant to keep the theme's own dark palette (light text on a dark panel)
+// regardless of light/dark mode, the same way most terminal apps don't
+// follow the host app's light/dark toggle. Every other color below already
+// reads a --nimbus-* primitive, which stays fixed across modes for the same
+// reason — only these two used to read the mode-flipping semantic tokens.
 export function getXtermTheme() {
   return {
-    background: cssVar('--color-bg-canvas', palette.charcoal[950]),
-    foreground: cssVar('--text-primary', 'rgba(255, 246, 238, 0.92)'),
+    background: cssVar('--nimbus-charcoal-950', palette.charcoal[950]),
+    foreground: cssVar('--nimbus-charcoal-50', palette.charcoal[50]),
     cursor: cssVar('--nimbus-sun-400', palette.sun[400]),
     cursorAccent: cssVar('--color-text-on-accent', textOnAccent),
     selectionBackground: cssVar('--color-accent-soft-border', 'rgba(240, 129, 58, 0.35)'),

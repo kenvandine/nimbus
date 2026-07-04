@@ -137,10 +137,14 @@
   --blur-md: 16px;
   --blur-lg: 20px;
 
-  /* Hue (0-360, no unit) of the animated home-screen background gradient.
-     Read dynamically by theme.js's ambientGradient() — override this alone
-     to re-tint the ambient background without touching the gradient math. */
+  /* Hue (0-360, no unit) and base lightness (0-100, percent, no unit) of the
+     animated home-screen background gradient. Read dynamically by
+     theme.js's ambientGradient() — override either alone to re-tint or
+     re-shade the ambient background without touching the gradient math.
+     A light theme needs --nimbus-gradient-lightness raised (e.g. ~85-90),
+     since the default is tuned dark and won't follow --color-bg-canvas. */
   --nimbus-gradient-hue: 25;
+  --nimbus-gradient-lightness: 7;
 
   /* ---- Typography ---- */
   --font-sans: 'Ubuntu Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -161,6 +165,96 @@
   --duration-base: 250ms;
   --duration-slow: 400ms;
   --duration-ambient: 3000ms;
+}
+
+/* Light mode, driven by the OS/browser's prefers-color-scheme signal rather
+   than a manual toggle. Only what actually needs to flip is redeclared here:
+   canvas/surfaces/borders/text go light-on-dark -> dark-on-light, the four
+   soft-status text tints get deepened (they're translucent-bg + light-text
+   pairs tuned to pop on a dark surface; the same light text is a low-contrast
+   wash on a light one), shadows get softer, and the Home screen's ambient
+   gradient gets its lightness raised — ambientGradient() in theme.js reads
+   --nimbus-gradient-lightness live, so this alone re-shades it without any
+   JS change. Hue, accent colors, radius, and blur are unchanged: this is a
+   light/dark mode switch, not a re-brand. */
+@media (prefers-color-scheme: light) {
+  :root {
+    --color-bg-canvas: #ffffff;
+    --color-surface-1: rgba(20, 24, 36, 0.035);
+    --color-surface-2: rgba(20, 24, 36, 0.06);
+    --color-surface-3: rgba(20, 24, 36, 0.10);
+    --color-border-subtle: rgba(20, 24, 36, 0.08);
+    --color-border-strong: rgba(20, 24, 36, 0.16);
+
+    --color-accent-hover: var(--nimbus-sun-700);
+    --color-accent-active: var(--nimbus-sun-800);
+    --color-accent-soft-text: #A34A1E;
+
+    --color-info-soft-text: #1F6E86;
+    --color-success-soft-text: #2F7A3B;
+    --color-warning-soft-text: #8A5C0E;
+    --color-danger-soft-text: #A83B30;
+
+    --text-primary: rgba(20, 24, 36, 0.92);
+    --text-secondary: rgba(20, 24, 36, 0.62);
+    /* 0.60, not a straight port of dark mode's 0.42-0.44: dark ink over a
+       light surface needs noticeably higher opacity than light ink over a
+       dark one to reach the same contrast ratio (blending a translucent
+       dark color over white desaturates toward white much faster per unit
+       of alpha than the reverse). At 0.44 this measured ~2.84:1 against
+       white — well under WCAG AA's 4.5:1 — which is what made labels using
+       this token (e.g. Device Info's stat/section labels) hard to read. 0.60
+       measures ~4.64:1, above AA and above dark mode's own ~3.9:1 tertiary
+       contrast. */
+    --text-tertiary: rgba(20, 24, 36, 0.60);
+    --text-disabled: rgba(20, 24, 36, 0.28);
+
+    --shadow-sm: 0 4px 12px rgba(20, 24, 36, 0.10);
+    --shadow-md: 0 12px 28px rgba(20, 24, 36, 0.12);
+    --shadow-lg: 0 24px 60px rgba(20, 24, 36, 0.14);
+    --shadow-xl: 0 32px 80px rgba(20, 24, 36, 0.18);
+
+    --nimbus-gradient-lightness: 88;
+  }
+}
+
+/* Pins the semantic tokens back to this theme's own dark values for a
+   subtree, ignoring the current light/dark mode. For screens with their own
+   fixed-dark branded background (Login, Oobe, KioskReadyScreen all paint a
+   charcoal-950/900/800 gradient directly, independent of --color-bg-canvas)
+   — without this, their cards/text still read --text-primary etc., which
+   flip light in light mode and become dark-on-dark against a background
+   that never flips, making the screen unreadable. Apply as a className on
+   the outermost element of such a screen; works by inheritance (a value set
+   here on a descendant always wins over one set on :root, regardless of
+   which cascade layer or @media block the :root one came from) so it does
+   not need `!important` or to out-specificity the light media query. */
+.nimbus-dark-scope {
+  --color-bg-canvas: var(--nimbus-charcoal-950);
+  --color-surface-1: rgba(255, 238, 222, 0.05);
+  --color-surface-2: rgba(255, 238, 222, 0.08);
+  --color-surface-3: rgba(255, 238, 222, 0.14);
+  --color-overlay-scrim: rgba(22, 14, 8, 0.6);
+  --color-border-subtle: rgba(255, 238, 222, 0.10);
+  --color-border-strong: rgba(255, 238, 222, 0.20);
+
+  --color-accent-hover: var(--nimbus-sun-400);
+  --color-accent-active: var(--nimbus-sun-600);
+  --color-accent-soft-text: var(--nimbus-sun-300);
+  --color-info-soft-text: var(--nimbus-sky-300);
+  --color-success-soft-text: var(--nimbus-green-400);
+  --color-warning-soft-text: var(--nimbus-amber-400);
+  --color-danger-soft-text: var(--nimbus-red-400);
+
+  --text-primary: rgba(255, 246, 238, 0.92);
+  --text-secondary: rgba(255, 246, 238, 0.62);
+  --text-tertiary: rgba(255, 246, 238, 0.42);
+  --text-disabled: rgba(255, 246, 238, 0.28);
+
+  --shadow-sm: 0 4px 12px rgba(20, 10, 4, 0.24);
+  --shadow-md: 0 12px 28px rgba(20, 10, 4, 0.28);
+  --shadow-lg: 0 24px 60px rgba(20, 10, 4, 0.32);
+  --shadow-xl: 0 32px 80px rgba(20, 10, 4, 0.4);
 }
 
 @keyframes spin {
@@ -188,6 +282,12 @@ button:hover:not(:disabled) { filter: brightness(1.12); }
 ::-webkit-scrollbar-thumb { background: var(--color-border-strong); border-radius: 3px; }
 
 select option {
-  background-color: var(--nimbus-charcoal-900);
+  /* --color-bg-canvas (not a --nimbus-charcoal-* primitive) since those
+     primitives stay fixed-dark across light/dark mode on purpose — e.g.
+     --nimbus-charcoal-900 doubles as the terminal's ANSI black and must not
+     flip light, or "black" terminal text would vanish against a light
+     terminal background. --color-bg-canvas is the one already guaranteed to
+     track the current mode. */
+  background-color: var(--color-bg-canvas);
   color: var(--text-primary);
 }

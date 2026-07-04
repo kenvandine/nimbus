@@ -76,7 +76,7 @@ export default function KioskReadyScreen({ stats }) {
   const powerOffPress = useLongPress(handlePowerOff)
 
   return (
-    <div style={styles.screen}>
+    <div className="nimbus-dark-scope" style={styles.screen}>
       <div style={styles.card}>
         <div style={styles.logoRow}>
           <NimbusMark size={26} />
