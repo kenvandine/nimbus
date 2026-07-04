@@ -1,0 +1,121 @@
+/* Nimbus theme override — "Business"
+ *
+ * A restrained, professional palette for a mid-sized company deployment:
+ * cool slate-navy instead of Nimbus's warm amber/brown base, a muted steel-
+ * blue accent instead of the punchy default orange, desaturated status
+ * colors, and moderate (not overly rounded, not flat) corner radii.
+ *
+ * Install on the device:
+ *   scp examples/business-theme.css ubuntu@nimbus.local:/tmp/override.css
+ *   ssh ubuntu@nimbus.local 'sudo cp /tmp/override.css /var/snap/nimbus/common/theme/override.css'
+ * Remove the file (or `sudo rm .../theme/override.css`) to go back to the
+ * default Nimbus theme — nothing needs reinstalling.
+ */
+
+:root {
+  /* ---- Primitives ---- */
+  /* Slate-navy ladder replacing Nimbus's warm charcoal */
+  --nimbus-charcoal-950: hsl(215, 28%, 9%);
+  --nimbus-charcoal-900: hsl(215, 25%, 12%);
+  --nimbus-charcoal-800: hsl(215, 20%, 16%);
+  --nimbus-charcoal-700: hsl(214, 18%, 22%);
+  --nimbus-charcoal-600: hsl(214, 15%, 30%);
+  --nimbus-charcoal-500: hsl(213, 12%, 42%);
+  --nimbus-charcoal-400: hsl(212, 10%, 56%);
+  --nimbus-charcoal-300: hsl(210, 12%, 70%);
+  --nimbus-charcoal-200: hsl(210, 16%, 84%);
+  --nimbus-charcoal-100: hsl(210, 20%, 93%);
+  --nimbus-charcoal-50:  hsl(210, 25%, 97%);
+
+  /* Steel-blue primary accent (replaces the warm "sun" orange) */
+  --nimbus-sun-100: #dce6f5;
+  --nimbus-sun-200: #b9cdea;
+  --nimbus-sun-300: #8caad9;
+  --nimbus-sun-400: #5f87c9;
+  --nimbus-sun-500: #3b67b0;
+  --nimbus-sun-600: #2e5290;
+  --nimbus-sun-700: #243f70;
+  --nimbus-sun-800: #1b2f54;
+  --nimbus-sun-900: #121f38;
+
+  /* Muted teal secondary/info accent */
+  --nimbus-sky-300: #9fd4d1;
+  --nimbus-sky-400: #6fb8b4;
+  --nimbus-sky-500: #4c9c97;
+  --nimbus-sky-600: #3a7a76;
+
+  /* Desaturated status colors — informative, not alarming */
+  --nimbus-green-400: #8fc79a;
+  --nimbus-green-500: #5fa86d;
+  --nimbus-green-600: #47854f;
+  --nimbus-amber-400: #e8c275;
+  --nimbus-amber-500: #d4a94a;
+  --nimbus-amber-600: #b08a2e;
+  --nimbus-red-400: #e29494;
+  --nimbus-red-500: #cc6666;
+  --nimbus-red-600: #a84a4a;
+
+  /* ---- Semantic: surfaces & background ---- */
+  --color-bg-canvas: var(--nimbus-charcoal-950);
+  --color-surface-1: rgba(223, 232, 245, 0.04);
+  --color-surface-2: rgba(223, 232, 245, 0.07);
+  --color-surface-3: rgba(223, 232, 245, 0.12);
+  --color-overlay-scrim: rgba(6, 10, 16, 0.65);
+  --color-border-subtle: rgba(223, 232, 245, 0.09);
+  --color-border-strong: rgba(223, 232, 245, 0.18);
+
+  /* ---- Semantic: accent & status ---- */
+  --color-accent: var(--nimbus-sun-500);
+  --color-accent-hover: var(--nimbus-sun-400);
+  --color-accent-active: var(--nimbus-sun-600);
+  --color-accent-soft-bg: rgba(59, 103, 176, 0.18);
+  --color-accent-soft-border: rgba(59, 103, 176, 0.35);
+  --color-accent-soft-text: var(--nimbus-sun-300);
+  --color-text-on-accent: #f5f8fc;
+
+  --color-info: var(--nimbus-sky-500);
+  --color-info-soft-bg: rgba(76, 156, 151, 0.16);
+  --color-info-soft-border: rgba(76, 156, 151, 0.32);
+  --color-info-soft-text: var(--nimbus-sky-300);
+
+  --color-success: var(--nimbus-green-500);
+  --color-success-soft-bg: rgba(95, 168, 109, 0.16);
+  --color-success-soft-border: rgba(95, 168, 109, 0.32);
+  --color-success-soft-text: var(--nimbus-green-400);
+
+  --color-warning: var(--nimbus-amber-500);
+  --color-warning-soft-bg: rgba(212, 169, 74, 0.16);
+  --color-warning-soft-border: rgba(212, 169, 74, 0.32);
+  --color-warning-soft-text: var(--nimbus-amber-400);
+
+  --color-danger: var(--nimbus-red-500);
+  --color-danger-soft-bg: rgba(204, 102, 102, 0.16);
+  --color-danger-soft-border: rgba(204, 102, 102, 0.32);
+  --color-danger-soft-text: var(--nimbus-red-400);
+
+  /* ---- Semantic: text (cool near-white ladder) ---- */
+  --text-primary: rgba(240, 244, 250, 0.94);
+  --text-secondary: rgba(240, 244, 250, 0.60);
+  --text-tertiary: rgba(240, 244, 250, 0.40);
+  --text-disabled: rgba(240, 244, 250, 0.26);
+
+  /* ---- Radius: professional, moderately rounded ---- */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-2xl: 22px;
+  --radius-full: 999px;
+
+  /* ---- Shadow: cool-toned, subtle ---- */
+  --shadow-sm: 0 4px 12px rgba(4, 8, 14, 0.30);
+  --shadow-md: 0 12px 28px rgba(4, 8, 14, 0.34);
+  --shadow-lg: 0 24px 60px rgba(4, 8, 14, 0.38);
+  --shadow-xl: 0 32px 80px rgba(4, 8, 14, 0.46);
+
+  --blur-md: 16px;
+  --blur-lg: 20px;
+
+  /* Cool slate-blue hue for the ambient home-screen background gradient */
+  --nimbus-gradient-hue: 215;
+}

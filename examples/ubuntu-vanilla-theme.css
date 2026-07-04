@@ -1,0 +1,129 @@
+/* Nimbus theme override — "Ubuntu Vanilla"
+ *
+ * Matches Canonical's Vanilla design system (https://design.ubuntu.com/vanilla).
+ * Tokens below are taken directly from vanilla-framework's dark theme and
+ * brand settings (scss/_settings_colors.scss): Ubuntu orange #e95420 as the
+ * accent, the #262626 dark canvas, and the same positive/negative/caution/
+ * information status colors used across Canonical's own products.
+ *
+ * Nimbus already ships the Ubuntu Sans / Ubuntu Mono webfonts as its
+ * defaults, so no font-family override is needed here.
+ *
+ * Install on the device:
+ *   scp examples/ubuntu-vanilla-theme.css ubuntu@nimbus.local:/tmp/override.css
+ *   ssh ubuntu@nimbus.local 'sudo cp /tmp/override.css /var/snap/nimbus/common/theme/override.css'
+ * Remove the file (or `sudo rm .../theme/override.css`) to go back to the
+ * default Nimbus theme — nothing needs reinstalling.
+ */
+
+:root {
+  /* ---- Primitives ---- */
+  /* Neutral grey ladder built from vanilla-framework's dark-theme background
+     steps (background-default #262626, background-alt #202020,
+     background-inputs #2f2f2f, background-hover #313131,
+     background-active #373737) instead of Nimbus's warm charcoal. */
+  --nimbus-charcoal-950: #262626;
+  --nimbus-charcoal-900: #202020;
+  --nimbus-charcoal-800: #2f2f2f;
+  --nimbus-charcoal-700: #313131;
+  --nimbus-charcoal-600: #373737;
+  --nimbus-charcoal-500: #666666;
+  --nimbus-charcoal-400: #939393;
+  --nimbus-charcoal-300: #999999;
+  --nimbus-charcoal-200: #d9d9d9;
+  --nimbus-charcoal-100: #e5e5e5;
+  --nimbus-charcoal-50:  #f7f7f7;
+
+  /* Ubuntu orange ($color-ubuntu: #e95420 in vanilla-framework) */
+  --nimbus-sun-100: #fbdccb;
+  --nimbus-sun-200: #f8c0a3;
+  --nimbus-sun-300: #f39a6e;
+  --nimbus-sun-400: #ee7a48;
+  --nimbus-sun-500: #e95420;
+  --nimbus-sun-600: #c34618;
+  --nimbus-sun-700: #9c3812;
+  --nimbus-sun-800: #762a0e;
+  --nimbus-sun-900: #4f1c09;
+
+  /* Vanilla's "information" color (#24598f light theme / hsl(210 80% 65%) dark-theme tint) */
+  --nimbus-sky-300: #bbd9f5;
+  --nimbus-sky-400: #8fc0f0;
+  --nimbus-sky-500: #6fa8dc;
+  --nimbus-sky-600: #24598f;
+
+  /* Vanilla's positive/caution/negative, light + dark-theme tint pairs */
+  --nimbus-green-400: #8fcb99;
+  --nimbus-green-500: #62a36c;
+  --nimbus-green-600: #0e8420;
+  --nimbus-amber-400: #e0a85c;
+  --nimbus-amber-500: #c48831;
+  --nimbus-amber-600: #cc7900;
+  --nimbus-red-400: #e29ca3;
+  --nimbus-red-500: #d17b85;
+  --nimbus-red-600: #c7162b;
+
+  /* ---- Semantic: surfaces & background ---- */
+  --color-bg-canvas: var(--nimbus-charcoal-950);
+  --color-surface-1: rgba(255, 255, 255, 0.04);
+  --color-surface-2: rgba(255, 255, 255, 0.07);
+  --color-surface-3: rgba(255, 255, 255, 0.12);
+  --color-overlay-scrim: rgba(0, 0, 0, 0.6);
+  --color-border-subtle: rgba(255, 255, 255, 0.10);
+  --color-border-strong: rgba(255, 255, 255, 0.20);
+
+  /* ---- Semantic: accent & status ---- */
+  --color-accent: var(--nimbus-sun-500);
+  --color-accent-hover: var(--nimbus-sun-400);
+  --color-accent-active: var(--nimbus-sun-600);
+  --color-accent-soft-bg: rgba(233, 84, 32, 0.18);
+  --color-accent-soft-border: rgba(233, 84, 32, 0.35);
+  --color-accent-soft-text: var(--nimbus-sun-300);
+  --color-text-on-accent: #ffffff;
+
+  --color-info: var(--nimbus-sky-500);
+  --color-info-soft-bg: rgba(111, 168, 220, 0.16);
+  --color-info-soft-border: rgba(111, 168, 220, 0.32);
+  --color-info-soft-text: var(--nimbus-sky-300);
+
+  --color-success: var(--nimbus-green-500);
+  --color-success-soft-bg: rgba(98, 163, 108, 0.16);
+  --color-success-soft-border: rgba(98, 163, 108, 0.32);
+  --color-success-soft-text: var(--nimbus-green-400);
+
+  --color-warning: var(--nimbus-amber-500);
+  --color-warning-soft-bg: rgba(196, 136, 49, 0.16);
+  --color-warning-soft-border: rgba(196, 136, 49, 0.32);
+  --color-warning-soft-text: var(--nimbus-amber-400);
+
+  --color-danger: var(--nimbus-red-500);
+  --color-danger-soft-bg: rgba(209, 123, 133, 0.16);
+  --color-danger-soft-border: rgba(209, 123, 133, 0.32);
+  --color-danger-soft-text: var(--nimbus-red-400);
+
+  /* ---- Semantic: text (vanilla dark-theme text-default is pure white) ---- */
+  --text-primary: rgba(255, 255, 255, 0.95);
+  --text-secondary: rgba(255, 255, 255, 0.60);
+  --text-tertiary: rgba(255, 255, 255, 0.42);
+  --text-disabled: rgba(255, 255, 255, 0.28);
+
+  /* ---- Radius: vanilla-framework favors small, mostly-square corners ---- */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+  --radius-2xl: 12px;
+  --radius-full: 999px;
+
+  /* ---- Shadow: neutral black, not warm-tinted ---- */
+  --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.28);
+  --shadow-md: 0 12px 28px rgba(0, 0, 0, 0.32);
+  --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.36);
+  --shadow-xl: 0 32px 80px rgba(0, 0, 0, 0.44);
+
+  --blur-md: 10px;
+  --blur-lg: 14px;
+
+  /* Real Ubuntu-orange hue (#e95420 ~= hsl(16, 84%, 52%)) for the ambient
+     home-screen background gradient. */
+  --nimbus-gradient-hue: 16;
+}

@@ -1,0 +1,127 @@
+/* Nimbus theme override — "Family Fun"
+ *
+ * A vivid, playful palette aimed at a household with kids: bubblegum-pink
+ * primary accent, bright candy-colored status colors, and much rounder,
+ * bubblier corners than Nimbus's default.
+ *
+ * Stays on a dark canvas like the other examples rather than flipping to a
+ * light background — the Home screen's ambient gradient (theme.js
+ * ambientGradient()) only reads --nimbus-gradient-hue for its color, its
+ * lightness is hardcoded assuming a dark canvas, so a light-background
+ * theme would leave a dark patch behind the Home screen's app icons. This
+ * keeps every screen consistent.
+ *
+ * Install on the device:
+ *   scp examples/family-fun-theme.css ubuntu@nimbus.local:/tmp/override.css
+ *   ssh ubuntu@nimbus.local 'sudo cp /tmp/override.css /var/snap/nimbus/common/theme/override.css'
+ * Remove the file (or `sudo rm .../theme/override.css`) to go back to the
+ * default Nimbus theme — nothing needs reinstalling.
+ */
+
+:root {
+  /* ---- Primitives ---- */
+  /* Deep indigo "night sky" ladder instead of Nimbus's warm charcoal */
+  --nimbus-charcoal-950: hsl(255, 20%, 8%);
+  --nimbus-charcoal-900: hsl(255, 18%, 11%);
+  --nimbus-charcoal-800: hsl(254, 16%, 15%);
+  --nimbus-charcoal-700: hsl(252, 14%, 20%);
+  --nimbus-charcoal-600: hsl(250, 12%, 28%);
+  --nimbus-charcoal-500: hsl(248, 10%, 40%);
+  --nimbus-charcoal-400: hsl(246, 12%, 55%);
+  --nimbus-charcoal-300: hsl(244, 16%, 70%);
+  --nimbus-charcoal-200: hsl(242, 22%, 85%);
+  --nimbus-charcoal-100: hsl(240, 30%, 93%);
+  --nimbus-charcoal-50:  hsl(240, 40%, 97%);
+
+  /* Bubblegum pink/magenta primary accent */
+  --nimbus-sun-100: #ffe3f3;
+  --nimbus-sun-200: #ffc2e8;
+  --nimbus-sun-300: #ff97d6;
+  --nimbus-sun-400: #ff6ec0;
+  --nimbus-sun-500: #f2469e;
+  --nimbus-sun-600: #d22e82;
+  --nimbus-sun-700: #a82268;
+  --nimbus-sun-800: #7e184e;
+  --nimbus-sun-900: #540f34;
+
+  /* Bright sky-blue / turquoise secondary accent */
+  --nimbus-sky-300: #a8ecff;
+  --nimbus-sky-400: #6bdcff;
+  --nimbus-sky-500: #2ec2f2;
+  --nimbus-sky-600: #1d96bf;
+
+  /* Candy-colored status set */
+  --nimbus-green-400: #8fe8ae;
+  --nimbus-green-500: #4ecb7b;
+  --nimbus-green-600: #34a55e;
+  --nimbus-amber-400: #ffde7a;
+  --nimbus-amber-500: #ffc531;
+  --nimbus-amber-600: #e0a400;
+  --nimbus-red-400: #ff9c8f;
+  --nimbus-red-500: #ff6b5a;
+  --nimbus-red-600: #e0483a;
+
+  /* ---- Semantic: surfaces & background ---- */
+  --color-bg-canvas: var(--nimbus-charcoal-950);
+  --color-surface-1: rgba(255, 255, 255, 0.05);
+  --color-surface-2: rgba(255, 255, 255, 0.085);
+  --color-surface-3: rgba(255, 255, 255, 0.15);
+  --color-overlay-scrim: rgba(20, 10, 35, 0.6);
+  --color-border-subtle: rgba(255, 255, 255, 0.12);
+  --color-border-strong: rgba(255, 255, 255, 0.22);
+
+  /* ---- Semantic: accent & status ---- */
+  --color-accent: var(--nimbus-sun-500);
+  --color-accent-hover: var(--nimbus-sun-400);
+  --color-accent-active: var(--nimbus-sun-600);
+  --color-accent-soft-bg: rgba(242, 70, 158, 0.20);
+  --color-accent-soft-border: rgba(242, 70, 158, 0.38);
+  --color-accent-soft-text: var(--nimbus-sun-300);
+  --color-text-on-accent: #2b0a1d;
+
+  --color-info: var(--nimbus-sky-500);
+  --color-info-soft-bg: rgba(46, 194, 242, 0.18);
+  --color-info-soft-border: rgba(46, 194, 242, 0.36);
+  --color-info-soft-text: var(--nimbus-sky-300);
+
+  --color-success: var(--nimbus-green-500);
+  --color-success-soft-bg: rgba(78, 203, 123, 0.18);
+  --color-success-soft-border: rgba(78, 203, 123, 0.36);
+  --color-success-soft-text: var(--nimbus-green-400);
+
+  --color-warning: var(--nimbus-amber-500);
+  --color-warning-soft-bg: rgba(255, 197, 49, 0.20);
+  --color-warning-soft-border: rgba(255, 197, 49, 0.40);
+  --color-warning-soft-text: var(--nimbus-amber-400);
+
+  --color-danger: var(--nimbus-red-500);
+  --color-danger-soft-bg: rgba(255, 107, 90, 0.18);
+  --color-danger-soft-border: rgba(255, 107, 90, 0.36);
+  --color-danger-soft-text: var(--nimbus-red-400);
+
+  /* ---- Semantic: text ---- */
+  --text-primary: rgba(255, 250, 255, 0.94);
+  --text-secondary: rgba(255, 250, 255, 0.64);
+  --text-tertiary: rgba(255, 250, 255, 0.44);
+  --text-disabled: rgba(255, 250, 255, 0.28);
+
+  /* ---- Radius: bubbly and very rounded ---- */
+  --radius-sm: 12px;
+  --radius-md: 18px;
+  --radius-lg: 26px;
+  --radius-xl: 34px;
+  --radius-2xl: 44px;
+  --radius-full: 999px;
+
+  /* ---- Shadow: soft colorful glow instead of flat black ---- */
+  --shadow-sm: 0 4px 14px rgba(160, 40, 120, 0.22);
+  --shadow-md: 0 10px 28px rgba(160, 40, 120, 0.26);
+  --shadow-lg: 0 20px 54px rgba(120, 40, 160, 0.30);
+  --shadow-xl: 0 30px 76px rgba(120, 40, 160, 0.36);
+
+  --blur-md: 18px;
+  --blur-lg: 24px;
+
+  /* Violet/magenta hue for the ambient home-screen background gradient */
+  --nimbus-gradient-hue: 300;
+}
