@@ -24,6 +24,14 @@ const styles = {
     minHeight: 0,
     overflowY: 'auto',
     padding: '20px 24px',
+    // Own compositing layer, isolated from PageHeader's backdrop-filter sibling.
+    // Without this, Chromium's GPU-accelerated compositor can fail to
+    // re-attach wheel-scroll hit-testing to this region after the route's
+    // DOM subtree is torn down and rebuilt on client-side navigation — touch
+    // scrolling still works (separate input path) but the mouse wheel goes
+    // dead until a full page reload rebuilds the layer tree from scratch.
+    isolation: 'isolate',
+    willChange: 'transform',
   },
   contentNoPad: {
     padding: 0,
