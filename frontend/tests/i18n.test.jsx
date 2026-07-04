@@ -101,7 +101,7 @@ describe('i18n', () => {
 
 describe('i18n with unavailable localStorage', () => {
   test('falls back to English when reading the stored language throws', () => {
-    const spy = vi.spyOn(window.localStorage.__proto__, 'getItem').mockImplementation(() => {
+    const spy = vi.spyOn(Object.getPrototypeOf(window.localStorage), 'getItem').mockImplementation(() => {
       throw new Error('storage disabled')
     })
     renderProbe()
