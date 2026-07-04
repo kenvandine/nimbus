@@ -56,7 +56,8 @@ export const textOnAccent = '#1A0E06'
 // gradient both saturates and lightens slightly, reading as "warming up".
 export function ambientGradient(load) {
   const t = Math.max(0, Math.min(100, Number(load) || 0))
-  const baseHue = Number(cssVar('--nimbus-gradient-hue', '25')) || 25
+  const parsedHue = Number(cssVar('--nimbus-gradient-hue', '25'))
+  const baseHue = Number.isNaN(parsedHue) ? 25 : parsedHue
   const hue = baseHue + t * 0.25
   const light = 7 + t * 0.05
   return `linear-gradient(145deg, hsl(${hue}, 55%, ${light}%) 0%, hsl(${hue + 8}, 45%, ${light + 7}%) 60%, hsl(${hue + 15}, 40%, ${light + 20}%) 100%)`

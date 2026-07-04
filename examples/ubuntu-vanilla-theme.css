@@ -123,7 +123,14 @@
   --blur-md: 10px;
   --blur-lg: 14px;
 
-  /* Real Ubuntu-orange hue (#e95420 ~= hsl(16, 84%, 52%)) for the ambient
-     home-screen background gradient. */
-  --nimbus-gradient-hue: 16;
+  /* Ubuntu orange itself (#e95420 ~= hsl(16, 84%, 52%)) is only ~9deg from
+     Nimbus's own default ambient hue (25), and ambientGradient()'s lightness
+     stays very low (7-27%) — at that lightness a 9deg hue shift is
+     imperceptible (both render as near-identical dark amber-brown). Vanilla
+     itself has no equivalent "ambient glow" token to match against, so this
+     picks a hue far enough from the default to read as clearly changed
+     instead. The actual Ubuntu-orange brand color is still used precisely
+     everywhere it matters — buttons, badges, links — via --color-accent
+     above. */
+  --nimbus-gradient-hue: 340;
 }
