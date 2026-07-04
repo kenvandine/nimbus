@@ -443,7 +443,7 @@ export default function Oobe({ online, onComplete, networkOnly }) {
   }
 
   return (
-    <div style={{ ...s.overlay, alignItems: isLocalAccess() ? 'center' : 'flex-start' }}>
+    <div className="nimbus-dark-scope" style={{ ...s.overlay, alignItems: isLocalAccess() ? 'center' : 'flex-start' }}>
       <div className="oobe-card" style={s.card}>
         <div style={s.logoRow}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

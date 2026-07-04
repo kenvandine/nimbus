@@ -72,10 +72,18 @@ export function ambientGradient(load) {
 // xterm.js reads colors as a JS object at construction time; it does not see
 // the page's CSS, so this must be called (not imported as a static value)
 // after the page's stylesheets — including any override — have loaded.
+//
+// background/foreground deliberately read the --nimbus-charcoal-950/-50
+// primitives instead of --color-bg-canvas/--text-primary: the terminal is
+// meant to keep the theme's own dark palette (light text on a dark panel)
+// regardless of light/dark mode, the same way most terminal apps don't
+// follow the host app's light/dark toggle. Every other color below already
+// reads a --nimbus-* primitive, which stays fixed across modes for the same
+// reason — only these two used to read the mode-flipping semantic tokens.
 export function getXtermTheme() {
   return {
-    background: cssVar('--color-bg-canvas', palette.charcoal[950]),
-    foreground: cssVar('--text-primary', 'rgba(255, 246, 238, 0.92)'),
+    background: cssVar('--nimbus-charcoal-950', palette.charcoal[950]),
+    foreground: cssVar('--nimbus-charcoal-50', palette.charcoal[50]),
     cursor: cssVar('--nimbus-sun-400', palette.sun[400]),
     cursorAccent: cssVar('--color-text-on-accent', textOnAccent),
     selectionBackground: cssVar('--color-accent-soft-border', 'rgba(240, 129, 58, 0.35)'),

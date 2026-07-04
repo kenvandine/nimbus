@@ -173,3 +173,34 @@
     --nimbus-gradient-lightness: 90;
   }
 }
+
+/* Pins this theme's own dark values for screens with a fixed-dark branded
+   background (Login, Oobe, KioskReadyScreen, ScreenLock, the terminal) —
+   see the matching .nimbus-dark-scope rule and comment in
+   frontend/src/theme.css for why this is needed. */
+.nimbus-dark-scope {
+  --color-bg-canvas: var(--nimbus-charcoal-950);
+  --color-surface-1: rgba(255, 255, 255, 0.04);
+  --color-surface-2: rgba(255, 255, 255, 0.07);
+  --color-surface-3: rgba(255, 255, 255, 0.12);
+  --color-border-subtle: rgba(255, 255, 255, 0.10);
+  --color-border-strong: rgba(255, 255, 255, 0.20);
+
+  --color-accent-hover: var(--nimbus-sun-400);
+  --color-accent-active: var(--nimbus-sun-600);
+  --color-accent-soft-text: var(--nimbus-sun-300);
+  --color-info-soft-text: var(--nimbus-sky-300);
+  --color-success-soft-text: var(--nimbus-green-400);
+  --color-warning-soft-text: var(--nimbus-amber-400);
+  --color-danger-soft-text: var(--nimbus-red-400);
+
+  --text-primary: rgba(255, 255, 255, 0.95);
+  --text-secondary: rgba(255, 255, 255, 0.60);
+  --text-tertiary: rgba(255, 255, 255, 0.42);
+  --text-disabled: rgba(255, 255, 255, 0.28);
+
+  --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.28);
+  --shadow-md: 0 12px 28px rgba(0, 0, 0, 0.32);
+  --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.36);
+  --shadow-xl: 0 32px 80px rgba(0, 0, 0, 0.44);
+}

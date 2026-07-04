@@ -209,6 +209,45 @@
   }
 }
 
+/* Pins the semantic tokens back to this theme's own dark values for a
+   subtree, ignoring the current light/dark mode. For screens with their own
+   fixed-dark branded background (Login, Oobe, KioskReadyScreen all paint a
+   charcoal-950/900/800 gradient directly, independent of --color-bg-canvas)
+   — without this, their cards/text still read --text-primary etc., which
+   flip light in light mode and become dark-on-dark against a background
+   that never flips, making the screen unreadable. Apply as a className on
+   the outermost element of such a screen; works by inheritance (a value set
+   here on a descendant always wins over one set on :root, regardless of
+   which cascade layer or @media block the :root one came from) so it does
+   not need `!important` or to out-specificity the light media query. */
+.nimbus-dark-scope {
+  --color-bg-canvas: var(--nimbus-charcoal-950);
+  --color-surface-1: rgba(255, 238, 222, 0.05);
+  --color-surface-2: rgba(255, 238, 222, 0.08);
+  --color-surface-3: rgba(255, 238, 222, 0.14);
+  --color-overlay-scrim: rgba(22, 14, 8, 0.6);
+  --color-border-subtle: rgba(255, 238, 222, 0.10);
+  --color-border-strong: rgba(255, 238, 222, 0.20);
+
+  --color-accent-hover: var(--nimbus-sun-400);
+  --color-accent-active: var(--nimbus-sun-600);
+  --color-accent-soft-text: var(--nimbus-sun-300);
+  --color-info-soft-text: var(--nimbus-sky-300);
+  --color-success-soft-text: var(--nimbus-green-400);
+  --color-warning-soft-text: var(--nimbus-amber-400);
+  --color-danger-soft-text: var(--nimbus-red-400);
+
+  --text-primary: rgba(255, 246, 238, 0.92);
+  --text-secondary: rgba(255, 246, 238, 0.62);
+  --text-tertiary: rgba(255, 246, 238, 0.42);
+  --text-disabled: rgba(255, 246, 238, 0.28);
+
+  --shadow-sm: 0 4px 12px rgba(20, 10, 4, 0.24);
+  --shadow-md: 0 12px 28px rgba(20, 10, 4, 0.28);
+  --shadow-lg: 0 24px 60px rgba(20, 10, 4, 0.32);
+  --shadow-xl: 0 32px 80px rgba(20, 10, 4, 0.4);
+}
+
 @keyframes spin {
   to { transform: rotate(360deg); }
 }

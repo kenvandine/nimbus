@@ -51,7 +51,7 @@ export default function Login({ onLogin }) {
   }
 
   return (
-    <div style={s.overlay}>
+    <div className="nimbus-dark-scope" style={s.overlay}>
       <div style={s.card}>
         <div style={s.logoRow}>
           <NimbusMark size={30} />

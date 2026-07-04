@@ -44,7 +44,7 @@ export default function ScreenLock({ deviceName, onUnlock, onFail }) {
   const formattedTime = new Intl.DateTimeFormat(currentLanguage, { hour: 'numeric', minute: '2-digit' }).format(time)
 
   return (
-    <div style={styles.overlay} tabIndex={-1} onKeyDown={handleKeyDown} ref={wrapRef}>
+    <div className="nimbus-dark-scope" style={styles.overlay} tabIndex={-1} onKeyDown={handleKeyDown} ref={wrapRef}>
       <div style={styles.content}>
         <div style={styles.clock}>{formattedTime}</div>
         <div style={styles.date}>{time.toLocaleDateString(currentLanguage, { weekday: 'long', month: 'long', day: 'numeric' })}</div>
