@@ -435,7 +435,6 @@ function PinStep({ onComplete }) {
 }
 
 export default function Oobe({ online, onComplete, networkOnly }) {
-  const { t } = useTranslation()
   const [step, setStep] = useState('network')
 
   async function finishOobe() {

@@ -5,7 +5,7 @@ import { useTranslation } from '../i18n.jsx'
 const PIN_LENGTH = 4
 
 export default function ScreenLock({ deviceName, onUnlock, onFail }) {
-  const { t } = useTranslation()
+  const { t, currentLanguage } = useTranslation()
   const [pin, setPin] = useState('')
   const [shake, setShake] = useState(false)
   const [time, setTime] = useState(new Date())
@@ -41,15 +41,12 @@ export default function ScreenLock({ deviceName, onUnlock, onFail }) {
     }
   }
 
-  const hour = time.getHours()
-  const minute = time.getMinutes().toString().padStart(2, '0')
-  const ampm = hour >= 12 ? 'PM' : 'AM'
-  const h12 = hour % 12 || 12
+  const formattedTime = new Intl.DateTimeFormat(currentLanguage, { hour: 'numeric', minute: '2-digit' }).format(time)
 
   return (
     <div style={styles.overlay} tabIndex={-1} onKeyDown={handleKeyDown} ref={wrapRef}>
       <div style={styles.content}>
-        <div style={styles.clock}>{h12}:{minute} <span style={styles.ampm}>{ampm}</span></div>
+        <div style={styles.clock}>{formattedTime}</div>
         <div style={styles.date}>{time.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</div>
         {deviceName && <div style={styles.deviceName}>{deviceName}</div>}
 
@@ -93,7 +90,6 @@ const styles = {
     letterSpacing: '-2px',
     lineHeight: 1,
   },
-  ampm: { fontSize: 32, fontWeight: 300, opacity: 0.6 },
   date: { fontSize: 18, color: 'var(--text-secondary)', fontWeight: 300 },
   deviceName: {
     fontSize: 13,

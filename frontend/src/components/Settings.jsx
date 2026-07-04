@@ -350,9 +350,9 @@ function FirewallPanel() {
           <option value="udp">UDP</option>
         </select>
         <select style={styles.select} value={newAction} onChange={e => setNewAction(e.target.value)}>
-          <option value="allow">Allow</option>
-          <option value="deny">Deny</option>
-          <option value="reject">Reject</option>
+          <option value="allow">{t('settings_firewall_action_allow', 'Allow')}</option>
+          <option value="deny">{t('settings_firewall_action_deny', 'Deny')}</option>
+          <option value="reject">{t('settings_firewall_action_reject', 'Reject')}</option>
         </select>
         <Button variant="soft" size="sm" onClick={handleAdd} disabled={busy === 'add' || !newPort} loading={busy === 'add'}>
           {busy === 'add' ? t('adding', 'Adding…') : t('settings_firewall_add_btn', 'Add Rule')}
