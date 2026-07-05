@@ -1866,7 +1866,16 @@ print(json.dumps(apps), end='')
             instance.snapshots.get(name)
         except NotFound:
             raise RuntimeError(f"Snapshot '{name}' not found")
-        instance.restore_snapshot(name, wait=True)
+        # Restoring stops and restarts the container, so status briefly isn't
+        # "running" and container_info would report bootstrapped=False with a
+        # stale "ready" bootstrap_state — surfacing a contradictory "still being
+        # set up" banner in the UI. Serve the last-good info during the restore,
+        # exactly as create_snapshot() does.
+        self._snapshotting = True
+        try:
+            instance.restore_snapshot(name, wait=True)
+        finally:
+            self._snapshotting = False
 
     # ------------------------------------------------------------------ #
     # Resource limits                                                      #
