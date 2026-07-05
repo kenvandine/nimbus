@@ -32,7 +32,12 @@ async def list_snapshots() -> list[dict]:
 async def create_snapshot(req: CreateSnapshotRequest) -> dict:
     import asyncio
     mgr = _get_lxd()
-    await asyncio.to_thread(mgr.create_snapshot, req.name, req.stateful)
+    try:
+        await asyncio.to_thread(mgr.create_snapshot, req.name, req.stateful)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Could not create snapshot '{req.name}': {exc}")
     return {"status": "created", "name": req.name}
 
 
@@ -40,7 +45,12 @@ async def create_snapshot(req: CreateSnapshotRequest) -> dict:
 async def delete_snapshot(name: str) -> dict:
     import asyncio
     mgr = _get_lxd()
-    await asyncio.to_thread(mgr.delete_snapshot, name)
+    try:
+        await asyncio.to_thread(mgr.delete_snapshot, name)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Could not delete snapshot '{name}': {exc}")
     return {"status": "deleted", "name": name}
 
 
@@ -48,5 +58,11 @@ async def delete_snapshot(name: str) -> dict:
 async def restore_snapshot(name: str) -> dict:
     import asyncio
     mgr = _get_lxd()
-    await asyncio.to_thread(mgr.restore_snapshot, name)
+    try:
+        await asyncio.to_thread(mgr.restore_snapshot, name)
+    except RuntimeError as exc:
+        # Raised for known conditions: missing container or snapshot.
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Could not restore snapshot '{name}': {exc}")
     return {"status": "restored", "name": name}

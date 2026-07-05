@@ -1866,14 +1866,25 @@ print(json.dumps(apps), end='')
             instance.snapshots.get(name)
         except NotFound:
             raise RuntimeError(f"Snapshot '{name}' not found")
-        # Restoring stops and restarts the container, so status briefly isn't
-        # "running" and container_info would report bootstrapped=False with a
-        # stale "ready" bootstrap_state — surfacing a contradictory "still being
-        # set up" banner in the UI. Serve the last-good info during the restore,
-        # exactly as create_snapshot() does.
+        # Restoring a stateless snapshot (all of ours are stateless) requires the
+        # instance to be stopped. LXD tries to stop it automatically, but the
+        # container runs Docker workloads that don't shut down within the stop
+        # timeout, so the restore fails with "Failed stopping instance, status is
+        # Running". Force-stop it ourselves first, then restore, then restart —
+        # a restore reverts state anyway, so a hard stop is acceptable.
+        #
+        # While this runs, status isn't "running" so container_info would report
+        # bootstrapped=False with a stale "ready" bootstrap_state, surfacing a
+        # contradictory "still being set up" banner. Serve the last-good info
+        # during the operation, exactly as create_snapshot() does.
+        was_running = str(getattr(instance, "status", "")).lower() == "running"
         self._snapshotting = True
         try:
+            if was_running:
+                instance.stop(force=True, wait=True)
             instance.restore_snapshot(name, wait=True)
+            if was_running:
+                instance.start(wait=True)
         finally:
             self._snapshotting = False
 
