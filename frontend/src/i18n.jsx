@@ -135,11 +135,6 @@ const translations = {
     settings_dns_resolvers: 'Upstream resolvers',
     settings_dns_placeholder: '1.1.1.1\n8.8.8.8',
 
-    settings_ssh_title: 'SSH Access',
-    settings_ssh_placeholder: 'ssh-rsa AAAA… or ssh-ed25519 AAAA…',
-    settings_ssh_btn: 'Add Key',
-    settings_ssh_btn_busy: 'Adding…',
-    settings_ssh_none: 'No authorized keys',
 
     settings_firewall_title: 'Firewall (UFW)',
     settings_firewall_status: 'Firewall status',
@@ -566,11 +561,6 @@ const translations = {
     settings_dns_resolvers: 'Resolutores ascendentes',
     settings_dns_placeholder: '1.1.1.1\n8.8.8.8',
 
-    settings_ssh_title: 'Acceso SSH',
-    settings_ssh_placeholder: 'ssh-rsa AAAA… o ssh-ed25519 AAAA…',
-    settings_ssh_btn: 'Añadir clave',
-    settings_ssh_btn_busy: 'Añadiendo…',
-    settings_ssh_none: 'No hay claves autorizadas',
 
     settings_firewall_title: 'Cortafuegos (UFW)',
     settings_firewall_status: 'Estado del cortafuegos',
@@ -997,11 +987,6 @@ const translations = {
     settings_dns_resolvers: 'Résolveurs amont',
     settings_dns_placeholder: '1.1.1.1\n8.8.8.8',
 
-    settings_ssh_title: 'Accès SSH',
-    settings_ssh_placeholder: 'ssh-rsa AAAA… ou ssh-ed25519 AAAA…',
-    settings_ssh_btn: 'Ajouter la clé',
-    settings_ssh_btn_busy: 'Ajout…',
-    settings_ssh_none: 'Aucune clé autorisée',
 
     settings_firewall_title: 'Pare-feu (UFW)',
     settings_firewall_status: 'État du pare-feu',

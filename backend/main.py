@@ -22,7 +22,6 @@ from routers.system import router as system_router
 from routers.terminal import router as terminal_router
 from routers.snapshots import router as snapshots_router
 from routers.firewall import router as firewall_router
-from routers.ssh import router as ssh_router
 from routers.models import router as models_router
 from routers.keys import router as keys_router
 from routers.tailscale import router as tailscale_router
@@ -348,7 +347,6 @@ app.include_router(system_router)
 app.include_router(terminal_router)
 app.include_router(snapshots_router)
 app.include_router(firewall_router)
-app.include_router(ssh_router)
 app.include_router(models_router)
 app.include_router(keys_router)
 app.include_router(tailscale_router)

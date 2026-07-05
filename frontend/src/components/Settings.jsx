@@ -1,13 +1,12 @@
 import { useState, useEffect } from 'react'
 import {
   ArrowUpCircle, Network, Wifi as WifiIcon, Globe, Link2, Lock, LockKeyhole,
-  KeySquare, ShieldAlert, SlidersHorizontal, KeyRound, Check,
+  ShieldAlert, SlidersHorizontal, KeyRound, Check,
 } from 'lucide-react'
 
 import {
   restartSystem,
   getNetworkAddresses, getWifiStatus, scanWifiNetworks, connectWifi, disconnectWifi,
-  getSshStatus, listSshKeys, addSshKey, removeSshKey,
   getFirewallStatus, listFirewallRules, addFirewallRule, deleteFirewallRule,
   enableFirewall, disableFirewall,
   getDns, setDns,
@@ -231,62 +230,6 @@ function DnsPanel() {
           </div>
         </div>
       )}
-    </SettingsSection>
-  )
-}
-
-// ── SSH Keys ───────────────────────────────────────────────────────────────────
-function SshPanel() {
-  const { t } = useTranslation()
-  const [keys, setKeys] = useState(null)
-  const [newKey, setNewKey] = useState('')
-  const [busy, setBusy] = useState(null)
-  const [error, setError] = useState(null)
-
-  async function load() {
-    try { setKeys(await listSshKeys()) } catch (e) { setError(e.message) }
-  }
-  useEffect(() => { load() }, [])
-
-  async function handleAdd() {
-    if (!newKey.trim()) return
-    setBusy('add'); setError(null)
-    try { await addSshKey(newKey.trim()); setNewKey(''); await load() }
-    catch (e) { setError(e.message) }
-    finally { setBusy(null) }
-  }
-
-  async function handleRemove(fp) {
-    setBusy(fp); setError(null)
-    try { await removeSshKey(fp); await load() }
-    catch (e) { setError(e.message) }
-    finally { setBusy(null) }
-  }
-
-  return (
-    <SettingsSection icon={<KeySquare size={16} />} title={t('settings_ssh_title', 'SSH Access')}>
-      <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <textarea
-          style={{ ...styles.input, resize: 'vertical', minHeight: 64, padding: 10, fontFamily: 'var(--font-mono)', fontSize: 11 }}
-          value={newKey}
-          onChange={e => setNewKey(e.target.value)}
-          placeholder={t('settings_ssh_placeholder', 'ssh-rsa AAAA… or ssh-ed25519 AAAA…')}
-        />
-        {error && <div style={styles.errorRow}>{error}</div>}
-        <Button variant="soft" size="sm" onClick={handleAdd} disabled={busy === 'add' || !newKey.trim()} loading={busy === 'add'} style={{ alignSelf: 'flex-end' }}>
-          {busy === 'add' ? t('adding', 'Adding…') : t('settings_ssh_btn', 'Add Key')}
-        </Button>
-      </div>
-      {keys !== null && keys.length === 0 && <SettingsRow label={t('settings_ssh_none', 'No authorized keys')} />}
-      {keys !== null && keys.map(k => (
-        <SettingsRow
-          key={k.fingerprint}
-          label={<span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>{k.fingerprint}</span>}
-          sub={`${k.type}${k.comment ? ` — ${k.comment}` : ''}`}
-        >
-          <Button variant="danger" size="sm" onClick={() => handleRemove(k.fingerprint)} disabled={!!busy} loading={busy === k.fingerprint}>{t('remove', 'Remove')}</Button>
-        </SettingsRow>
-      ))}
     </SettingsSection>
   )
 }
@@ -730,7 +673,6 @@ export default function Settings({ stats, onRefresh }) {
       <TailscalePanel />
       <ChangePasswordPanel />
       <ScreenLockPanel />
-      <SshPanel />
       {isLxd && <FirewallPanel />}
       <ResourceLimitsPanel stats={stats} />
       <ApiKeysPanel />

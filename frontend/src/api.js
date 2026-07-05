@@ -72,12 +72,6 @@ export const writeFile = (path, content) => json('POST', '/files/write', { path,
 // OpenClaw agent gateway
 export const getOpenClawStatus = () => request('/openclaw/status')
 
-// SSH key management
-export const getSshStatus = () => request('/ssh/status')
-export const listSshKeys = () => request('/ssh/keys')
-export const addSshKey = (pubkey) => json('POST', '/ssh/keys', { pubkey })
-export const removeSshKey = (fingerprint) => request(`/ssh/keys/${encodeURIComponent(fingerprint)}`, { method: 'DELETE' })
-
 // Firewall
 export const getFirewallStatus = () => request('/firewall/status')
 export const listFirewallRules = () => request('/firewall/rules')
