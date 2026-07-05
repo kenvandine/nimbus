@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
-  ShieldCheck, ArrowUpCircle, Network, Wifi as WifiIcon, Globe, Link2, Lock, LockKeyhole,
+  ArrowUpCircle, Network, Wifi as WifiIcon, Globe, Link2, Lock, LockKeyhole,
   KeySquare, ShieldAlert, SlidersHorizontal, KeyRound, Check,
 } from 'lucide-react'
 
@@ -31,7 +31,12 @@ const STATUS_IP_RETRY_DELAY_MS = 1500
 function NetworkAddressesPanel() {
   const { t } = useTranslation()
   const [addresses, setAddresses] = useState(null)
-  useEffect(() => { getNetworkAddresses().then(setAddresses).catch(() => setAddresses([])) }, [])
+  useEffect(() => {
+    getNetworkAddresses()
+      // Hide the LXD bridge interface — its internal IP is confusing and not useful to regular users.
+      .then(list => setAddresses(list.filter(a => !a.interface.startsWith('lxdbr'))))
+      .catch(() => setAddresses([]))
+  }, [])
 
   return (
     <SettingsSection icon={<Network size={16} />} title={t('settings_ip_title', 'IP Addresses')}>
@@ -701,23 +706,6 @@ export default function Settings({ stats, onRefresh }) {
         </SettingsRow>
       </SettingsSection>
 
-      {/* HTTPS Certificate */}
-      <SettingsSection icon={<ShieldCheck size={16} />} title={t('settings_https_title', 'HTTPS Certificate')}>
-        <SettingsRow label={t('settings_https_trust', 'Trust Nimbus CA')} sub={t('settings_https_desc', 'Install on each device to remove the HTTPS warning')}>
-          <a href="/api/system/ca-cert" download="nimbus-ca.crt" style={styles.btnDownload}>{t('settings_https_download', 'Download')}</a>
-        </SettingsRow>
-        {stats?.tls_fingerprint && (
-          <SettingsRow label={t('settings_https_fingerprint', 'Fingerprint')}>
-            <span style={{ ...styles.addressPill, fontSize: 10, maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {stats.tls_fingerprint}
-            </span>
-          </SettingsRow>
-        )}
-        <SettingsRow label={t('settings_https_ios_macos', 'iOS / macOS')}><span style={styles.pillInfo}>{t('settings_https_ios_macos_desc', 'Download → open → Settings → trust')}</span></SettingsRow>
-        <SettingsRow label={t('settings_https_android', 'Android')}><span style={styles.pillInfo}>{t('settings_https_android_desc', 'Settings → Security → Install cert')}</span></SettingsRow>
-        <SettingsRow label={t('settings_https_linux', 'Linux')}><span style={styles.pillInfo}>{t('settings_https_linux_desc', 'cp nimbus-ca.crt /usr/local/share/ca-certificates/ && update-ca-certificates')}</span></SettingsRow>
-      </SettingsSection>
-
       {/* System Updates */}
       <SettingsSection icon={<ArrowUpCircle size={16} />} title={t('settings_system_title', 'System')}>
         <SettingsRow label={t('settings_system_auto_refresh', 'Snap auto-refresh')} sub={t('settings_system_auto_desc', "Nimbus and its dependencies update automatically on snapd's schedule. No manual trigger needed.")}>
@@ -753,17 +741,6 @@ export default function Settings({ stats, onRefresh }) {
 const styles = {
   container: { display: 'flex', flexDirection: 'column', gap: '20px', fontFamily: 'var(--font-sans)' },
   errorRow: { color: 'var(--color-danger)', fontSize: '12px', padding: '0 2px', fontFamily: 'var(--font-sans)' },
-  btnDownload: {
-    background: 'var(--color-accent-soft-bg)', color: 'var(--color-accent-soft-text)',
-    border: '1px solid var(--color-accent-soft-border)', borderRadius: 'var(--radius-sm)',
-    padding: '6px 14px', fontSize: '12px', fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap',
-    fontFamily: 'var(--font-sans)',
-  },
-  pillInfo: {
-    background: 'var(--color-surface-3)', color: 'var(--text-tertiary)',
-    fontSize: '10px', fontWeight: 500, padding: '3px 8px', borderRadius: 'var(--radius-sm)',
-    fontFamily: 'var(--font-mono)', maxWidth: '55%', textAlign: 'right',
-  },
   addressPill: {
     background: 'var(--color-accent-soft-bg)', color: 'var(--color-accent-soft-text)',
     fontSize: '12px', fontWeight: 500, padding: '3px 10px', borderRadius: 'var(--radius-sm)',
