@@ -572,19 +572,19 @@ OUTPUT_DIR=$TARGET_MODEL
 case "$TARGET_MODEL" in
     nimbus-amd)
         EXTRA_SNAP=
-        GADGET_SNAP=../../pc-amd64-gadget/pc-nimbus_amd-24-0.2_amd64.snap
+        GADGET_SNAP=../../pc-nimbus-gadget/pc-nimbus_amd-24-0.2_amd64.snap
         PRESEED_DEFAULT=1
         MODEL_JSON=nimbus-lemonade.json
         MODEL_ASSERTION=nimbus-lemonade.model
         ;;
     nimbus-lemonade)
         EXTRA_SNAP=
-        GADGET_SNAP=../../pc-amd64-gadget/pc-nimbus_amd-24-0.2_amd64.snap
+        GADGET_SNAP=../../pc-nimbus-gadget/pc-nimbus_amd-24-0.2_amd64.snap
         PRESEED_DEFAULT=1
         ;;
     nimbus-gemma4)
         EXTRA_SNAP=
-        GADGET_SNAP=../../pc-amd64-gadget/pc-nimbus_amd-24-0.2_amd64.snap
+        GADGET_SNAP=../../pc-nimbus-gadget/pc-nimbus_amd-24-0.2_amd64.snap
         PRESEED_DEFAULT=0
         ;;
     *)
