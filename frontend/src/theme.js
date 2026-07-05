@@ -1,10 +1,11 @@
 // JS mirror of theme.css's primitive values, for the few places CSS variables
-// can't reach directly: canvas-rendered text (xterm.js) and <canvas> drawing
-// (QR code). Both read the *live* CSS custom properties via cssVar() rather
-// than hardcoded values, so a theme override dropped in $SNAP_COMMON/theme
-// (see /theme/override.css, mounted by the backend) reaches these surfaces
-// too, not just the DOM-rendered UI. The literals below are only fallbacks
-// for when a property is somehow unset — theme.css always defines them.
+// can't reach directly: canvas-rendered text (xterm.js). It reads the *live*
+// CSS custom properties via cssVar() rather than hardcoded values, so a theme
+// override dropped in $SNAP_COMMON/theme (see /theme/override.css, mounted by
+// the backend) reaches that surface too, not just the DOM-rendered UI. The
+// literals below are only fallbacks for when a property is somehow unset —
+// theme.css always defines them. (The kiosk QR code is deliberately exempt:
+// getQrColors() is fixed black-on-white so it stays scannable in any theme.)
 
 function cssVar(name, fallback) {
   if (typeof document === 'undefined') return fallback
@@ -106,30 +107,13 @@ export function getXtermTheme() {
   }
 }
 
-// The qrcode package's canvas renderer only accepts hex colors (see
-// hex2rgba in qrcode/lib/renderer/utils.js) and throws on anything else, but
-// our CSS custom properties (and any theme override dropped in by a user)
-// can be hsl(), rgb(), or a named color. Route through a 1x1 canvas to let
-// the browser resolve whatever was given into concrete RGB, rather than
-// trying to parse every CSS color syntax ourselves.
-function cssColorToHex(color) {
-  if (typeof document === 'undefined') return color
-  try {
-    const ctx = document.createElement('canvas').getContext('2d')
-    ctx.fillStyle = color
-    ctx.fillRect(0, 0, 1, 1)
-    const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data
-    return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('')
-  } catch {
-    return color
-  }
-}
-
-// QRCode.toCanvas() colors for the kiosk "scan to connect" screen. Same
-// call-time-not-import-time reasoning as getXtermTheme().
+// QRCode.toCanvas() colors for the kiosk "scan to connect" screen. Fixed
+// black-on-white regardless of the active (light/dark) theme — a QR code must
+// stay high-contrast and scannable, and theming the module color made it
+// render light-on-light (invisible) in the light theme.
 export function getQrColors() {
   return {
-    dark: cssColorToHex(cssVar('--color-bg-canvas', palette.charcoal[950])),
-    light: cssColorToHex(cssVar('--nimbus-charcoal-50', '#FFF6EE')),
+    dark: '#000000',
+    light: '#FFFFFF',
   }
 }

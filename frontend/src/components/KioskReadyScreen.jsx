@@ -267,7 +267,9 @@ const styles = {
     boxSizing: 'border-box',
   },
   qrWrap: {
-    background: 'var(--nimbus-charcoal-50)',
+    // Fixed white so the QR (always black-on-white) has a clean, high-contrast
+    // quiet zone regardless of the active light/dark theme.
+    background: '#FFFFFF',
     borderRadius: 'var(--radius-lg)',
     padding: 12,
     display: 'inline-flex',
