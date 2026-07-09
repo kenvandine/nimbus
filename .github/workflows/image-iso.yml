@@ -75,13 +75,6 @@ jobs:
         with:
           path: nimbus
 
-      - name: Checkout pc-nimbus-gadget
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository_owner }}/pc-nimbus-gadget
-          ref: main
-          path: pc-nimbus-gadget
-
       - name: Update Nimbus Snap Channel in model definitions
         env:
           CHANNEL: ${{ github.event.inputs.channel || 'edge' }}
@@ -223,11 +216,6 @@ jobs:
           sudo usermod -aG lxd root
           # Fix docker iptables conflict blocking LXD container internet access
           sudo iptables -P FORWARD ACCEPT
-
-      - name: Build Gadget Snap
-        run: |
-          cd pc-nimbus-gadget
-          sg lxd -c "snapcraft"
 
       - name: Generate system-user assertion JSON
         if: ${{ github.event.inputs.ssh_key != '' }}
