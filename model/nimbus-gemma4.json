@@ -11,7 +11,7 @@
         {
             "name": "pc-nimbus",
             "type": "gadget",
-            "default-channel": "24/stable",
+            "default-channel": "latest/stable",
             "id": "o8NbeqxGiPJc0J2EQJ3eIIhXlsJgQxiF"
         },
         {
