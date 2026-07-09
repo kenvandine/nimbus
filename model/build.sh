@@ -686,7 +686,7 @@ if [ "$PRESEED" -eq 1 ]; then
         set -- "$@" "GPG_PASSPHRASE=$GPG_PASSPHRASE"
     fi
 fi
-set -- "$@" ubuntu-image snap "$MODEL_ASSERTION" --snap "$GADGET_SNAP"
+set -- "$@" ubuntu-image snap "$MODEL_ASSERTION"
 if [ -n "$EXTRA_SNAP_FLAG" ]; then
     set -- "$@" $EXTRA_SNAP_FLAG
 fi
