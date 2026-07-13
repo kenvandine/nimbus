@@ -385,6 +385,78 @@ def disconnect_network() -> None:
     dbus.Interface(dev, NM_DEVICE_IFACE).Disconnect()
 
 
+def _best_saved_wifi_conn(bus):
+    """Return the D-Bus path of the most-recently-used saved Wi-Fi *client*
+    profile (excluding the 'nimbus' onboarding AP), or None if there is none."""
+    import dbus
+    best_path = None
+    best_ts = -1
+    try:
+        settings_obj = bus.get_object(NM_SERVICE, NM_SETTINGS_PATH)
+        for conn_path in dbus.Interface(settings_obj, NM_SETTINGS_IFACE).ListConnections():
+            try:
+                conn = bus.get_object(NM_SERVICE, conn_path)
+                s = dbus.Interface(conn, NM_CONN_IFACE).GetSettings()
+                c = s.get("connection", {})
+                if str(c.get("type", "")) != "802-11-wireless":
+                    continue
+                if str(s.get("802-11-wireless", {}).get("mode", "infrastructure")) == "ap":
+                    continue
+                # Prefer the most recently used profile when several are saved.
+                ts = int(c.get("timestamp", 0))
+                if ts >= best_ts:
+                    best_ts = ts
+                    best_path = conn_path
+            except Exception:
+                continue
+    except Exception as exc:
+        logger.debug("Could not enumerate saved Wi-Fi connections: %s", exc)
+    return best_path
+
+
+def reconnect_saved_wifi() -> bool:
+    """Explicitly activate the saved Wi-Fi profile. Returns True on success.
+
+    NetworkManager's own autoconnect is scan-match based: it will not activate
+    a saved profile until a scan surfaces an access point it can match to that
+    SSID. In dense RF environments (many APs, lots of hidden/SSID-less beacons)
+    that match is delayed or never happens, so a configured device boots up
+    offline and stays there until someone reconnects from the kiosk. Activating
+    the profile directly — the same path the kiosk 'connect' button uses — tells
+    wpa_supplicant to associate with the SSID immediately and is reliable."""
+    import dbus
+    try:
+        bus = _bus()
+    except Exception as exc:
+        logger.error("D-Bus connection failed, cannot reconnect Wi-Fi: %s", exc)
+        return False
+
+    wifi_path = _find_wifi_device(bus)
+    if not wifi_path:
+        logger.warning("No WiFi adapter found, cannot reconnect saved Wi-Fi")
+        return False
+
+    conn_path = _best_saved_wifi_conn(bus)
+    if not conn_path:
+        logger.info("No saved Wi-Fi profile to reconnect on startup")
+        return False
+
+    try:
+        nm = bus.get_object(NM_SERVICE, NM_PATH)
+        nm_iface = dbus.Interface(nm, NM_IFACE)
+        active_path = nm_iface.ActivateConnection(
+            dbus.ObjectPath(conn_path),
+            dbus.ObjectPath(wifi_path),
+            dbus.ObjectPath("/"),
+        )
+        _wait_for_activation(bus, active_path, wifi_path)
+        logger.info("Reconnected saved Wi-Fi profile on startup")
+        return True
+    except Exception as exc:
+        logger.warning("Startup Wi-Fi reconnect failed: %s", exc)
+        return False
+
+
 def is_ap_active(bus=None) -> bool:
     import dbus
     if bus is None:
@@ -689,6 +761,10 @@ async def async_stop_ap() -> None:
     await asyncio.to_thread(stop_ap)
 
 
+async def async_reconnect_saved_wifi() -> bool:
+    return await asyncio.to_thread(reconnect_saved_wifi)
+
+
 async def handover_ap_to_wifi(ssid: str, password: str | None) -> None:
     logger.info("Handing over AP to client Wi-Fi: %s", ssid)
     # 1. Sleep for 2 seconds to let the response reach the client browser.
@@ -718,11 +794,28 @@ async def check_and_manage_ap_on_startup() -> None:
     await asyncio.sleep(10.0)
 
     from services.device import is_oobe_complete
+    from services.network import is_online
+
     if is_oobe_complete():
-        logger.info("OOBE is complete, skipping startup AP check")
+        # Device is already configured, so never start the onboarding AP. But
+        # NetworkManager's scan-match autoconnect is unreliable in dense RF
+        # environments, so a configured device can boot up offline and stay
+        # there. If we're offline, explicitly (re)activate the saved Wi-Fi
+        # profile — the same reliable path the kiosk 'connect' button uses.
+        if is_online():
+            logger.info("OOBE complete and device online on startup")
+            return
+        logger.info("OOBE complete but device offline; reconnecting saved Wi-Fi...")
+        for attempt in range(3):
+            if await async_reconnect_saved_wifi():
+                return
+            if is_online():
+                return
+            logger.info("Wi-Fi reconnect attempt %d failed; retrying...", attempt + 1)
+            await asyncio.sleep(5.0)
+        logger.warning("Could not reconnect saved Wi-Fi on startup after retries")
         return
 
-    from services.network import is_online
     if is_online():
         logger.info("Device is online on startup, skipping AP check")
         return
