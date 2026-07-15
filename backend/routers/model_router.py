@@ -96,11 +96,17 @@ class PolicyRequest(BaseModel):
 
 @router.post("/policy")
 async def save_policy(body: PolicyRequest) -> dict:
-    from services import model_router as svc
+    from services import model_router as svc, control_plane as cp
     try:
         state = await svc.apply_cloud_policy(
             body.enabled, body.cloud_provider, body.cloud_model, body.toggles, body.advanced_json
         )
+        # Repoint any app still configured with a raw local model name (apps
+        # onboarded during the bootstrap window before the router collection's
+        # first registration) at the collection, so the saved policy actually
+        # applies to it. Background — re-onboarding every claw app can take a
+        # while and the policy itself is already saved and registered.
+        asyncio.create_task(cp.run_lemonade_autoconfig())
         return {"status": "saved", **state}
     except RuntimeError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

@@ -90,8 +90,9 @@ def test_delete_provider_endpoint():
     assert response.json()["status"] == "removed"
 
 
-def test_save_policy_success():
-    with mock.patch("services.model_router.apply_cloud_policy") as mock_apply:
+def test_save_policy_success_and_triggers_autoconfig():
+    with mock.patch("services.model_router.apply_cloud_policy") as mock_apply, \
+         mock.patch("services.control_plane.run_lemonade_autoconfig", new=mock.AsyncMock()) as mock_autoconfig:
         async def _apply(*args, **kwargs):
             return {"cloud_offload_enabled": True}
         mock_apply.side_effect = _apply
@@ -101,10 +102,13 @@ def test_save_policy_success():
         })
     assert response.status_code == 200
     assert response.json()["status"] == "saved"
+    assert mock_autoconfig.called
 
 
 def test_save_policy_surfaces_validation_error_as_400():
-    with mock.patch("services.model_router.apply_cloud_policy", side_effect=RuntimeError("invalid routing policy")):
+    with mock.patch("services.model_router.apply_cloud_policy", side_effect=RuntimeError("invalid routing policy")), \
+         mock.patch("services.control_plane.run_lemonade_autoconfig", new=mock.AsyncMock()) as mock_autoconfig:
         response = client.post("/api/cloud/policy", json={"enabled": True})
     assert response.status_code == 400
     assert "invalid routing policy" in response.json()["detail"]
+    assert not mock_autoconfig.called
