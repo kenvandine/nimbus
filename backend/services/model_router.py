@@ -273,18 +273,34 @@ async def register_router_collection(local_model: str, cloud_model: str | None, 
 # Orchestration
 # ---------------------------------------------------------------------------
 
+def _resolve_routing(state: dict, local_model: str) -> tuple[str | None, dict]:
+    """Single source of truth for turning persisted policy state into the
+    routing block registered with lemonade. advanced_json is honored only
+    while cloud offload is enabled — a disabled policy always resolves to a
+    local-only routing block, so disabling never fails on (or silently keeps)
+    an advanced policy that references cloud candidates.
+    """
+    cloud_model = state.get("cloud_model") if state.get("cloud_offload_enabled") else None
+    if cloud_model and state.get("advanced_json"):
+        routing = json.loads(state["advanced_json"])
+    else:
+        routing = build_routing_block(local_model, cloud_model, state.get("toggles") or {})
+    return cloud_model, routing
+
+
 async def reconcile_local_model_change(new_local_model: str) -> None:
     """Called when the active local model changes. Rebuilds the router's
-    routing (current cloud toggles + the new local model) and re-registers it,
+    routing (current cloud policy + the new local model) and re-registers it,
     so every claw app transparently starts using the new local model with no
     per-app reconfiguration. Log-and-continue: a failure here leaves the
     previous collection definition in place in lemonade rather than breaking
-    claw apps that already depend on it.
+    claw apps that already depend on it. Note an advanced_json policy names
+    the old local model in its candidates, so lemonade will reject the update
+    until the user revises it — the warning below is their breadcrumb.
     """
     state = _load_state()
-    cloud_model = state.get("cloud_model") if state.get("cloud_offload_enabled") else None
+    cloud_model, routing = _resolve_routing(state, new_local_model)
     try:
-        routing = build_routing_block(new_local_model, cloud_model, state.get("toggles") or {})
         await register_router_collection(new_local_model, cloud_model, routing)
     except Exception as exc:
         logger.warning("Could not reconcile model router after local model change: %s", exc)
@@ -306,13 +322,7 @@ async def apply_cloud_policy(enabled: bool, cloud_provider: str | None, cloud_mo
     _save_state(state)
 
     local_model = lemonade.get_active_model_spec()["model_name"]
-    effective_cloud_model = cloud_model if enabled else None
-
-    if advanced_json:
-        routing = json.loads(advanced_json)
-    else:
-        routing = build_routing_block(local_model, effective_cloud_model, state["toggles"])
-
+    effective_cloud_model, routing = _resolve_routing(state, local_model)
     await register_router_collection(local_model, effective_cloud_model, routing)
     return state
 
@@ -327,9 +337,9 @@ async def disable_cloud_offload() -> None:
     state["cloud_offload_enabled"] = False
     _save_state(state)
     local_model = lemonade.get_active_model_spec()["model_name"]
+    cloud_model, routing = _resolve_routing(state, local_model)
     try:
-        routing = build_routing_block(local_model, None, state.get("toggles") or {})
-        await register_router_collection(local_model, None, routing)
+        await register_router_collection(local_model, cloud_model, routing)
     except Exception as exc:
         logger.warning("Could not reconcile model router after disabling cloud offload: %s", exc)
 
@@ -357,13 +367,9 @@ async def reconcile_on_startup() -> None:
             logger.warning("Could not re-apply cloud provider '%s' at startup: %s", slug, exc)
 
     state = _load_state()
-    cloud_model = state.get("cloud_model") if state.get("cloud_offload_enabled") else None
     try:
         local_model = lemonade.get_active_model_spec()["model_name"]
-        if state.get("advanced_json") and cloud_model:
-            routing = json.loads(state["advanced_json"])
-        else:
-            routing = build_routing_block(local_model, cloud_model, state.get("toggles") or {})
+        cloud_model, routing = _resolve_routing(state, local_model)
         await register_router_collection(local_model, cloud_model, routing)
     except Exception as exc:
         logger.warning("Could not register model router at startup: %s", exc)

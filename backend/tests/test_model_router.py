@@ -265,3 +265,73 @@ async def test_apply_cloud_policy_disable_drops_cloud_candidate():
             await model_router.apply_cloud_policy(False, "fireworks", "fireworks.kimi-k2p5", {}, None)
         body = mock_client.post.call_args.kwargs["json"]
     assert body["components"] == ["user.Local"]
+
+
+@pytest.mark.asyncio
+async def test_apply_cloud_policy_disable_ignores_advanced_json():
+    """Disabling must always revert to local-only routing, even when an
+    advanced JSON policy (referencing cloud candidates) is still saved."""
+    advanced = '{"candidates": ["user.Local", "fireworks.kimi-k2p5"], "default_model": "user.Local", "rules": []}'
+    with mock.patch("httpx.AsyncClient") as mock_client_cls:
+        mock_client = mock.AsyncMock()
+        mock_client.post.return_value = _mock_response(200, {})
+        mock_client_cls.return_value.__aenter__.return_value = mock_client
+        with mock.patch.object(model_router.lemonade, "get_active_model_spec", return_value={"model_name": "user.Local"}):
+            await model_router.apply_cloud_policy(False, "fireworks", "fireworks.kimi-k2p5", {}, advanced)
+        body = mock_client.post.call_args.kwargs["json"]
+    assert body["components"] == ["user.Local"]
+    assert body["routing"]["candidates"] == ["user.Local"]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_local_model_change_honors_advanced_json():
+    """A saved advanced policy must not be silently replaced by toggle-derived
+    rules when the local model changes."""
+    advanced = '{"candidates": ["user.OldLocal", "fireworks.kimi-k2p5"], "default_model": "user.OldLocal", "rules": []}'
+    model_router._save_state({
+        **model_router._DEFAULT_STATE,
+        "cloud_offload_enabled": True,
+        "cloud_model": "fireworks.kimi-k2p5",
+        "advanced_json": advanced,
+    })
+    with mock.patch("httpx.AsyncClient") as mock_client_cls:
+        mock_client = mock.AsyncMock()
+        mock_client.post.return_value = _mock_response(200, {})
+        mock_client_cls.return_value.__aenter__.return_value = mock_client
+        await model_router.reconcile_local_model_change("user.NewLocal-GGUF")
+        body = mock_client.post.call_args.kwargs["json"]
+    assert body["routing"]["candidates"] == ["user.OldLocal", "fireworks.kimi-k2p5"]
+
+
+@pytest.mark.asyncio
+async def test_startup_reconcile_waits_for_model_provider(tmp_path, monkeypatch):
+    """The startup hook must chain the collection registration behind the
+    model provider's readiness (a fresh image's seeded model is only
+    registered in lemonade by the ensure/pull task), and must be a no-op for
+    non-lemonade providers."""
+    import asyncio
+    from types import SimpleNamespace
+    from services import control_plane
+
+    calls: list[str] = []
+
+    async def fake_wait(timeout: float = 1800.0):
+        calls.append("wait")
+        return True
+
+    async def fake_reconcile():
+        calls.append("reconcile")
+
+    monkeypatch.setattr(control_plane.model_provider, "wait_until_ready", fake_wait)
+    monkeypatch.setattr(model_router, "reconcile_on_startup", fake_reconcile)
+
+    monkeypatch.setattr(control_plane, "settings", SimpleNamespace(model_provider="inference-snap-gemma4"))
+    await control_plane._maybe_ensure_model_router(None)
+    await asyncio.sleep(0)
+    assert calls == []
+
+    monkeypatch.setattr(control_plane, "settings", SimpleNamespace(model_provider="lemonade-server"))
+    await control_plane._maybe_ensure_model_router(None)
+    for _ in range(5):
+        await asyncio.sleep(0)
+    assert calls == ["wait", "reconcile"]

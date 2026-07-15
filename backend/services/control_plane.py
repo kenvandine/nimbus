@@ -22,7 +22,7 @@ import psutil
 from fastapi import HTTPException
 from pylxd.exceptions import ClientConnectionFailed, LXDAPIException
 
-from config import settings
+from config import MODEL_PROVIDER_LEMONADE, settings
 from constants import SNAP_UI_PORTS
 from models import AppDetail, AppStatus, SystemStats
 from services.control_base import ControlPlaneBase
@@ -161,12 +161,25 @@ async def _maybe_ensure_model_router(_cp: "ControlPlane") -> None:
     every claw app's provider config points at it permanently. lemond's
     runtime cloud API keys are memory-only and die on lemond restart, so this
     also re-applies any configured cloud providers from Nimbus's own encrypted
-    store, which is the durable source of truth. Fire-and-forget, same as
-    model_provider.ensure_ready_task() above, so initialize() doesn't block on
-    lemond being reachable.
+    store, which is the durable source of truth.
+
+    Chained behind model_provider.wait_until_ready() rather than fired
+    immediately: registering a collection in lemonade requires its component
+    model to already be registered there, and on a fresh image the active
+    model only gets registered by the ensure/pull task fired just above. The
+    reconcile still runs even if the wait reports failure — the model may be
+    registered from an earlier boot, and reconcile fails open regardless.
+    Fire-and-forget so initialize() doesn't block on lemonade.
     """
+    if settings.model_provider != MODEL_PROVIDER_LEMONADE:
+        return
     from services import model_router
-    asyncio.create_task(model_router.reconcile_on_startup())
+
+    async def _reconcile_when_provider_ready() -> None:
+        await model_provider.wait_until_ready()
+        await model_router.reconcile_on_startup()
+
+    asyncio.create_task(_reconcile_when_provider_ready())
 
 
 async def _maybe_install_preseed_apps(cp: "ControlPlane") -> None:
