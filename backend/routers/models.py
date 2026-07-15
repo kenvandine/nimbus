@@ -91,10 +91,11 @@ class SelectModelRequest(BaseModel):
 
 @router.post("/select")
 async def select_model(body: SelectModelRequest) -> dict:
-    """Switch the active AI model, pull it if needed, then re-run lemonade --auto
+    """Switch the active AI model, pull it if needed, update Nimbus's model
+    router collection to reference the new model, then re-run lemonade --auto
     for every installed claw app.
     """
-    from services import lemonade, control_plane as cp
+    from services import lemonade, model_router, control_plane as cp
     catalog = await lemonade.get_recipe_catalog()
     spec = next((m for m in catalog if m["model_name"] == body.model_name), None)
     if spec is None:
@@ -104,6 +105,10 @@ async def select_model(body: SelectModelRequest) -> dict:
     async def _task() -> None:
         await lemonade.ensure_model(spec)
         if lemonade.get_pull_state().status == "ready":
+            # Rebuild the router collection to point at the new local model —
+            # this alone makes every claw app (already pointed at the stable
+            # collection name) start using it, with no per-app reconfiguration.
+            await model_router.reconcile_local_model_change(spec["model_name"])
             await cp.run_lemonade_autoconfig()
 
     asyncio.create_task(_task())

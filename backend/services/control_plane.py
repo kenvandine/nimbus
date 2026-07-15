@@ -153,6 +153,22 @@ async def _maybe_ensure_model_provider(_cp: "ControlPlane") -> None:
     model_provider.ensure_ready_task()
 
 
+async def _maybe_ensure_model_router(_cp: "ControlPlane") -> None:
+    """Fire the model_router startup reconciliation task.
+
+    The router collection (model_router.ROUTER_MODEL_NAME) must always exist
+    once lemond is reachable, regardless of whether cloud offload is enabled —
+    every claw app's provider config points at it permanently. lemond's
+    runtime cloud API keys are memory-only and die on lemond restart, so this
+    also re-applies any configured cloud providers from Nimbus's own encrypted
+    store, which is the durable source of truth. Fire-and-forget, same as
+    model_provider.ensure_ready_task() above, so initialize() doesn't block on
+    lemond being reachable.
+    """
+    from services import model_router
+    asyncio.create_task(model_router.reconcile_on_startup())
+
+
 async def _maybe_install_preseed_apps(cp: "ControlPlane") -> None:
     """Queue installs for any preseed apps not yet seen on this device."""
     if not settings.preseed_apps:
@@ -250,6 +266,7 @@ class LocalControlPlane(ControlPlaneBase):
         _ensure_openclaw_workspace_link()
         await _maybe_install_preseed_apps(self)
         await _maybe_ensure_model_provider(self)
+        await _maybe_ensure_model_router(self)
         asyncio.create_task(_update_check_loop(self))
 
     async def _status_for(self, app_id: str, meta=None) -> AppStatus:
@@ -521,6 +538,7 @@ class LxdControlPlane(ControlPlaneBase):
             await nimbus_store.get_catalog()
         await _maybe_install_preseed_apps(self)
         await _maybe_ensure_model_provider(self)
+        await _maybe_ensure_model_router(self)
         asyncio.create_task(_update_check_loop(self))
 
     def _raise_manager_error(self, exc: Exception) -> HTTPException:
@@ -1139,14 +1157,21 @@ class LxdControlPlane(ControlPlaneBase):
 async def run_lemonade_autoconfig() -> None:
     """Re-run the lemonade --auto onboard command for every installed claw app.
 
-    Called after the user switches the active AI model so that all apps
-    supporting auto-config pick up the new model without a reinstall.
-    Passes --model <active_model_name> so each script uses the exact model
-    rather than relying on its own scoring heuristic.
+    Called after the user switches the active AI model or changes the cloud
+    offload policy. With Nimbus's always-on model_router collection, the model
+    *name* each app is configured with never actually changes across these
+    events (it's always model_provider.get_provider_config().model_id, the
+    stable router collection name) — so this call's remaining job is letting
+    apps that introspect model capabilities at onboard time (e.g. PicoClaw's
+    context-window-based max_tokens tuning) re-run that tuning against the
+    router's current definition. Must read the model id via
+    model_provider.get_provider_config(), NOT lemonade.get_active_model_spec()
+    directly — the latter would pass the raw local model name, which is wrong
+    once claw apps are meant to always reference the stable collection name.
     """
-    from services import container_snaps, nimbus_store, lemonade as lemon
+    from services import container_snaps, nimbus_store
     logger.info("Re-running lemonade auto-config for all installed claw apps")
-    active_model = lemon.get_active_model_spec()["model_name"]
+    active_model = model_provider.get_provider_config().model_id
     try:
         catalog, installed_snaps = await asyncio.gather(
             nimbus_store.get_catalog(),

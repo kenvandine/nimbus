@@ -218,6 +218,16 @@ Per-provider defaults:
 - `lemonade-server` → `http://127.0.0.1:13305/api/v1`
 - `inference-snap-gemma4` → `http://127.0.0.1:8336/v1`
 
+### Cloud offload (lemonade-server only)
+
+Nimbus can route *some* chat requests to an OpenAI-compatible cloud provider (Fireworks, OpenAI, OpenRouter, Together, or any custom endpoint) while keeping the local model as the default, using [lemonade's cloud offload](https://lemonade-server.ai) and `collection.router` policy engine. Configured entirely from the web UI — **Device Info → Cloud Offload**:
+
+1. **Add a provider** — pick a curated preset (base URL pre-filled) or enter a custom name + base URL, plus the provider's API key. The key is stored encrypted at rest in `$SNAP_DATA/cloud-providers.json` (same Fernet scheme as the API-key store) and re-applied to lemonade at every Nimbus start, since lemonade holds runtime keys in process memory only.
+2. **Pick a cloud model** — discovered live from the provider through lemonade (`fireworks.kimi-k2p5`-style namespaced names).
+3. **Choose offload rules** — plain-language toggles: offload requests that use tools, requests with images, requests matching keywords, or inputs longer than N characters. An **Advanced: edit policy JSON** escape hatch accepts a raw lemonade routing block (`candidates` / `default_model` / `rules`) for anything the toggles can't express.
+
+How it works: Nimbus always maintains one lemonade `collection.router` model named **`user.NimbusModel`** and points every claw app (OpenClaw, hermes-agent, AnythingLLM, PicoClaw, …) at that fixed name permanently. Switching the active local model or toggling cloud offload only rewrites the collection's definition inside lemonade — no app is ever reconfigured, and requests that match no offload rule (or hit any error) always fall through to the local model. Policy state lives in `$SNAP_COMMON/model_router.json` (no secrets).
+
 ### App store visibility
 
 The App Store tab is hidden by default on appliance images (only the curated agent whitelist is shown). Enable it to let users browse and install from the full catalog:
@@ -451,7 +461,8 @@ nimbus/
 │   │   ├── files.py            # File browser (list / read / write)
 │   │   ├── firewall.py         # ufw firewall management (LXD mode)
 │   │   ├── keys.py             # Named API key store
-│   │   ├── models.py           # Model pull / status / available
+│   │   ├── model_router.py     # Cloud offload providers + routing policy
+│   │   ├── models.py           # Model pull / status / available / select
 │   │   ├── network.py          # Network addresses, Wi-Fi, DNS
 │   │   ├── openclaw.py         # OpenClaw AI assistant status
 │   │   ├── snap_store.py       # AI-Labs snap catalog + container snap install
@@ -466,6 +477,7 @@ nimbus/
 │       ├── container_snaps.py  # snapd inside the LXD container
 │       ├── control_base.py     # Base orchestration service class
 │       ├── control_plane.py    # local / lxd orchestration layer
+│       ├── crypto_store.py     # Shared Fernet-encrypted JSON store helpers
 │       ├── device.py           # OOBE state, host info
 │       ├── device_id.py        # Persistent per-device identifier
 │       ├── docker.py           # docker compose install / uninstall / logs
@@ -475,6 +487,7 @@ nimbus/
 │       ├── lemonade.py         # lemonade-server status and model pull
 │       ├── lxd.py              # pylxd bootstrap, app management, snapshots
 │       ├── model_provider.py   # OpenClaw provider config (lemonade / gemma4)
+│       ├── model_router.py     # Always-on lemonade collection.router + cloud offload
 │       ├── network.py          # Host IP detection, DNS management
 │       ├── nimbus_store.py     # Nimbus JSON catalog parser
 │       ├── openclaw.py         # OpenClaw reachability and agent discovery
@@ -715,6 +728,19 @@ All endpoints are prefixed with `/api/` and require authentication (session cook
 | `GET` | `/api/models/available` | List available models |
 | `POST` | `/api/models/pull` | Pull the default model |
 | `POST` | `/api/models/ensure` | Ensure the default model is present |
+| `POST` | `/api/models/select` | Switch the active model, pulling it if needed |
+
+### Cloud Offload
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/cloud/status` | Offload policy, router readiness, and lemonade reachability |
+| `GET` | `/api/cloud/presets` | Curated cloud provider presets (Fireworks, OpenAI, OpenRouter, Together) |
+| `GET` | `/api/cloud/providers` | Configured cloud providers (keys never returned) |
+| `POST` | `/api/cloud/providers` | Add a cloud provider (name, base URL, API key) |
+| `DELETE` | `/api/cloud/providers/{provider}` | Remove a cloud provider |
+| `GET` | `/api/cloud/providers/{provider}/models` | Chat models discovered from a provider |
+| `POST` | `/api/cloud/policy` | Save the offload policy (enable/disable, model, rules) |
 
 ### OpenClaw
 

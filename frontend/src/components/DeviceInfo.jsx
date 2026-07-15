@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import SystemLogViewer from './SystemLogViewer'
-import { getModelStatus, pullModel, ensureModel, getAvailableModels, selectModel, getHardwareInfo } from '../api.js'
+import { getModelStatus, pullModel, ensureModel, getAvailableModels, selectModel, getHardwareInfo,
+  getCloudStatus, getCloudPresets, listCloudProviders, addCloudProvider, deleteCloudProvider,
+  getCloudProviderModels, saveCloudPolicy } from '../api.js'
 import Button from './ui/Button.jsx'
 import { useTranslation } from '../i18n.jsx'
 
@@ -356,6 +358,278 @@ function AiModelTab() {
   )
 }
 
+function CloudOffloadTab() {
+  const { t } = useTranslation()
+  const [status, setStatus] = useState(null)
+  const [presets, setPresets] = useState({})
+  const [providers, setProviders] = useState([])
+  const [cloudModels, setCloudModels] = useState([])
+  const [busy, setBusy] = useState(null)
+  const [error, setError] = useState(null)
+  const [msg, setMsg] = useState(null)
+
+  const [customName, setCustomName] = useState('')
+  const [customBaseUrl, setCustomBaseUrl] = useState('')
+  const [customApiKey, setCustomApiKey] = useState('')
+
+  const [enabled, setEnabled] = useState(false)
+  const [cloudProvider, setCloudProvider] = useState('')
+  const [cloudModel, setCloudModel] = useState('')
+  const [offloadTools, setOffloadTools] = useState(false)
+  const [offloadImages, setOffloadImages] = useState(false)
+  const [offloadLongInput, setOffloadLongInput] = useState(false)
+  const [longInputChars, setLongInputChars] = useState(4000)
+  const [offloadKeywords, setOffloadKeywords] = useState('')
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [advancedJson, setAdvancedJson] = useState('')
+
+  async function load() {
+    try {
+      const [s, p, provs] = await Promise.all([getCloudStatus(), getCloudPresets(), listCloudProviders()])
+      setStatus(s)
+      setPresets(p)
+      setProviders(provs)
+      setEnabled(Boolean(s.cloud_offload_enabled))
+      setCloudProvider(s.cloud_provider || '')
+      setCloudModel(s.cloud_model || '')
+      const tog = s.toggles || {}
+      setOffloadTools(Boolean(tog.offload_tools))
+      setOffloadImages(Boolean(tog.offload_images))
+      setOffloadLongInput(Boolean(tog.offload_long_input))
+      setLongInputChars(tog.long_input_chars || 4000)
+      setOffloadKeywords((tog.offload_keywords || []).join(', '))
+      if (s.advanced_json) {
+        setShowAdvanced(true)
+        setAdvancedJson(s.advanced_json)
+      }
+    } catch (e) { setError(e.message) }
+  }
+
+  useEffect(() => { load() }, [])
+
+  useEffect(() => {
+    if (!cloudProvider) { setCloudModels([]); return }
+    getCloudProviderModels(cloudProvider).then(setCloudModels).catch(() => setCloudModels([]))
+  }, [cloudProvider])
+
+  async function handleAddPreset(slug) {
+    const preset = presets[slug]
+    if (!preset) return
+    setBusy(`add-${slug}`); setError(null); setMsg(null)
+    try {
+      await addCloudProvider(slug, preset.display_name, preset.base_url, '')
+      setMsg(t('cloud_offload_provider_added', 'Provider added.'))
+      await load()
+    } catch (e) { setError(e.message) } finally { setBusy(null) }
+  }
+
+  async function handleAddCustom() {
+    if (!customName.trim() || !customBaseUrl.trim()) return
+    const slug = customName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+    setBusy('add-custom'); setError(null); setMsg(null)
+    try {
+      await addCloudProvider(slug, customName.trim(), customBaseUrl.trim(), customApiKey)
+      setCustomName(''); setCustomBaseUrl(''); setCustomApiKey('')
+      setMsg(t('cloud_offload_provider_added', 'Provider added.'))
+      await load()
+    } catch (e) { setError(e.message) } finally { setBusy(null) }
+  }
+
+  async function handleDeleteProvider(slug) {
+    setBusy(`del-${slug}`); setError(null); setMsg(null)
+    try {
+      await deleteCloudProvider(slug)
+      setMsg(t('cloud_offload_provider_removed', 'Provider removed.'))
+      await load()
+    } catch (e) { setError(e.message) } finally { setBusy(null) }
+  }
+
+  let advancedParsed
+  let advancedInvalid = false
+  if (showAdvanced) {
+    try { advancedParsed = JSON.parse(advancedJson) } catch { advancedInvalid = true }
+    if (!advancedInvalid && (!advancedParsed || !Array.isArray(advancedParsed.candidates) || !advancedParsed.default_model)) {
+      advancedInvalid = true
+    }
+  }
+
+  const keywordList = offloadKeywords.split(',').map(k => k.trim()).filter(Boolean)
+  const hasAnyToggle = offloadTools || offloadImages || offloadLongInput || keywordList.length > 0
+  const canSave = !enabled || (showAdvanced ? !advancedInvalid : Boolean(cloudModel) && hasAnyToggle)
+
+  async function handleSave() {
+    setBusy('save'); setError(null); setMsg(null)
+    try {
+      await saveCloudPolicy({
+        enabled,
+        cloud_provider: cloudProvider || null,
+        cloud_model: cloudModel || null,
+        toggles: {
+          offload_tools: offloadTools,
+          offload_images: offloadImages,
+          offload_long_input: offloadLongInput,
+          long_input_chars: Number(longInputChars) || 4000,
+          offload_keywords: keywordList,
+        },
+        advanced_json: showAdvanced ? advancedJson : null,
+      })
+      setMsg(t('cloud_offload_save_success', 'Cloud offload policy saved.'))
+      await load()
+    } catch (e) { setError(e.message) } finally { setBusy(null) }
+  }
+
+  if (status === null) return <p style={styles.muted}>{t('loading', 'Loading…')}</p>
+
+  const availablePresets = Object.entries(presets).filter(([slug]) => !providers.some(p => p.provider === slug))
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {error && <div style={styles.errorText}>{error}</div>}
+      {msg && <div style={{ ...styles.errorText, color: 'var(--color-success)' }}>{msg}</div>}
+
+      <div style={styles.infoTable}>
+        <div style={styles.infoRow}>
+          <span style={styles.infoLabel}>{t('cloud_offload_enable', 'Enable Cloud Offload')}</span>
+          <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} />
+        </div>
+        {!enabled && (
+          <div style={styles.infoRow}>
+            <span style={styles.muted}>{t('cloud_offload_disabled_desc', 'All requests stay on the local model.')}</span>
+          </div>
+        )}
+      </div>
+
+      <div>
+        <label style={{ fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)' }}>
+          {t('cloud_offload_provider_title', 'Cloud Provider')}
+        </label>
+
+        {providers.length > 0 && (
+          <div style={{ ...styles.infoTable, marginTop: 8, marginBottom: 8 }}>
+            {providers.map(p => (
+              <div key={p.provider} style={styles.infoRow}>
+                <span style={styles.infoValue}>{p.display_name}</span>
+                <Button
+                  variant="danger" size="sm" onClick={() => handleDeleteProvider(p.provider)}
+                  disabled={Boolean(busy)} loading={busy === `del-${p.provider}`}
+                >
+                  {busy === `del-${p.provider}` ? t('deleting', 'Deleting…') : t('delete', 'Delete')}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {availablePresets.length > 0 && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+            {availablePresets.map(([slug, preset]) => (
+              <Button
+                key={slug} variant="soft" size="sm" onClick={() => handleAddPreset(slug)}
+                disabled={Boolean(busy)} loading={busy === `add-${slug}`}
+              >
+                {t('cloud_offload_add_provider', 'Add')} {preset.display_name}
+              </Button>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <input
+            style={{ ...styles.snapInput, flex: 'none', width: 140 }}
+            placeholder={t('cloud_offload_provider_name', 'Provider name')}
+            value={customName} onChange={e => setCustomName(e.target.value)}
+          />
+          <input
+            style={{ ...styles.snapInput, minWidth: 200 }}
+            placeholder={t('cloud_offload_base_url', 'Base URL')}
+            value={customBaseUrl} onChange={e => setCustomBaseUrl(e.target.value)}
+          />
+          <input
+            style={{ ...styles.snapInput, flex: 'none', width: 140 }}
+            placeholder={t('cloud_offload_api_key', 'API key')} type="password"
+            value={customApiKey} onChange={e => setCustomApiKey(e.target.value)}
+          />
+          <Button
+            variant="soft" size="sm" onClick={handleAddCustom}
+            disabled={Boolean(busy) || !customName.trim() || !customBaseUrl.trim()} loading={busy === 'add-custom'}
+          >
+            {t('cloud_offload_add_provider', 'Add')}
+          </Button>
+        </div>
+      </div>
+
+      {providers.length > 0 && (
+        <div>
+          <label style={{ fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)' }}>
+            {t('cloud_offload_model_title', 'Cloud Model')}
+          </label>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <select style={styles.modelSelect} value={cloudProvider} onChange={e => { setCloudProvider(e.target.value); setCloudModel('') }}>
+              <option value="">—</option>
+              {providers.map(p => <option key={p.provider} value={p.provider}>{p.display_name}</option>)}
+            </select>
+            <select style={styles.modelSelect} value={cloudModel} onChange={e => setCloudModel(e.target.value)} disabled={!cloudProvider}>
+              <option value="">—</option>
+              {cloudModels.map(m => <option key={m.id} value={m.id}>{m.id}</option>)}
+            </select>
+          </div>
+          {cloudProvider && cloudModels.length === 0 && (
+            <p style={styles.muted}>{t('cloud_offload_no_models', 'No models discovered yet — check the API key.')}</p>
+          )}
+        </div>
+      )}
+
+      <div style={styles.infoTable}>
+        <div style={styles.infoRow}>
+          <span style={styles.infoLabel}>{t('cloud_offload_toggle_tools', 'Offload requests that use tools')}</span>
+          <input type="checkbox" checked={offloadTools} onChange={e => setOffloadTools(e.target.checked)} />
+        </div>
+        <div style={styles.infoRow}>
+          <span style={styles.infoLabel}>{t('cloud_offload_toggle_images', 'Offload requests with images')}</span>
+          <input type="checkbox" checked={offloadImages} onChange={e => setOffloadImages(e.target.checked)} />
+        </div>
+        <div style={styles.infoRow}>
+          <span style={styles.infoLabel}>{t('cloud_offload_toggle_long_input', 'Offload long inputs')}</span>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input
+              type="number" style={{ ...styles.snapInput, flex: 'none', width: 90 }}
+              value={longInputChars} onChange={e => setLongInputChars(e.target.value)} disabled={!offloadLongInput}
+            />
+            <input type="checkbox" checked={offloadLongInput} onChange={e => setOffloadLongInput(e.target.checked)} />
+          </div>
+        </div>
+        <div style={styles.infoRow}>
+          <span style={styles.infoLabel}>{t('cloud_offload_toggle_keywords', 'Offload on keywords')}</span>
+          <input
+            style={{ ...styles.snapInput, flex: 'none', width: 220 }}
+            placeholder={t('cloud_offload_keywords_placeholder', 'comma-separated keywords')}
+            value={offloadKeywords} onChange={e => setOffloadKeywords(e.target.value)}
+          />
+        </div>
+      </div>
+
+      <div>
+        <button style={styles.advancedToggle} onClick={() => setShowAdvanced(!showAdvanced)}>
+          {showAdvanced ? '▾' : '▸'} {t('cloud_offload_advanced', 'Advanced: edit policy JSON')}
+        </button>
+        {showAdvanced && (
+          <>
+            <textarea
+              style={styles.advancedTextarea} rows={10} value={advancedJson}
+              onChange={e => setAdvancedJson(e.target.value)}
+            />
+            {advancedInvalid && <p style={styles.errorText}>{t('cloud_offload_advanced_invalid', 'Invalid policy JSON')}</p>}
+          </>
+        )}
+      </div>
+
+      <Button variant="primary" onClick={handleSave} disabled={!canSave || Boolean(busy)} loading={busy === 'save'}>
+        {busy === 'save' ? t('saving', 'Saving…') : t('save', 'Save')}
+      </Button>
+    </div>
+  )
+}
+
 export default function DeviceInfo({ stats, apps }) {
   const { t } = useTranslation()
   const running = apps?.filter(a => a.running).length ?? 0
@@ -377,6 +651,7 @@ export default function DeviceInfo({ stats, apps }) {
     { id: 'overview', label: t('device_info_overview', 'Overview') },
     ...(isLxd ? [{ id: 'snapshots', label: t('device_info_snapshots', 'Snapshots') }] : []),
     { id: 'ai', label: t('device_info_ai', 'AI Model') },
+    { id: 'cloud', label: t('device_info_cloud', 'Cloud Offload') },
     { id: 'logs', label: t('device_info_logs', 'Logs') },
   ]
 
@@ -493,6 +768,13 @@ export default function DeviceInfo({ stats, apps }) {
         <section style={styles.section}>
           <h3 style={styles.sectionTitle}>{t('device_info_ai', 'AI Model')}</h3>
           <AiModelTab />
+        </section>
+      )}
+
+      {activeTab === 'cloud' && (
+        <section style={styles.section}>
+          <h3 style={styles.sectionTitle}>{t('device_info_cloud', 'Cloud Offload')}</h3>
+          <CloudOffloadTab />
         </section>
       )}
 
@@ -645,6 +927,29 @@ const styles = {
     fontSize: '12px',
     cursor: 'pointer',
     outline: 'none',
+  },
+  advancedToggle: {
+    background: 'transparent',
+    border: 'none',
+    color: 'var(--text-secondary)',
+    fontFamily: 'var(--font-sans)',
+    fontSize: '12px',
+    cursor: 'pointer',
+    padding: '4px 0',
+  },
+  advancedTextarea: {
+    width: '100%',
+    marginTop: 8,
+    background: 'var(--color-surface-2)',
+    color: 'var(--text-primary)',
+    border: '1px solid var(--color-border-strong)',
+    borderRadius: 'var(--radius-sm)',
+    padding: '8px 10px',
+    fontFamily: 'var(--font-mono)',
+    fontSize: '12px',
+    outline: 'none',
+    resize: 'vertical',
+    boxSizing: 'border-box',
   },
   confirmOverlay: {
     position: 'fixed',

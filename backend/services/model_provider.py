@@ -55,10 +55,20 @@ def _lemonade_config() -> ProviderConfig:
     # base_url is the full OpenAI-compatible endpoint (with /api/v1) the
     # operator configured via the `openai-url` snap setting; gateway_environment
     # splits it into prefix + path for the openclaw wrapper.
+    #
+    # model_id points at Nimbus's always-on collection.router model
+    # (model_router.ROUTER_MODEL_NAME) once it's confirmed registered in the
+    # running lemond, so every claw app addresses a name that never changes
+    # across local-model switches or cloud-offload toggles — only the
+    # collection's definition changes. Falls back to the raw local model name
+    # during the bootstrap window before the first registration succeeds.
+    from services import model_router
+    local_model_id = lemonade.get_active_model_spec()["model_name"]
+    model_id = model_router.get_router_model_name() if model_router.is_ready() else local_model_id
     return ProviderConfig(
         provider_id="lemonade",
         base_url=settings.openai_url,
-        model_id=lemonade.get_active_model_spec()["model_name"],
+        model_id=model_id,
     )
 
 
