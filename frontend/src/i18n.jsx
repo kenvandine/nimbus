@@ -454,6 +454,13 @@ const translations = {
     cloud_offload_provider_added: 'Provider added.',
     cloud_offload_provider_removed: 'Provider removed.',
     cloud_offload_no_providers: 'No cloud providers configured yet.',
+    cloud_offload_usage_title: 'On-device vs. cloud',
+    cloud_offload_usage_local: 'Local',
+    cloud_offload_usage_cloud: 'Cloud',
+    cloud_offload_usage_view_table: 'View as table',
+    cloud_offload_usage_hide_table: 'Hide table',
+    cloud_offload_usage_unreachable: 'Could not reach lemonade to measure request counts.',
+    cloud_offload_usage_no_data: 'No requests observed yet.',
   },
   es: {
     // general

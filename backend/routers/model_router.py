@@ -112,3 +112,12 @@ async def save_policy(body: PolicyRequest) -> dict:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/usage")
+async def usage(days: int = 14) -> dict:
+    from services import usage_metrics as svc
+    try:
+        return svc.get_summary(days)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))

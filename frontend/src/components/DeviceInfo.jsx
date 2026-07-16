@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import SystemLogViewer from './SystemLogViewer'
 import { getModelStatus, pullModel, ensureModel, getAvailableModels, selectModel, getHardwareInfo,
   getCloudStatus, getCloudPresets, listCloudProviders, addCloudProvider, deleteCloudProvider,
-  getCloudProviderModels, saveCloudPolicy } from '../api.js'
+  getCloudProviderModels, saveCloudPolicy, getCloudUsage } from '../api.js'
 import Button from './ui/Button.jsx'
 import { useTranslation } from '../i18n.jsx'
 
@@ -38,6 +38,86 @@ function InfoRow({ label, value }) {
     <div style={styles.infoRow}>
       <span style={styles.infoLabel}>{label}</span>
       <span style={styles.infoValue}>{value}</span>
+    </div>
+  )
+}
+
+function UsageSplitBar({ local, cloud, t }) {
+  const total = local + cloud
+  if (total === 0) return null
+  const localPct = Math.round((local / total) * 100)
+  const cloudPct = 100 - localPct
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={styles.usageBarTrack}>
+        <div style={{ ...styles.usageBarSegment, width: `${localPct}%`, background: 'var(--color-accent)', borderRadius: '4px 0 0 4px' }} />
+        <div style={{ width: 2 }} />
+        <div style={{ ...styles.usageBarSegment, width: `${cloudPct}%`, background: 'var(--color-info)', borderRadius: '0 4px 4px 0' }} />
+      </div>
+      <div style={styles.usageLegend}>
+        <span style={styles.usageLegendItem}>
+          <span style={{ ...styles.usageDot, background: 'var(--color-accent)' }} />
+          {t('cloud_offload_usage_local', 'Local')} {local.toLocaleString()} ({localPct}%)
+        </span>
+        <span style={styles.usageLegendItem}>
+          <span style={{ ...styles.usageDot, background: 'var(--color-info)' }} />
+          {t('cloud_offload_usage_cloud', 'Cloud')} {cloud.toLocaleString()} ({cloudPct}%)
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function UsageTrend({ daily, t }) {
+  const [showTable, setShowTable] = useState(false)
+  const max = Math.max(1, ...daily.map(d => d.local_requests + d.cloud_requests))
+  const barMaxHeight = 40
+
+  return (
+    <div>
+      <div style={styles.usageTrendStrip}>
+        {daily.map(d => {
+          const dayTotal = d.local_requests + d.cloud_requests
+          const localHeight = dayTotal ? Math.max(1, Math.round((d.local_requests / max) * barMaxHeight)) : 0
+          const cloudHeight = dayTotal ? Math.max(1, Math.round((d.cloud_requests / max) * barMaxHeight)) : 0
+          return (
+            <div
+              key={d.date}
+              style={styles.usageTrendCol}
+              title={`${d.date}: ${d.local_requests.toLocaleString()} ${t('cloud_offload_usage_local', 'Local')} · ${d.cloud_requests.toLocaleString()} ${t('cloud_offload_usage_cloud', 'Cloud')}`}
+            >
+              {d.cloud_requests > 0 && (
+                <div style={{ width: '100%', height: cloudHeight, background: 'var(--color-info)', borderRadius: '2px 2px 0 0' }} />
+              )}
+              {d.local_requests > 0 && d.cloud_requests > 0 && <div style={{ height: 2 }} />}
+              {d.local_requests > 0 && (
+                <div style={{ width: '100%', height: localHeight, background: 'var(--color-accent)', borderRadius: d.cloud_requests > 0 ? '0' : '2px 2px 0 0' }} />
+              )}
+            </div>
+          )
+        })}
+      </div>
+      <div style={styles.usageTrendAxis}>
+        <span>{daily[0]?.date}</span>
+        <span>{daily[daily.length - 1]?.date}</span>
+      </div>
+      <button style={styles.advancedToggle} onClick={() => setShowTable(v => !v)}>
+        {showTable
+          ? t('cloud_offload_usage_hide_table', 'Hide table')
+          : t('cloud_offload_usage_view_table', 'View as table')}
+      </button>
+      {showTable && (
+        <div style={{ ...styles.infoTable, marginTop: 8 }}>
+          {daily.map(d => (
+            <div key={d.date} style={styles.infoRow}>
+              <span style={styles.infoLabel}>{d.date}</span>
+              <span style={styles.infoValue}>
+                {d.local_requests.toLocaleString()} {t('cloud_offload_usage_local', 'Local')} · {d.cloud_requests.toLocaleString()} {t('cloud_offload_usage_cloud', 'Cloud')}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -382,13 +462,15 @@ function CloudOffloadTab() {
   const [offloadKeywords, setOffloadKeywords] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [advancedJson, setAdvancedJson] = useState('')
+  const [usage, setUsage] = useState(null)
 
   async function load() {
     try {
-      const [s, p, provs] = await Promise.all([getCloudStatus(), getCloudPresets(), listCloudProviders()])
+      const [s, p, provs, u] = await Promise.all([getCloudStatus(), getCloudPresets(), listCloudProviders(), getCloudUsage(14)])
       setStatus(s)
       setPresets(p)
       setProviders(provs)
+      setUsage(u)
       setEnabled(Boolean(s.cloud_offload_enabled))
       setCloudProvider(s.cloud_provider || '')
       setCloudModel(s.cloud_model || '')
@@ -626,6 +708,26 @@ function CloudOffloadTab() {
       <Button variant="primary" onClick={handleSave} disabled={!canSave || Boolean(busy)} loading={busy === 'save'}>
         {busy === 'save' ? t('saving', 'Saving…') : t('save', 'Save')}
       </Button>
+
+      <div>
+        <label style={{ fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)' }}>
+          {t('cloud_offload_usage_title', 'On-device vs. cloud')}
+        </label>
+        <div style={{ marginTop: 8 }}>
+          {usage && usage.reachable !== false && (usage.totals.local_requests + usage.totals.cloud_requests > 0) ? (
+            <>
+              <UsageSplitBar local={usage.totals.local_requests} cloud={usage.totals.cloud_requests} t={t} />
+              <UsageTrend daily={usage.daily} t={t} />
+            </>
+          ) : (
+            <p style={styles.muted}>
+              {usage && usage.reachable === false
+                ? t('cloud_offload_usage_unreachable', 'Could not reach lemonade to measure request counts.')
+                : t('cloud_offload_usage_no_data', 'No requests observed yet.')}
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -848,6 +950,20 @@ const styles = {
   gaugeValue: { color: 'var(--text-tertiary)', fontSize: '13px' },
   track: { height: '8px', background: 'var(--color-surface-3)', borderRadius: '4px', overflow: 'hidden' },
   fill: { height: '100%', borderRadius: '4px', transition: 'width 0.6s ease' },
+  usageBarTrack: { display: 'flex', height: '14px', marginBottom: '10px' },
+  usageBarSegment: { transition: 'width 0.6s ease' },
+  usageLegend: { display: 'flex', gap: '18px', flexWrap: 'wrap' },
+  usageLegendItem: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: 'var(--text-secondary)' },
+  usageDot: { width: '8px', height: '8px', borderRadius: '50%', display: 'inline-block', flexShrink: 0 },
+  usageTrendStrip: {
+    display: 'flex', alignItems: 'flex-end', gap: '3px', height: '40px',
+    background: 'var(--color-surface-1)', borderRadius: 'var(--radius-sm)', padding: '4px 6px 0',
+  },
+  usageTrendCol: { flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', minWidth: '4px', cursor: 'default' },
+  usageTrendAxis: {
+    display: 'flex', justifyContent: 'space-between', color: 'var(--text-tertiary)',
+    fontSize: '11px', marginTop: '4px',
+  },
   statGrid: { display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '12px' },
   tile: {
     background: 'var(--color-surface-2)',

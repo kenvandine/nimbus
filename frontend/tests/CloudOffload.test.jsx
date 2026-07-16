@@ -28,9 +28,14 @@ vi.mock('../src/api.js', () => ({
   deleteCloudProvider: vi.fn(() => Promise.resolve({ status: 'removed' })),
   getCloudProviderModels: vi.fn(() => Promise.resolve([{ id: 'fireworks.kimi-k2p5', labels: [] }])),
   saveCloudPolicy: vi.fn(() => Promise.resolve({ status: 'saved' })),
+  getCloudUsage: vi.fn(() => Promise.resolve({
+    totals: { local_requests: 0, cloud_requests: 0 },
+    daily: [],
+    reachable: true,
+  })),
 }))
 
-import { saveCloudPolicy } from '../src/api.js'
+import { saveCloudPolicy, getCloudUsage } from '../src/api.js'
 
 function renderCloudTab() {
   render(
@@ -99,5 +104,40 @@ describe('CloudOffloadTab', () => {
     fireEvent.click(saveButton)
 
     await waitFor(() => expect(screen.getByText(/invalid routing policy/)).toBeInTheDocument())
+  })
+
+  test('shows the no-data message when no requests have been observed yet', async () => {
+    renderCloudTab()
+    await waitFor(() => expect(screen.getByText('No requests observed yet.')).toBeInTheDocument())
+  })
+
+  test('renders the local/cloud split bar and daily trend once usage data exists', async () => {
+    getCloudUsage.mockResolvedValueOnce({
+      totals: { local_requests: 142, cloud_requests: 8 },
+      daily: [
+        { date: '2026-07-15', local_requests: 100, cloud_requests: 5 },
+        { date: '2026-07-16', local_requests: 42, cloud_requests: 3 },
+      ],
+      reachable: true,
+    })
+    renderCloudTab()
+
+    await waitFor(() => expect(screen.getByText(/142/)).toBeInTheDocument())
+    expect(screen.getByText(/8 \(5%\)/)).toBeInTheDocument()
+    expect(screen.getByText('View as table')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('View as table'))
+    expect(screen.getAllByText('2026-07-15').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('2026-07-16').length).toBeGreaterThan(0)
+  })
+
+  test('shows the unreachable message when lemonade metrics could not be scraped', async () => {
+    getCloudUsage.mockResolvedValueOnce({
+      totals: { local_requests: 0, cloud_requests: 0 },
+      daily: [],
+      reachable: false,
+    })
+    renderCloudTab()
+    await waitFor(() => expect(screen.getByText('Could not reach lemonade to measure request counts.')).toBeInTheDocument())
   })
 })

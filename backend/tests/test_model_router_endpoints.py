@@ -112,3 +112,22 @@ def test_save_policy_surfaces_validation_error_as_400():
     assert response.status_code == 400
     assert "invalid routing policy" in response.json()["detail"]
     assert not mock_autoconfig.called
+
+
+def test_get_usage_endpoint():
+    summary = {
+        "totals": {"local_requests": 12, "cloud_requests": 3},
+        "daily": [{"date": "2026-07-16", "local_requests": 12, "cloud_requests": 3}],
+        "reachable": True,
+    }
+    with mock.patch("services.usage_metrics.get_summary", return_value=summary):
+        response = client.get("/api/cloud/usage")
+    assert response.status_code == 200
+    assert response.json() == summary
+
+
+def test_get_usage_endpoint_passes_days_query_param():
+    with mock.patch("services.usage_metrics.get_summary", return_value={}) as mock_summary:
+        response = client.get("/api/cloud/usage?days=30")
+    assert response.status_code == 200
+    mock_summary.assert_called_once_with(30)

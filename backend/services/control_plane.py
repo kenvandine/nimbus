@@ -182,6 +182,16 @@ async def _maybe_ensure_model_router(_cp: "ControlPlane") -> None:
     asyncio.create_task(_reconcile_when_provider_ready())
 
 
+async def _maybe_start_usage_metrics(_cp: "ControlPlane") -> None:
+    """Start the lemonade `/metrics` polling loop that tracks the local-vs-cloud
+    request split (services.usage_metrics). Only meaningful when lemonade is the
+    active model provider, same gate as _maybe_ensure_model_router."""
+    if settings.model_provider != MODEL_PROVIDER_LEMONADE:
+        return
+    from services import usage_metrics
+    asyncio.create_task(usage_metrics.poll_loop())
+
+
 async def _maybe_install_preseed_apps(cp: "ControlPlane") -> None:
     """Queue installs for any preseed apps not yet seen on this device."""
     if not settings.preseed_apps:
@@ -280,6 +290,7 @@ class LocalControlPlane(ControlPlaneBase):
         await _maybe_install_preseed_apps(self)
         await _maybe_ensure_model_provider(self)
         await _maybe_ensure_model_router(self)
+        await _maybe_start_usage_metrics(self)
         asyncio.create_task(_update_check_loop(self))
 
     async def _status_for(self, app_id: str, meta=None) -> AppStatus:
@@ -552,6 +563,7 @@ class LxdControlPlane(ControlPlaneBase):
         await _maybe_install_preseed_apps(self)
         await _maybe_ensure_model_provider(self)
         await _maybe_ensure_model_router(self)
+        await _maybe_start_usage_metrics(self)
         asyncio.create_task(_update_check_loop(self))
 
     def _raise_manager_error(self, exc: Exception) -> HTTPException:

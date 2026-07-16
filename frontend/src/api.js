@@ -117,6 +117,7 @@ export const deleteCloudProvider = (provider) => request(`/cloud/providers/${enc
 export const getCloudProviderModels = (provider) => request(`/cloud/providers/${encodeURIComponent(provider)}/models`)
 export const getCloudStatus = () => request('/cloud/status')
 export const saveCloudPolicy = (body) => json('POST', '/cloud/policy', body)
+export const getCloudUsage = (days) => request(`/cloud/usage${days ? `?days=${days}` : ''}`)
 export const deleteApiKey = (name) => request(`/keys/${encodeURIComponent(name)}`, { method: 'DELETE' })
 
 // Hardware info (static, fetched once)
