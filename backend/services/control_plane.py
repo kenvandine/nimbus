@@ -178,6 +178,7 @@ async def _maybe_ensure_model_router(_cp: "ControlPlane") -> None:
     async def _reconcile_when_provider_ready() -> None:
         await model_provider.wait_until_ready()
         await model_router.reconcile_on_startup()
+        await run_lemonade_autoconfig()
 
     asyncio.create_task(_reconcile_when_provider_ready())
 

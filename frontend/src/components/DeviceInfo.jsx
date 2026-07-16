@@ -462,15 +462,13 @@ function CloudOffloadTab() {
   const [offloadKeywords, setOffloadKeywords] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [advancedJson, setAdvancedJson] = useState('')
-  const [usage, setUsage] = useState(null)
 
   async function load() {
     try {
-      const [s, p, provs, u] = await Promise.all([getCloudStatus(), getCloudPresets(), listCloudProviders(), getCloudUsage(14)])
+      const [s, p, provs] = await Promise.all([getCloudStatus(), getCloudPresets(), listCloudProviders()])
       setStatus(s)
       setPresets(p)
       setProviders(provs)
-      setUsage(u)
       setEnabled(Boolean(s.cloud_offload_enabled))
       setCloudProvider(s.cloud_provider || '')
       setCloudModel(s.cloud_model || '')
@@ -708,26 +706,6 @@ function CloudOffloadTab() {
       <Button variant="primary" onClick={handleSave} disabled={!canSave || Boolean(busy)} loading={busy === 'save'}>
         {busy === 'save' ? t('saving', 'Saving…') : t('save', 'Save')}
       </Button>
-
-      <div>
-        <label style={{ fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)' }}>
-          {t('cloud_offload_usage_title', 'On-device vs. cloud')}
-        </label>
-        <div style={{ marginTop: 8 }}>
-          {usage && usage.reachable !== false && (usage.totals.local_requests + usage.totals.cloud_requests > 0) ? (
-            <>
-              <UsageSplitBar local={usage.totals.local_requests} cloud={usage.totals.cloud_requests} t={t} />
-              <UsageTrend daily={usage.daily} t={t} />
-            </>
-          ) : (
-            <p style={styles.muted}>
-              {usage && usage.reachable === false
-                ? t('cloud_offload_usage_unreachable', 'Could not reach lemonade to measure request counts.')
-                : t('cloud_offload_usage_no_data', 'No requests observed yet.')}
-            </p>
-          )}
-        </div>
-      </div>
     </div>
   )
 }
@@ -744,16 +722,20 @@ export default function DeviceInfo({ stats, apps }) {
   const [logSource, setLogSource] = useState('host')
   const [activeTab, setActiveTab] = useState('overview')
   const [hardware, setHardware] = useState(null)
+  const [usage, setUsage] = useState(null)
 
   useEffect(() => {
     getHardwareInfo().then(setHardware).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    getCloudUsage(14).then(setUsage).catch(() => {})
   }, [])
 
   const tabs = [
     { id: 'overview', label: t('device_info_overview', 'Overview') },
     ...(isLxd ? [{ id: 'snapshots', label: t('device_info_snapshots', 'Snapshots') }] : []),
     { id: 'ai', label: t('device_info_ai', 'AI Model') },
-    { id: 'cloud', label: t('device_info_cloud', 'Cloud Offload') },
     { id: 'logs', label: t('device_info_logs', 'Logs') },
   ]
 
@@ -784,6 +766,22 @@ export default function DeviceInfo({ stats, apps }) {
 
       {activeTab === 'overview' && (
         <>
+          <section style={styles.section}>
+            <h3 style={styles.sectionTitle}>{t('device_info_usage_title', 'Local vs. Cloud Inference')}</h3>
+            {usage && usage.reachable !== false && (usage.totals.local_requests + usage.totals.cloud_requests > 0) ? (
+              <>
+                <UsageSplitBar local={usage.totals.local_requests} cloud={usage.totals.cloud_requests} t={t} />
+                <UsageTrend daily={usage.daily} t={t} />
+              </>
+            ) : (
+              <p style={styles.muted}>
+                {usage && usage.reachable === false
+                  ? t('cloud_offload_usage_unreachable', 'Could not reach lemonade to measure request counts.')
+                  : t('cloud_offload_usage_no_data', 'No requests observed yet.')}
+              </p>
+            )}
+          </section>
+
           <section style={styles.section}>
             <h3 style={styles.sectionTitle}>{t('device_info_system_status', 'System Status')}</h3>
             {stats ? (
@@ -869,12 +867,11 @@ export default function DeviceInfo({ stats, apps }) {
       {activeTab === 'ai' && (
         <section style={styles.section}>
           <h3 style={styles.sectionTitle}>{t('device_info_ai', 'AI Model')}</h3>
+          <p style={styles.muted}>
+            {t('device_info_ai_scope_desc', 'Choose which model runs locally on this device. Cloud offload below decides when a request is routed elsewhere — Lemonade always falls back to the local model here otherwise.')}
+          </p>
           <AiModelTab />
-        </section>
-      )}
-
-      {activeTab === 'cloud' && (
-        <section style={styles.section}>
+          <div style={styles.sectionDivider} />
           <h3 style={styles.sectionTitle}>{t('device_info_cloud', 'Cloud Offload')}</h3>
           <CloudOffloadTab />
         </section>
@@ -944,6 +941,7 @@ const styles = {
     letterSpacing: '0.1em',
     margin: '0 0 14px',
   },
+  sectionDivider: { height: '1px', background: 'var(--color-border-subtle)', margin: '18px 0' },
   gaugeWrap: { marginBottom: '14px' },
   gaugeHeader: { display: 'flex', justifyContent: 'space-between', marginBottom: '6px' },
   gaugeLabel: { color: 'var(--text-secondary)', fontSize: '13px' },

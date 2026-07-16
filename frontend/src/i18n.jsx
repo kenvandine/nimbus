@@ -224,6 +224,7 @@ const translations = {
     device_info_apps_title: 'Apps',
     device_info_platform_title: 'Platform',
     device_info_load: 'Loading device info…',
+    device_info_usage_title: 'Local vs. Cloud Inference',
     device_info_system_status: 'System Status',
     device_info_cpu_usage: 'CPU Usage',
     device_info_memory_usage: 'Memory Usage',
@@ -411,6 +412,7 @@ const translations = {
     device_info_snapshots_restore_desc: 'Restoring {{name}} will revert the container to that state. All changes since the snapshot will be lost.',
 
     // Device Info – AI Model
+    device_info_ai_scope_desc: 'Choose which model runs locally on this device. Cloud offload below decides when a request is routed elsewhere — Lemonade always falls back to the local model here otherwise.',
     device_info_ai_provider: 'Provider',
     device_info_ai_active: 'Active Model',
     device_info_ai_status: 'Status',
@@ -454,7 +456,6 @@ const translations = {
     cloud_offload_provider_added: 'Provider added.',
     cloud_offload_provider_removed: 'Provider removed.',
     cloud_offload_no_providers: 'No cloud providers configured yet.',
-    cloud_offload_usage_title: 'On-device vs. cloud',
     cloud_offload_usage_local: 'Local',
     cloud_offload_usage_cloud: 'Cloud',
     cloud_offload_usage_view_table: 'View as table',

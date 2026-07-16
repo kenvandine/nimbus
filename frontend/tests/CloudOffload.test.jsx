@@ -43,7 +43,15 @@ function renderCloudTab() {
       <DeviceInfo stats={{}} apps={[]} />
     </TranslationProvider>
   )
-  fireEvent.click(screen.getByText('Cloud Offload'))
+  fireEvent.click(screen.getByRole('button', { name: 'AI Model' }))
+}
+
+function renderOverviewTab() {
+  render(
+    <TranslationProvider>
+      <DeviceInfo stats={{}} apps={[]} />
+    </TranslationProvider>
+  )
 }
 
 describe('CloudOffloadTab', () => {
@@ -107,7 +115,7 @@ describe('CloudOffloadTab', () => {
   })
 
   test('shows the no-data message when no requests have been observed yet', async () => {
-    renderCloudTab()
+    renderOverviewTab()
     await waitFor(() => expect(screen.getByText('No requests observed yet.')).toBeInTheDocument())
   })
 
@@ -120,7 +128,7 @@ describe('CloudOffloadTab', () => {
       ],
       reachable: true,
     })
-    renderCloudTab()
+    renderOverviewTab()
 
     await waitFor(() => expect(screen.getByText(/142/)).toBeInTheDocument())
     expect(screen.getByText(/8 \(5%\)/)).toBeInTheDocument()
@@ -137,7 +145,7 @@ describe('CloudOffloadTab', () => {
       daily: [],
       reachable: false,
     })
-    renderCloudTab()
+    renderOverviewTab()
     await waitFor(() => expect(screen.getByText('Could not reach lemonade to measure request counts.')).toBeInTheDocument())
   })
 })
