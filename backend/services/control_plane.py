@@ -884,6 +884,8 @@ class LxdControlPlane(ControlPlaneBase):
                         )
                 await asyncio.sleep(2)
                 cmd, args = onboard
+                active_model = model_provider.get_provider_config().model_id
+                args = list(args) + ["--model", active_model]
                 logger.info("Running onboard for %s: %s %s", snap_name, cmd, " ".join(args))
                 try:
                     ob_result = await container_snaps.run_snap_cmd(cmd, args)
