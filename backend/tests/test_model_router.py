@@ -132,6 +132,39 @@ async def test_register_router_collection_failure_does_not_erase_prior_ready_sta
     assert model_router.is_ready() is True
 
 
+@pytest.mark.asyncio
+async def test_register_router_collection_deletes_existing_collection_before_pulling():
+    # lemonade rejects a *re-pull* (update) of an existing collection.router
+    # with "unknown key 'source'" — deleting first turns it into a fresh
+    # create, which lemonade always accepts. Confirmed against a live device.
+    routing = model_router.build_routing_block("a", None, {})
+    with mock.patch("httpx.AsyncClient") as mock_client_cls:
+        mock_client = mock.AsyncMock()
+        mock_client.post.return_value = _mock_response(200, {})
+        mock_client_cls.return_value.__aenter__.return_value = mock_client
+        await model_router.register_router_collection("a", None, routing)
+
+    calls = mock_client.post.call_args_list
+    assert len(calls) == 2
+    delete_call, pull_call = calls
+    assert delete_call.args[0].endswith("/api/v1/delete")
+    assert delete_call.kwargs["json"] == {"model_name": model_router.ROUTER_MODEL_NAME}
+    assert pull_call.args[0].endswith("/api/v1/pull")
+
+
+@pytest.mark.asyncio
+async def test_register_router_collection_delete_failure_does_not_block_pull():
+    # A 'model not found' style failure (or a network error) on the best-effort
+    # delete must not prevent the subsequent create from being attempted.
+    routing = model_router.build_routing_block("a", None, {})
+    with mock.patch("httpx.AsyncClient") as mock_client_cls:
+        mock_client = mock.AsyncMock()
+        mock_client.post.side_effect = [httpx.ConnectError("refused"), _mock_response(200, {})]
+        mock_client_cls.return_value.__aenter__.return_value = mock_client
+        await model_router.register_router_collection("a", None, routing)
+    assert model_router.is_ready() is True
+
+
 # ---------------------------------------------------------------------------
 # Cloud provider registration
 # ---------------------------------------------------------------------------

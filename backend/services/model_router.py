@@ -251,9 +251,16 @@ def build_router_collection_body(local_model: str, cloud_model: str | None, rout
 
 
 async def register_router_collection(local_model: str, cloud_model: str | None, routing: dict) -> None:
-    """POST /api/v1/pull — overwrites the collection in place if it already
-    exists (confirmed: lemonade treats a re-pull of a collection recipe with a
-    components array as an update, never requiring delete+recreate).
+    """POST /api/v1/pull to (re-)register the collection.
+
+    Deletes any existing ROUTER_MODEL_NAME collection first. lemonade's stored
+    record of an existing model always carries an internal 'source' field we
+    never send; re-pulling to *update* an existing collection merges our body
+    into that stored record and then rejects the merged result with "collection
+    contains unknown key 'source'" (confirmed against a live device). Deleting
+    first turns every registration into a fresh create, which lemonade always
+    accepts. The delete is best-effort — a 'model not found' response on first-
+    ever registration is expected and harmless.
 
     On success, sets the module-level ready flag. On failure, raises with
     lemonade's validation message; the flag is left untouched, so a bad update
@@ -261,9 +268,12 @@ async def register_router_collection(local_model: str, cloud_model: str | None, 
     """
     global _router_ready
     body = build_router_collection_body(local_model, cloud_model, routing)
-    url = f"{lemonade.LEMONADE_BASE_URL}/api/v1/pull"
     async with httpx.AsyncClient(timeout=30.0) as client:
-        r = await client.post(url, json=body)
+        try:
+            await client.post(f"{lemonade.LEMONADE_BASE_URL}/api/v1/delete", json={"model_name": ROUTER_MODEL_NAME})
+        except httpx.HTTPError as exc:
+            logger.warning("Could not pre-delete router collection before re-pull: %s", exc)
+        r = await client.post(f"{lemonade.LEMONADE_BASE_URL}/api/v1/pull", json=body)
     if r.status_code != 200:
         raise RuntimeError(f"Lemonade /v1/pull HTTP {r.status_code}: {r.text[:300]}")
     _router_ready = True
