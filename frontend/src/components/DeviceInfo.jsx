@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import SystemLogViewer from './SystemLogViewer'
-import { getModelStatus, pullModel, ensureModel, getAvailableModels, selectModel, getHardwareInfo } from '../api.js'
+import { getModelStatus, pullModel, ensureModel, getAvailableModels, selectModel, getHardwareInfo,
+  getCloudStatus, getCloudPresets, listCloudProviders, addCloudProvider, deleteCloudProvider,
+  getCloudProviderModels, saveCloudPolicy, getCloudUsage } from '../api.js'
 import Button from './ui/Button.jsx'
 import { useTranslation } from '../i18n.jsx'
 
@@ -36,6 +38,86 @@ function InfoRow({ label, value }) {
     <div style={styles.infoRow}>
       <span style={styles.infoLabel}>{label}</span>
       <span style={styles.infoValue}>{value}</span>
+    </div>
+  )
+}
+
+function UsageSplitBar({ local, cloud, t }) {
+  const total = local + cloud
+  if (total === 0) return null
+  const localPct = Math.round((local / total) * 100)
+  const cloudPct = 100 - localPct
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={styles.usageBarTrack}>
+        <div style={{ ...styles.usageBarSegment, width: `${localPct}%`, background: 'var(--color-accent)', borderRadius: '4px 0 0 4px' }} />
+        <div style={{ width: 2 }} />
+        <div style={{ ...styles.usageBarSegment, width: `${cloudPct}%`, background: 'var(--color-info)', borderRadius: '0 4px 4px 0' }} />
+      </div>
+      <div style={styles.usageLegend}>
+        <span style={styles.usageLegendItem}>
+          <span style={{ ...styles.usageDot, background: 'var(--color-accent)' }} />
+          {t('cloud_offload_usage_local', 'Local')} {local.toLocaleString()} ({localPct}%)
+        </span>
+        <span style={styles.usageLegendItem}>
+          <span style={{ ...styles.usageDot, background: 'var(--color-info)' }} />
+          {t('cloud_offload_usage_cloud', 'Cloud')} {cloud.toLocaleString()} ({cloudPct}%)
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function UsageTrend({ daily, t }) {
+  const [showTable, setShowTable] = useState(false)
+  const max = Math.max(1, ...daily.map(d => d.local_requests + d.cloud_requests))
+  const barMaxHeight = 40
+
+  return (
+    <div>
+      <div style={styles.usageTrendStrip}>
+        {daily.map(d => {
+          const dayTotal = d.local_requests + d.cloud_requests
+          const localHeight = dayTotal ? Math.max(1, Math.round((d.local_requests / max) * barMaxHeight)) : 0
+          const cloudHeight = dayTotal ? Math.max(1, Math.round((d.cloud_requests / max) * barMaxHeight)) : 0
+          return (
+            <div
+              key={d.date}
+              style={styles.usageTrendCol}
+              title={`${d.date}: ${d.local_requests.toLocaleString()} ${t('cloud_offload_usage_local', 'Local')} · ${d.cloud_requests.toLocaleString()} ${t('cloud_offload_usage_cloud', 'Cloud')}`}
+            >
+              {d.cloud_requests > 0 && (
+                <div style={{ width: '100%', height: cloudHeight, background: 'var(--color-info)', borderRadius: '2px 2px 0 0' }} />
+              )}
+              {d.local_requests > 0 && d.cloud_requests > 0 && <div style={{ height: 2 }} />}
+              {d.local_requests > 0 && (
+                <div style={{ width: '100%', height: localHeight, background: 'var(--color-accent)', borderRadius: d.cloud_requests > 0 ? '0' : '2px 2px 0 0' }} />
+              )}
+            </div>
+          )
+        })}
+      </div>
+      <div style={styles.usageTrendAxis}>
+        <span>{daily[0]?.date}</span>
+        <span>{daily[daily.length - 1]?.date}</span>
+      </div>
+      <button style={styles.advancedToggle} onClick={() => setShowTable(v => !v)}>
+        {showTable
+          ? t('cloud_offload_usage_hide_table', 'Hide table')
+          : t('cloud_offload_usage_view_table', 'View as table')}
+      </button>
+      {showTable && (
+        <div style={{ ...styles.infoTable, marginTop: 8 }}>
+          {daily.map(d => (
+            <div key={d.date} style={styles.infoRow}>
+              <span style={styles.infoLabel}>{d.date}</span>
+              <span style={styles.infoValue}>
+                {d.local_requests.toLocaleString()} {t('cloud_offload_usage_local', 'Local')} · {d.cloud_requests.toLocaleString()} {t('cloud_offload_usage_cloud', 'Cloud')}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -356,6 +438,278 @@ function AiModelTab() {
   )
 }
 
+function CloudOffloadTab() {
+  const { t } = useTranslation()
+  const [status, setStatus] = useState(null)
+  const [presets, setPresets] = useState({})
+  const [providers, setProviders] = useState([])
+  const [cloudModels, setCloudModels] = useState([])
+  const [busy, setBusy] = useState(null)
+  const [error, setError] = useState(null)
+  const [msg, setMsg] = useState(null)
+
+  const [customName, setCustomName] = useState('')
+  const [customBaseUrl, setCustomBaseUrl] = useState('')
+  const [customApiKey, setCustomApiKey] = useState('')
+
+  const [enabled, setEnabled] = useState(false)
+  const [cloudProvider, setCloudProvider] = useState('')
+  const [cloudModel, setCloudModel] = useState('')
+  const [offloadTools, setOffloadTools] = useState(false)
+  const [offloadImages, setOffloadImages] = useState(false)
+  const [offloadLongInput, setOffloadLongInput] = useState(false)
+  const [longInputChars, setLongInputChars] = useState(4000)
+  const [offloadKeywords, setOffloadKeywords] = useState('')
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [advancedJson, setAdvancedJson] = useState('')
+
+  async function load() {
+    try {
+      const [s, p, provs] = await Promise.all([getCloudStatus(), getCloudPresets(), listCloudProviders()])
+      setStatus(s)
+      setPresets(p)
+      setProviders(provs)
+      setEnabled(Boolean(s.cloud_offload_enabled))
+      setCloudProvider(s.cloud_provider || '')
+      setCloudModel(s.cloud_model || '')
+      const tog = s.toggles || {}
+      setOffloadTools(Boolean(tog.offload_tools))
+      setOffloadImages(Boolean(tog.offload_images))
+      setOffloadLongInput(Boolean(tog.offload_long_input))
+      setLongInputChars(tog.long_input_chars || 4000)
+      setOffloadKeywords((tog.offload_keywords || []).join(', '))
+      if (s.advanced_json) {
+        setShowAdvanced(true)
+        setAdvancedJson(s.advanced_json)
+      }
+    } catch (e) { setError(e.message) }
+  }
+
+  useEffect(() => { load() }, [])
+
+  useEffect(() => {
+    if (!cloudProvider) { setCloudModels([]); return }
+    getCloudProviderModels(cloudProvider).then(setCloudModels).catch(() => setCloudModels([]))
+  }, [cloudProvider])
+
+  async function handleAddPreset(slug) {
+    const preset = presets[slug]
+    if (!preset) return
+    setBusy(`add-${slug}`); setError(null); setMsg(null)
+    try {
+      await addCloudProvider(slug, preset.display_name, preset.base_url, '')
+      setMsg(t('cloud_offload_provider_added', 'Provider added.'))
+      await load()
+    } catch (e) { setError(e.message) } finally { setBusy(null) }
+  }
+
+  async function handleAddCustom() {
+    if (!customName.trim() || !customBaseUrl.trim()) return
+    const slug = customName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+    setBusy('add-custom'); setError(null); setMsg(null)
+    try {
+      await addCloudProvider(slug, customName.trim(), customBaseUrl.trim(), customApiKey)
+      setCustomName(''); setCustomBaseUrl(''); setCustomApiKey('')
+      setMsg(t('cloud_offload_provider_added', 'Provider added.'))
+      await load()
+    } catch (e) { setError(e.message) } finally { setBusy(null) }
+  }
+
+  async function handleDeleteProvider(slug) {
+    setBusy(`del-${slug}`); setError(null); setMsg(null)
+    try {
+      await deleteCloudProvider(slug)
+      setMsg(t('cloud_offload_provider_removed', 'Provider removed.'))
+      await load()
+    } catch (e) { setError(e.message) } finally { setBusy(null) }
+  }
+
+  let advancedParsed
+  let advancedInvalid = false
+  if (showAdvanced) {
+    try { advancedParsed = JSON.parse(advancedJson) } catch { advancedInvalid = true }
+    if (!advancedInvalid && (!advancedParsed || !Array.isArray(advancedParsed.candidates) || !advancedParsed.default_model)) {
+      advancedInvalid = true
+    }
+  }
+
+  const keywordList = offloadKeywords.split(',').map(k => k.trim()).filter(Boolean)
+  const hasAnyToggle = offloadTools || offloadImages || offloadLongInput || keywordList.length > 0
+  const canSave = !enabled || (showAdvanced ? !advancedInvalid : Boolean(cloudModel) && hasAnyToggle)
+
+  async function handleSave() {
+    setBusy('save'); setError(null); setMsg(null)
+    try {
+      await saveCloudPolicy({
+        enabled,
+        cloud_provider: cloudProvider || null,
+        cloud_model: cloudModel || null,
+        toggles: {
+          offload_tools: offloadTools,
+          offload_images: offloadImages,
+          offload_long_input: offloadLongInput,
+          long_input_chars: Number(longInputChars) || 4000,
+          offload_keywords: keywordList,
+        },
+        advanced_json: showAdvanced ? advancedJson : null,
+      })
+      setMsg(t('cloud_offload_save_success', 'Cloud offload policy saved.'))
+      await load()
+    } catch (e) { setError(e.message) } finally { setBusy(null) }
+  }
+
+  if (status === null) return <p style={styles.muted}>{t('loading', 'Loading…')}</p>
+
+  const availablePresets = Object.entries(presets).filter(([slug]) => !providers.some(p => p.provider === slug))
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {error && <div style={styles.errorText}>{error}</div>}
+      {msg && <div style={{ ...styles.errorText, color: 'var(--color-success)' }}>{msg}</div>}
+
+      <div style={styles.infoTable}>
+        <div style={styles.infoRow}>
+          <span style={styles.infoLabel}>{t('cloud_offload_enable', 'Enable Cloud Offload')}</span>
+          <input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} />
+        </div>
+        {!enabled && (
+          <div style={styles.infoRow}>
+            <span style={styles.muted}>{t('cloud_offload_disabled_desc', 'All requests stay on the local model.')}</span>
+          </div>
+        )}
+      </div>
+
+      <div>
+        <label style={{ fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)' }}>
+          {t('cloud_offload_provider_title', 'Cloud Provider')}
+        </label>
+
+        {providers.length > 0 && (
+          <div style={{ ...styles.infoTable, marginTop: 8, marginBottom: 8 }}>
+            {providers.map(p => (
+              <div key={p.provider} style={styles.infoRow}>
+                <span style={styles.infoValue}>{p.display_name}</span>
+                <Button
+                  variant="danger" size="sm" onClick={() => handleDeleteProvider(p.provider)}
+                  disabled={Boolean(busy)} loading={busy === `del-${p.provider}`}
+                >
+                  {busy === `del-${p.provider}` ? t('deleting', 'Deleting…') : t('delete', 'Delete')}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {availablePresets.length > 0 && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+            {availablePresets.map(([slug, preset]) => (
+              <Button
+                key={slug} variant="soft" size="sm" onClick={() => handleAddPreset(slug)}
+                disabled={Boolean(busy)} loading={busy === `add-${slug}`}
+              >
+                {t('cloud_offload_add_provider', 'Add')} {preset.display_name}
+              </Button>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <input
+            style={{ ...styles.snapInput, flex: 'none', width: 140 }}
+            placeholder={t('cloud_offload_provider_name', 'Provider name')}
+            value={customName} onChange={e => setCustomName(e.target.value)}
+          />
+          <input
+            style={{ ...styles.snapInput, minWidth: 200 }}
+            placeholder={t('cloud_offload_base_url', 'Base URL')}
+            value={customBaseUrl} onChange={e => setCustomBaseUrl(e.target.value)}
+          />
+          <input
+            style={{ ...styles.snapInput, flex: 'none', width: 140 }}
+            placeholder={t('cloud_offload_api_key', 'API key')} type="password"
+            value={customApiKey} onChange={e => setCustomApiKey(e.target.value)}
+          />
+          <Button
+            variant="soft" size="sm" onClick={handleAddCustom}
+            disabled={Boolean(busy) || !customName.trim() || !customBaseUrl.trim()} loading={busy === 'add-custom'}
+          >
+            {t('cloud_offload_add_provider', 'Add')}
+          </Button>
+        </div>
+      </div>
+
+      {providers.length > 0 && (
+        <div>
+          <label style={{ fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)' }}>
+            {t('cloud_offload_model_title', 'Cloud Model')}
+          </label>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <select style={styles.modelSelect} value={cloudProvider} onChange={e => { setCloudProvider(e.target.value); setCloudModel('') }}>
+              <option value="">—</option>
+              {providers.map(p => <option key={p.provider} value={p.provider}>{p.display_name}</option>)}
+            </select>
+            <select style={styles.modelSelect} value={cloudModel} onChange={e => setCloudModel(e.target.value)} disabled={!cloudProvider}>
+              <option value="">—</option>
+              {cloudModels.map(m => <option key={m.id} value={m.id}>{m.id}</option>)}
+            </select>
+          </div>
+          {cloudProvider && cloudModels.length === 0 && (
+            <p style={styles.muted}>{t('cloud_offload_no_models', 'No models discovered yet — check the API key.')}</p>
+          )}
+        </div>
+      )}
+
+      <div style={styles.infoTable}>
+        <div style={styles.infoRow}>
+          <span style={styles.infoLabel}>{t('cloud_offload_toggle_tools', 'Offload requests that use tools')}</span>
+          <input type="checkbox" checked={offloadTools} onChange={e => setOffloadTools(e.target.checked)} />
+        </div>
+        <div style={styles.infoRow}>
+          <span style={styles.infoLabel}>{t('cloud_offload_toggle_images', 'Offload requests with images')}</span>
+          <input type="checkbox" checked={offloadImages} onChange={e => setOffloadImages(e.target.checked)} />
+        </div>
+        <div style={styles.infoRow}>
+          <span style={styles.infoLabel}>{t('cloud_offload_toggle_long_input', 'Offload long inputs')}</span>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input
+              type="number" style={{ ...styles.snapInput, flex: 'none', width: 90 }}
+              value={longInputChars} onChange={e => setLongInputChars(e.target.value)} disabled={!offloadLongInput}
+            />
+            <input type="checkbox" checked={offloadLongInput} onChange={e => setOffloadLongInput(e.target.checked)} />
+          </div>
+        </div>
+        <div style={styles.infoRow}>
+          <span style={styles.infoLabel}>{t('cloud_offload_toggle_keywords', 'Offload on keywords')}</span>
+          <input
+            style={{ ...styles.snapInput, flex: 'none', width: 220 }}
+            placeholder={t('cloud_offload_keywords_placeholder', 'comma-separated keywords')}
+            value={offloadKeywords} onChange={e => setOffloadKeywords(e.target.value)}
+          />
+        </div>
+      </div>
+
+      <div>
+        <button style={styles.advancedToggle} onClick={() => setShowAdvanced(!showAdvanced)}>
+          {showAdvanced ? '▾' : '▸'} {t('cloud_offload_advanced', 'Advanced: edit policy JSON')}
+        </button>
+        {showAdvanced && (
+          <>
+            <textarea
+              style={styles.advancedTextarea} rows={10} value={advancedJson}
+              onChange={e => setAdvancedJson(e.target.value)}
+            />
+            {advancedInvalid && <p style={styles.errorText}>{t('cloud_offload_advanced_invalid', 'Invalid policy JSON')}</p>}
+          </>
+        )}
+      </div>
+
+      <Button variant="primary" onClick={handleSave} disabled={!canSave || Boolean(busy)} loading={busy === 'save'}>
+        {busy === 'save' ? t('saving', 'Saving…') : t('save', 'Save')}
+      </Button>
+    </div>
+  )
+}
+
 export default function DeviceInfo({ stats, apps }) {
   const { t } = useTranslation()
   const running = apps?.filter(a => a.running).length ?? 0
@@ -368,9 +722,14 @@ export default function DeviceInfo({ stats, apps }) {
   const [logSource, setLogSource] = useState('host')
   const [activeTab, setActiveTab] = useState('overview')
   const [hardware, setHardware] = useState(null)
+  const [usage, setUsage] = useState(null)
 
   useEffect(() => {
     getHardwareInfo().then(setHardware).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    getCloudUsage(14).then(setUsage).catch(() => {})
   }, [])
 
   const tabs = [
@@ -407,6 +766,22 @@ export default function DeviceInfo({ stats, apps }) {
 
       {activeTab === 'overview' && (
         <>
+          <section style={styles.section}>
+            <h3 style={styles.sectionTitle}>{t('device_info_usage_title', 'Local vs. Cloud Inference')}</h3>
+            {usage && usage.reachable !== false && (usage.totals.local_requests + usage.totals.cloud_requests > 0) ? (
+              <>
+                <UsageSplitBar local={usage.totals.local_requests} cloud={usage.totals.cloud_requests} t={t} />
+                <UsageTrend daily={usage.daily} t={t} />
+              </>
+            ) : (
+              <p style={styles.muted}>
+                {usage && usage.reachable === false
+                  ? t('cloud_offload_usage_unreachable', 'Could not reach lemonade to measure request counts.')
+                  : t('cloud_offload_usage_no_data', 'No requests observed yet.')}
+              </p>
+            )}
+          </section>
+
           <section style={styles.section}>
             <h3 style={styles.sectionTitle}>{t('device_info_system_status', 'System Status')}</h3>
             {stats ? (
@@ -492,7 +867,13 @@ export default function DeviceInfo({ stats, apps }) {
       {activeTab === 'ai' && (
         <section style={styles.section}>
           <h3 style={styles.sectionTitle}>{t('device_info_ai', 'AI Model')}</h3>
+          <p style={styles.muted}>
+            {t('device_info_ai_scope_desc', 'Choose which model runs locally on this device. Cloud offload below decides when a request is routed elsewhere — Lemonade always falls back to the local model here otherwise.')}
+          </p>
           <AiModelTab />
+          <div style={styles.sectionDivider} />
+          <h3 style={styles.sectionTitle}>{t('device_info_cloud', 'Cloud Offload')}</h3>
+          <CloudOffloadTab />
         </section>
       )}
 
@@ -560,12 +941,27 @@ const styles = {
     letterSpacing: '0.1em',
     margin: '0 0 14px',
   },
+  sectionDivider: { height: '1px', background: 'var(--color-border-subtle)', margin: '18px 0' },
   gaugeWrap: { marginBottom: '14px' },
   gaugeHeader: { display: 'flex', justifyContent: 'space-between', marginBottom: '6px' },
   gaugeLabel: { color: 'var(--text-secondary)', fontSize: '13px' },
   gaugeValue: { color: 'var(--text-tertiary)', fontSize: '13px' },
   track: { height: '8px', background: 'var(--color-surface-3)', borderRadius: '4px', overflow: 'hidden' },
   fill: { height: '100%', borderRadius: '4px', transition: 'width 0.6s ease' },
+  usageBarTrack: { display: 'flex', height: '14px', marginBottom: '10px' },
+  usageBarSegment: { transition: 'width 0.6s ease' },
+  usageLegend: { display: 'flex', gap: '18px', flexWrap: 'wrap' },
+  usageLegendItem: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: 'var(--text-secondary)' },
+  usageDot: { width: '8px', height: '8px', borderRadius: '50%', display: 'inline-block', flexShrink: 0 },
+  usageTrendStrip: {
+    display: 'flex', alignItems: 'flex-end', gap: '3px', height: '40px',
+    background: 'var(--color-surface-1)', borderRadius: 'var(--radius-sm)', padding: '4px 6px 0',
+  },
+  usageTrendCol: { flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', minWidth: '4px', cursor: 'default' },
+  usageTrendAxis: {
+    display: 'flex', justifyContent: 'space-between', color: 'var(--text-tertiary)',
+    fontSize: '11px', marginTop: '4px',
+  },
   statGrid: { display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '12px' },
   tile: {
     background: 'var(--color-surface-2)',
@@ -645,6 +1041,29 @@ const styles = {
     fontSize: '12px',
     cursor: 'pointer',
     outline: 'none',
+  },
+  advancedToggle: {
+    background: 'transparent',
+    border: 'none',
+    color: 'var(--text-secondary)',
+    fontFamily: 'var(--font-sans)',
+    fontSize: '12px',
+    cursor: 'pointer',
+    padding: '4px 0',
+  },
+  advancedTextarea: {
+    width: '100%',
+    marginTop: 8,
+    background: 'var(--color-surface-2)',
+    color: 'var(--text-primary)',
+    border: '1px solid var(--color-border-strong)',
+    borderRadius: 'var(--radius-sm)',
+    padding: '8px 10px',
+    fontFamily: 'var(--font-mono)',
+    fontSize: '12px',
+    outline: 'none',
+    resize: 'vertical',
+    boxSizing: 'border-box',
   },
   confirmOverlay: {
     position: 'fixed',

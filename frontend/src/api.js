@@ -107,6 +107,17 @@ export const selectModel = (modelName) => json('POST', '/models/select', { model
 // API Keys
 export const listApiKeys = () => request('/keys')
 export const setApiKey = (name, value) => json('POST', '/keys', { name, value })
+
+// Cloud Offload (model router)
+export const getCloudPresets = () => request('/cloud/presets')
+export const listCloudProviders = () => request('/cloud/providers')
+export const addCloudProvider = (provider, display_name, base_url, api_key) =>
+  json('POST', '/cloud/providers', { provider, display_name, base_url, api_key })
+export const deleteCloudProvider = (provider) => request(`/cloud/providers/${encodeURIComponent(provider)}`, { method: 'DELETE' })
+export const getCloudProviderModels = (provider) => request(`/cloud/providers/${encodeURIComponent(provider)}/models`)
+export const getCloudStatus = () => request('/cloud/status')
+export const saveCloudPolicy = (body) => json('POST', '/cloud/policy', body)
+export const getCloudUsage = (days) => request(`/cloud/usage${days ? `?days=${days}` : ''}`)
 export const deleteApiKey = (name) => request(`/keys/${encodeURIComponent(name)}`, { method: 'DELETE' })
 
 // Hardware info (static, fetched once)

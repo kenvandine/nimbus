@@ -24,6 +24,7 @@ from routers.snapshots import router as snapshots_router
 from routers.firewall import router as firewall_router
 from routers.models import router as models_router
 from routers.keys import router as keys_router
+from routers.model_router import router as model_router_router
 from routers.tailscale import router as tailscale_router
 from services.control_plane import get_control_plane
 from services import openclaw as openclaw_service
@@ -349,6 +350,7 @@ app.include_router(snapshots_router)
 app.include_router(firewall_router)
 app.include_router(models_router)
 app.include_router(keys_router)
+app.include_router(model_router_router)
 app.include_router(tailscale_router)
 
 # Must be mounted before the catch-all "/" frontend mount below, or that
