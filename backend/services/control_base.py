@@ -55,6 +55,9 @@ class ControlPlaneBase:
     def __init__(self) -> None:
         self._installing: set[str] = set()
         self._updating: set[str] = set()
+        # Names of container snaps with a pending store update, refreshed
+        # periodically by the update-check loop (revision-based, via the agent).
+        self._snap_updates: set[str] = set()
 
     async def active_installs(self) -> list[str]:
         return list(self._installing)

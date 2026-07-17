@@ -262,6 +262,11 @@ _UPDATE_CHECK_INTERVAL = 6 * 3600  # 6 hours
 async def _run_update_check(cp: "ControlPlane") -> None:
     global _app_update_count
     try:
+        # Refresh the store-side revision check first (nimbus mode) so the
+        # update_available flags computed by list_apps reflect current state.
+        refresh = getattr(cp, "refresh_snap_updates", None)
+        if refresh is not None:
+            await refresh()
         apps = await cp.list_apps()
         _app_update_count = sum(1 for a in apps if getattr(a, "update_available", False))
         logger.info("App update check complete: %d update(s) available", _app_update_count)
@@ -526,6 +531,32 @@ class LxdControlPlane(ControlPlaneBase):
         if settings.lxd_auto_bootstrap and self._bootstrap_task is None:
             self._bootstrap_task = asyncio.create_task(self._bootstrap_when_online())
         asyncio.create_task(self._unmanage_loop())
+        if settings.app_store_type == "nimbus":
+            asyncio.create_task(self._snap_update_check_loop())
+
+    async def refresh_snap_updates(self) -> None:
+        """Cache the names of container snaps with a pending store update.
+
+        Backed by `snap refresh --list` in the agent — a revision-based check
+        against each snap's tracked channel, independent of the catalog.
+        """
+        from services import container_snaps
+        try:
+            refreshes = await container_snaps.list_snap_refreshes()
+            self._snap_updates = {s["name"] for s in refreshes if s.get("name")}
+            logger.info(
+                "Store update check: %d snap(s) with a pending update",
+                len(self._snap_updates),
+            )
+        except Exception as exc:
+            logger.warning("Could not refresh snap update list: %s", exc)
+
+    async def _snap_update_check_loop(self) -> None:
+        # Wait for the container/agent to come up, do an initial check so labels
+        # appear without waiting a full interval, then check periodically.
+        await asyncio.sleep(120)
+        await _run_update_check(self)
+        await _update_check_loop(self)
 
     async def _unmanage_loop(self) -> None:
         while True:
@@ -695,10 +726,12 @@ class LxdControlPlane(ControlPlaneBase):
             snap_info = installed_map.get(meta.id)
             if snap_info:
                 has_service, running = svc_map.get(meta.id, (False, True))
-                installed_ver = snap_info.get("version", "")
-                update_available = bool(
-                    meta.version and installed_ver and installed_ver != meta.version
-                )
+                # Revision-based: the snap appears in the store refresh list
+                # (populated by the update-check loop) when a newer revision is
+                # available on its tracked channel. Not derived from the catalog.
+                snap = nimbus_store.get_snap(catalog, meta.id)
+                store_name = nimbus_store.get_store_name(snap) if snap else meta.id
+                update_available = store_name in self._snap_updates
                 port = meta.ports[0] if meta.ports else SNAP_UI_PORTS.get(meta.id)
                 open_url = network.build_open_url(host_ip, port) if port and host_ip and running else None
                 if open_url and meta.id == "openclaw" and openclaw_token:
@@ -992,39 +1025,50 @@ class LxdControlPlane(ControlPlaneBase):
                 _invalidate_openclaw_token_cache()
 
     async def _do_nimbus_update(self, snap_name: str) -> None:
+        """Update an installed store snap via `snap refresh`.
+
+        The claw snaps run as a systemd *user* service that snapd does not
+        manage, so refreshing alone won't stop their running processes. We
+        stop the service, kill any lingering snap processes, refresh from the
+        store (its tracked channel — not the catalog), then start it again.
+        """
         from services import nimbus_store, container_snaps
         try:
-            catalog = await nimbus_store.get_catalog(force=True)
+            catalog = await nimbus_store.get_catalog()
             snap = nimbus_store.get_snap(catalog, snap_name)
             if snap is None:
                 raise RuntimeError(f"App '{snap_name}' not found in nimbus store")
+            channel = nimbus_store.get_channel(snap)
+            if not channel:
+                # No store channel — this snap was sideloaded and cannot be
+                # refreshed from the store. Updating it means reinstalling.
+                logger.warning(
+                    "Skipping update for %s: not a store snap (no channel)", snap_name,
+                )
+                return
+            store_name = nimbus_store.get_store_name(snap)
             service_name = nimbus_store.get_service_name(snap)
+
+            # 1. Stop the user service (best effort).
             if service_name:
                 try:
                     await container_snaps.service_action(service_name, "stop")
                     logger.info("Stopped %s before update", service_name)
                 except Exception as exc:
                     logger.warning("Could not stop %s before update: %s", service_name, exc)
-            channel = nimbus_store.get_channel(snap)
-            if channel:
-                # Store snap — refresh on its tracked channel.
-                store_name = nimbus_store.get_store_name(snap)
-                logger.info("Updating %s via store refresh (channel=%s)", snap_name, channel)
-                result = await container_snaps.refresh_container_snap(store_name, channel=channel)
-                if not result.get("ok"):
-                    raise RuntimeError(f"Update failed: {result.get('stderr', '')}")
-                logger.info("Store refresh completed for %s", snap_name)
-            else:
-                url = nimbus_store.get_download_url(snap)
-                filename = nimbus_store.get_filename(snap)
-                if not url or not filename:
-                    raise RuntimeError(f"No download URL for '{snap_name}' on this architecture")
-                flags = nimbus_store.get_install_flags(snap)
-                logger.info("Updating %s via sideload from %s", snap_name, url)
-                result = await container_snaps.sideload_container_snap(url, filename, flags)
-                if not result.get("ok"):
-                    raise RuntimeError(f"Update failed: {result.get('stderr', '')}")
-                logger.info("Update sideload completed for %s", snap_name)
+
+            # 2. Ensure every process from the snap mount is gone before refresh.
+            await container_snaps.kill_snap_processes(store_name)
+
+            # 3. Refresh from the store on the snap's tracked channel.
+            logger.info("Updating %s via store refresh (channel=%s)", snap_name, channel)
+            result = await container_snaps.refresh_container_snap(store_name, channel=channel)
+            if not result.get("ok"):
+                raise RuntimeError(f"Update failed: {result.get('stderr', '')}")
+            logger.info("Store refresh completed for %s", snap_name)
+            self._snap_updates.discard(store_name)
+
+            # 4. Start the service again on the new revision.
             if service_name:
                 try:
                     await container_snaps.service_action(service_name, "start")

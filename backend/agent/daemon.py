@@ -334,6 +334,31 @@ async def _snap_remove(name: str) -> dict:
     }
 
 
+async def _kill_snap_processes(name: str) -> dict:
+    """Best-effort kill of every process running from a snap's mount.
+
+    The claw snaps run as a systemd *user* service that snapd does not manage,
+    so `snap refresh` will not stop their running processes.  We terminate
+    anything whose command line references /snap/<name>/ (TERM, then KILL after
+    a short grace period) so the refresh can swap the revision cleanly and the
+    restarted service runs the new code.  pkill exits non-zero when nothing
+    matches, which is fine — this is best-effort.
+    """
+    if not name or not all(c.isalnum() or c in "-." for c in name):
+        return {"ok": False, "stderr": "invalid snap name"}
+    pattern = f"/snap/{name}/"
+    for sig in ("-TERM", "-KILL"):
+        proc = await asyncio.create_subprocess_exec(
+            "pkill", sig, "-f", pattern,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await proc.communicate()
+        if sig == "-TERM":
+            await asyncio.sleep(2)
+    return {"ok": True}
+
+
 def _user_env() -> dict:
     """Environment variables for the nimbus user session.
 
@@ -551,6 +576,38 @@ async def _snap_list() -> list[dict]:
     return snaps
 
 
+async def _snap_refresh_list() -> list[dict]:
+    """Return snaps that have a pending store update via `snap refresh --list`.
+
+    snapd compares the installed revision against the newest revision on each
+    snap's tracked channel and only lists a snap when a *different revision* is
+    available — so membership here is a revision-based check, independent of the
+    version string (which can be identical across edge rebuilds).
+    """
+    proc = await asyncio.create_subprocess_exec(
+        "snap", "refresh", "--list", "--unicode=never",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    stdout, _ = await proc.communicate()
+    snaps: list[dict] = []
+    lines = stdout.decode().splitlines()
+    # "All snaps up to date." (no table header) when nothing is pending.
+    if not lines or not lines[0].lower().startswith("name"):
+        return snaps
+    for line in lines[1:]:
+        parts = line.split()
+        if len(parts) >= 4:
+            snaps.append({
+                "name": parts[0],
+                "version": parts[1],
+                "revision": parts[2],
+                "publisher": parts[3],
+                "notes": parts[4] if len(parts) > 4 else "",
+            })
+    return snaps
+
+
 async def _snap_info(name: str) -> dict | None:
     """Return info for a specific snap, or None if not installed."""
     proc = await asyncio.create_subprocess_exec(
@@ -642,6 +699,17 @@ async def _route(method: str, path: str, body: bytes) -> tuple[int, dict]:
         result = await _snap_refresh(name, req.get("channel"))
         return (200 if result["ok"] else 500), result
 
+    if method == "POST" and path == "/snaps/kill-processes":
+        try:
+            req = json.loads(body)
+        except json.JSONDecodeError:
+            return 400, {"error": "invalid JSON"}
+        name = req.get("name", "").strip()
+        if not name:
+            return 400, {"error": "name required"}
+        result = await _kill_snap_processes(name)
+        return (200 if result["ok"] else 500), result
+
     if method == "POST" and path == "/snaps/service":
         try:
             req = json.loads(body)
@@ -672,6 +740,12 @@ async def _route(method: str, path: str, body: bytes) -> tuple[int, dict]:
 
     if method == "GET" and path == "/snaps":
         snaps = await _snap_list()
+        return 200, {"snaps": snaps}
+
+    # Must precede the generic GET /snaps/{name} route below (which matches any
+    # 3-segment path) so "refresh-list" isn't treated as a snap name.
+    if method == "GET" and path == "/snaps/refresh-list":
+        snaps = await _snap_refresh_list()
         return 200, {"snaps": snaps}
 
     if method == "GET" and path.startswith("/snaps/") and len(path.split("/")) == 3:

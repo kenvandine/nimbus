@@ -85,6 +85,42 @@ async def refresh_container_snap(name: str, channel: str | None = None) -> dict[
         return resp.json()
 
 
+async def list_snap_refreshes() -> list[dict[str, Any]]:
+    """Return snaps in the container that have a pending store update.
+
+    Backed by `snap refresh --list` in the agent, so this is a revision-based
+    check against each snap's tracked channel (not a version-string compare).
+    """
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.get(_agent_url("/snaps/refresh-list"))
+            resp.raise_for_status()
+            return resp.json().get("snaps", [])
+    except Exception as exc:
+        logger.warning("Could not list container snap refreshes: %s", exc)
+        return []
+
+
+async def kill_snap_processes(name: str) -> dict[str, Any]:
+    """Best-effort kill of all processes of a snap in the container.
+
+    Needed before refreshing a snap whose processes run under a systemd user
+    service snapd does not manage.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                _agent_url("/snaps/kill-processes"),
+                json={"name": name},
+            )
+            if resp.status_code not in (200, 500):
+                resp.raise_for_status()
+            return resp.json()
+    except Exception as exc:
+        logger.warning("Could not kill snap processes for %s: %s", name, exc)
+        return {"ok": False, "stderr": str(exc)}
+
+
 async def service_action(service_name: str, action: str) -> dict[str, Any]:
     """Start, stop, or restart a systemd user service in the LXD container."""
     async with httpx.AsyncClient(timeout=30) as client:
