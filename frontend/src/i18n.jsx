@@ -414,7 +414,10 @@ const translations = {
     // Device Info – AI Model
     device_info_ai_scope_desc: 'Choose which model runs locally on this device. Cloud offload below decides when a request is routed elsewhere — Lemonade always falls back to the local model here otherwise.',
     device_info_ai_provider: 'Provider',
-    device_info_ai_active: 'Active Model',
+    device_info_ai_local_model: 'Local Model',
+    device_info_ai_cloud_model: 'Cloud Model',
+    device_info_ai_cloud_off: 'Off',
+    device_info_ai_router_desc: 'AI apps always talk to the model router ({{router}}), which resolves to the local model above by default, or to the cloud model when your cloud offload rules match a request.',
     device_info_ai_status: 'Status',
     device_info_ai_change: 'Change Model',
     device_info_ai_switching: 'Switching…',
@@ -871,7 +874,6 @@ const translations = {
 
     // Device Info – AI Model
     device_info_ai_provider: 'Proveedor',
-    device_info_ai_active: 'Modelo activo',
     device_info_ai_status: 'Estado',
     device_info_ai_change: 'Cambiar modelo',
     device_info_ai_switching: 'Cambiando…',
@@ -1297,7 +1299,6 @@ const translations = {
 
     // Device Info – AI Model
     device_info_ai_provider: 'Fournisseur',
-    device_info_ai_active: 'Modèle actif',
     device_info_ai_status: 'État',
     device_info_ai_change: 'Changer de modèle',
     device_info_ai_switching: 'Changement…',

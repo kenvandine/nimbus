@@ -22,6 +22,7 @@ async def model_status() -> dict:
         return {
             "provider": provider,
             "model_id": config.model_id,
+            "local_model_id": lemonade.get_active_model_spec().get("model_name"),
             "base_url": config.base_url,
             "status": state.status,
             "model": state.model,

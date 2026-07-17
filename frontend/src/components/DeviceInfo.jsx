@@ -270,6 +270,7 @@ function AiModelTab() {
   const { t } = useTranslation()
   const [modelStatus, setModelStatus] = useState(null)
   const [availableModels, setAvailableModels] = useState([])
+  const [cloudStatus, setCloudStatus] = useState(null)
   const [selectedModel, setSelectedModel] = useState(null)
   const [busy, setBusy] = useState(null)
   const [error, setError] = useState(null)
@@ -278,11 +279,12 @@ function AiModelTab() {
 
   async function load() {
     try {
-      const [status, models] = await Promise.all([getModelStatus(), getAvailableModels()])
+      const [status, models, cloud] = await Promise.all([getModelStatus(), getAvailableModels(), getCloudStatus()])
       setModelStatus(status)
       setAvailableModels(models)
-      if (selectedModel === null && status?.model_id) {
-        setSelectedModel(status.model_id)
+      setCloudStatus(cloud)
+      if (selectedModel === null && status?.local_model_id) {
+        setSelectedModel(status.local_model_id)
       }
     } catch (e) { setError(e.message) }
   }
@@ -326,7 +328,7 @@ function AiModelTab() {
   }
 
   async function handleSelect() {
-    if (!selectedModel || selectedModel === modelStatus?.model_id) return
+    if (!selectedModel || selectedModel === modelStatus?.local_model_id) return
     setBusy('select'); setError(null); setMsg(null)
     try {
       await selectModel(selectedModel)
@@ -337,10 +339,11 @@ function AiModelTab() {
 
   const pull = modelStatus?.pull
   const lemon = modelStatus?.lemonade
-  const currentModelId = modelStatus?.model_id
+  const currentModelId = modelStatus?.local_model_id
   const isDifferent = selectedModel && selectedModel !== currentModelId
   const selectedModelInfo = availableModels.find(m => m.model_name === selectedModel)
   const isPulling = pull?.status && !['idle', 'ready', 'failed', 'skipped'].includes(pull.status)
+  const cloudActive = Boolean(cloudStatus?.cloud_offload_enabled && cloudStatus?.cloud_model)
 
   function friendlyModelName(modelName) {
     if (!modelName) return '—'
@@ -361,9 +364,15 @@ function AiModelTab() {
               <span style={styles.infoValue}>{modelStatus.provider || '—'}</span>
             </div>
             <div style={styles.infoRow}>
-              <span style={styles.infoLabel}>{t('device_info_ai_active', 'Active Model')}</span>
+              <span style={styles.infoLabel}>{t('device_info_ai_local_model', 'Local Model')}</span>
               <span style={{ ...styles.infoValue, fontFamily: 'var(--font-mono)', fontSize: 11 }}>
                 {friendlyModelName(currentModelId)}
+              </span>
+            </div>
+            <div style={styles.infoRow}>
+              <span style={styles.infoLabel}>{t('device_info_ai_cloud_model', 'Cloud Model')}</span>
+              <span style={{ ...styles.infoValue, fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+                {cloudActive ? cloudStatus.cloud_model : t('device_info_ai_cloud_off', 'Off')}
               </span>
             </div>
             <div style={styles.infoRow}>
@@ -390,6 +399,10 @@ function AiModelTab() {
               </div>
             )}
           </div>
+
+          <p style={styles.muted}>
+            {t('device_info_ai_router_desc', 'AI apps always talk to the model router ({{router}}), which resolves to the local model above by default, or to the cloud model when your cloud offload rules match a request.', { router: modelStatus.model_id })}
+          </p>
 
           {availableModels.length > 1 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -730,6 +743,10 @@ export default function DeviceInfo({ stats, apps }) {
 
   useEffect(() => {
     getCloudUsage(14).then(setUsage).catch(() => {})
+    const interval = setInterval(() => {
+      getCloudUsage(14).then(setUsage).catch(() => {})
+    }, 30000)
+    return () => clearInterval(interval)
   }, [])
 
   const tabs = [
