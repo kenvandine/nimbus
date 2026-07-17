@@ -109,6 +109,19 @@ async def test_scrape_once_local_model_switch_keeps_accumulating_under_local_buc
 
 
 @pytest.mark.asyncio
+async def test_scrape_once_matches_local_model_when_lemonade_strips_user_prefix():
+    # lemonade reports a locally-registered model's requests under its
+    # 'user.'-stripped name in /metrics, even though the prefixed name is
+    # what's actually used for registration/routing (confirmed live).
+    body = (
+        '# TYPE lemonade_model_requests_total counter\n'
+        'lemonade_model_requests_total{model_name="Local-GGUF",recipe="llamacpp"} 7\n'
+    )
+    await _scrape_with(body, "user.Local-GGUF", None, cloud_enabled=False)
+    assert usage_metrics.get_summary(days=1)["totals"]["local_requests"] == 7
+
+
+@pytest.mark.asyncio
 async def test_scrape_once_marks_unreachable_on_http_error():
     with mock.patch("httpx.AsyncClient") as mock_client_cls:
         mock_client = mock.AsyncMock()

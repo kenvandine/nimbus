@@ -109,6 +109,25 @@ def _accumulate(state: dict, model_name: str, raw: float, bucket: str) -> None:
     day[f"{bucket}_requests"] += delta
 
 
+def _match_count(counts: dict[str, float], name: str) -> tuple[str, float] | None:
+    """Match a Nimbus-registered model name against lemonade's scraped counters.
+
+    lemonade strips the 'user.' namespace prefix in its own reporting surfaces
+    (GET /metrics model_name label, GET /v1/models id field) even though the
+    prefixed name is what's actually used for registration and routing —
+    confirmed live: a model registered as 'user.Qwen3.5-9B-Q4_K_M.gguf' is
+    reported in /metrics as 'Qwen3.5-9B-Q4_K_M.gguf'. Try the exact name
+    first (cloud model ids are never 'user.'-prefixed, so this is normally
+    what matches for those), then the stripped form.
+    """
+    if name in counts:
+        return name, counts[name]
+    stripped = name.removeprefix("user.")
+    if stripped != name and stripped in counts:
+        return stripped, counts[stripped]
+    return None
+
+
 async def scrape_once() -> None:
     global _reachable
     try:
@@ -129,10 +148,14 @@ async def scrape_once() -> None:
     cloud_model = router_state.get("cloud_model") if router_state.get("cloud_offload_enabled") else None
 
     state = _load_state()
-    if local_model and local_model in counts:
-        _accumulate(state, local_model, counts[local_model], "local")
-    if cloud_model and cloud_model in counts:
-        _accumulate(state, cloud_model, counts[cloud_model], "cloud")
+    local_match = _match_count(counts, local_model) if local_model else None
+    if local_match:
+        key, raw = local_match
+        _accumulate(state, key, raw, "local")
+    cloud_match = _match_count(counts, cloud_model) if cloud_model else None
+    if cloud_match:
+        key, raw = cloud_match
+        _accumulate(state, key, raw, "cloud")
     _save_state(state)
 
 
