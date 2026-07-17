@@ -121,6 +121,25 @@ async def kill_snap_processes(name: str) -> dict[str, Any]:
         return {"ok": False, "stderr": str(exc)}
 
 
+async def remove_container_service(service_name: str) -> dict[str, Any]:
+    """Disable and delete a snap's systemd user unit in the container, then reload.
+
+    Used on uninstall to tear down the user service snapd does not manage.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                _agent_url("/snaps/remove-service"),
+                json={"name": service_name},
+            )
+            if resp.status_code not in (200, 500):
+                resp.raise_for_status()
+            return resp.json()
+    except Exception as exc:
+        logger.warning("Could not remove user service %s: %s", service_name, exc)
+        return {"ok": False, "stderr": str(exc)}
+
+
 async def service_action(service_name: str, action: str) -> dict[str, Any]:
     """Start, stop, or restart a systemd user service in the LXD container."""
     async with httpx.AsyncClient(timeout=30) as client:

@@ -1190,9 +1190,28 @@ class LxdControlPlane(ControlPlaneBase):
         snap = nimbus_store.get_snap(catalog, snap_name)
         if snap is None:
             raise HTTPException(status_code=404, detail=f"App '{snap_name}' not found in nimbus store")
-        result = await container_snaps.remove_container_snap(snap_name)
+        store_name = nimbus_store.get_store_name(snap)
+        service_name = nimbus_store.get_service_name(snap)
+
+        # The claw snaps run as a systemd user service snapd does not manage, so
+        # tear it down before removing the snap: stop the service, kill any
+        # lingering processes, then disable/remove the unit and daemon-reload.
+        if service_name:
+            try:
+                await container_snaps.service_action(service_name, "stop")
+            except Exception as exc:
+                logger.warning("Could not stop %s before uninstall: %s", service_name, exc)
+        await container_snaps.kill_snap_processes(store_name)
+        if service_name:
+            try:
+                await container_snaps.remove_container_service(service_name)
+            except Exception as exc:
+                logger.warning("Could not remove user unit for %s: %s", service_name, exc)
+
+        result = await container_snaps.remove_container_snap(store_name)
         if not result.get("ok"):
             raise HTTPException(status_code=500, detail=result.get("stderr", "remove failed"))
+        self._snap_updates.discard(store_name)
         ports = snap.get("ports", [])
         if ports:
             try:

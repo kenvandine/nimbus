@@ -408,7 +408,7 @@ async def _systemctl_user(action: str, service_name: str = "") -> dict:
     `daemon-reload` does not take a service name; all other actions require one.
     Falls back to UID 0 (root) if the nimbus user hasn't been provisioned yet.
     """
-    allowed = {"start", "stop", "restart", "status", "is-active", "daemon-reload"}
+    allowed = {"start", "stop", "restart", "status", "is-active", "disable", "daemon-reload"}
     if action not in allowed:
         return {"ok": False, "stderr": f"unsupported action: {action}"}
     uid = _nimbus_uid()
@@ -439,6 +439,39 @@ async def _systemctl_user(action: str, service_name: str = "") -> dict:
         "stdout": stdout.decode(),
         "stderr": stderr.decode(),
     }
+
+
+async def _remove_user_service(service_name: str) -> dict:
+    """Disable and delete a snap's systemd *user* unit, then daemon-reload.
+
+    The claw snaps install their own user unit that snapd does not manage, so
+    on uninstall it must be torn down explicitly or it lingers and keeps trying
+    to start a now-removed snap.  Callers are expected to have already stopped
+    the service and killed its processes; this removes the unit itself.
+    """
+    if not service_name or not all(c.isalnum() or c in "-._@" for c in service_name):
+        return {"ok": False, "stderr": "invalid service name"}
+    unit = service_name if service_name.endswith(".service") else f"{service_name}.service"
+    steps: list[dict] = []
+    # disable removes the WantedBy symlink (best effort; may already be gone).
+    steps.append({"disable": await _systemctl_user("disable", unit)})
+    # Remove the unit file plus any leftover enablement symlinks.
+    import glob
+    import os
+    uid = _nimbus_uid()
+    home = "/home/nimbus" if uid else "/root"
+    unit_dir = f"{home}/.config/systemd/user"
+    removed: list[str] = []
+    for p in [f"{unit_dir}/{unit}"] + glob.glob(f"{unit_dir}/*.wants/{unit}"):
+        try:
+            os.remove(p)
+            removed.append(p)
+        except FileNotFoundError:
+            pass
+        except Exception as exc:
+            steps.append({"rm_error": f"{p}: {exc}"})
+    steps.append({"daemon-reload": await _systemctl_user("daemon-reload")})
+    return {"ok": True, "removed": removed, "steps": steps}
 
 
 async def _run_snap_cmd(cmd: str, args: list[str]) -> dict:
@@ -708,6 +741,17 @@ async def _route(method: str, path: str, body: bytes) -> tuple[int, dict]:
         if not name:
             return 400, {"error": "name required"}
         result = await _kill_snap_processes(name)
+        return (200 if result["ok"] else 500), result
+
+    if method == "POST" and path == "/snaps/remove-service":
+        try:
+            req = json.loads(body)
+        except json.JSONDecodeError:
+            return 400, {"error": "invalid JSON"}
+        name = req.get("name", "").strip()
+        if not name:
+            return 400, {"error": "name required"}
+        result = await _remove_user_service(name)
         return (200 if result["ok"] else 500), result
 
     if method == "POST" and path == "/snaps/service":
