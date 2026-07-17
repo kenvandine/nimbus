@@ -94,6 +94,21 @@ def get_install_flags(snap: dict) -> list[str]:
     return list(snap.get("install_flags", ["--classic", "--dangerous"]))
 
 
+def get_channel(snap: dict) -> str | None:
+    """Snap Store channel to install from, or None for sideload snaps.
+
+    A catalog entry with a channel is installed from the Snap Store; one
+    without falls back to sideloading its GitHub release asset with
+    --dangerous (kept for snaps not yet published to the store).
+    """
+    return snap.get("channel") or None
+
+
+def get_store_name(snap: dict) -> str:
+    """Name to install by from the store (defaults to the catalog id)."""
+    return snap.get("store_name") or snap["name"]
+
+
 def get_service_name(snap: dict) -> str | None:
     """Return the systemd user service name, or None if the snap has no daemon."""
     return snap.get("service_name") or None

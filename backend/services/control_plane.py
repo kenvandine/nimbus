@@ -841,20 +841,35 @@ class LxdControlPlane(ControlPlaneBase):
             snap = nimbus_store.get_snap(catalog, snap_name)
             if snap is None:
                 raise RuntimeError(f"App '{snap_name}' not found in nimbus store")
-            url = nimbus_store.get_download_url(snap)
-            filename = nimbus_store.get_filename(snap)
-            if not url or not filename:
-                raise RuntimeError(f"No download URL for '{snap_name}' on this architecture")
+            channel = nimbus_store.get_channel(snap)
             flags = nimbus_store.get_install_flags(snap)
             if snap_name == "openclaw":
                 # Start model pull now so it runs concurrently with the snap
                 # download; if already in progress from startup this is a no-op.
                 model_provider.ensure_ready_task()
-            logger.info("Sideloading %s from %s", snap_name, url)
-            result = await container_snaps.sideload_container_snap(url, filename, flags)
-            if not result.get("ok"):
-                raise RuntimeError(f"Sideload failed: {result.get('stderr', '')}")
-            logger.info("Sideload completed for %s", snap_name)
+            if channel:
+                # Published to the Snap Store — install by name from its channel
+                # (no --dangerous needed).
+                store_name = nimbus_store.get_store_name(snap)
+                classic = "--classic" in flags
+                logger.info("Installing %s from store (channel=%s)", snap_name, channel)
+                result = await container_snaps.install_container_snap(
+                    store_name, channel=channel, classic=classic,
+                )
+                if not result.get("ok"):
+                    raise RuntimeError(f"Store install failed: {result.get('stderr', '')}")
+                logger.info("Store install completed for %s", snap_name)
+            else:
+                # Not yet in the store — sideload the GitHub release asset.
+                url = nimbus_store.get_download_url(snap)
+                filename = nimbus_store.get_filename(snap)
+                if not url or not filename:
+                    raise RuntimeError(f"No download URL for '{snap_name}' on this architecture")
+                logger.info("Sideloading %s from %s", snap_name, url)
+                result = await container_snaps.sideload_container_snap(url, filename, flags)
+                if not result.get("ok"):
+                    raise RuntimeError(f"Sideload failed: {result.get('stderr', '')}")
+                logger.info("Sideload completed for %s", snap_name)
             ports = snap.get("ports", []) or (
                 [SNAP_UI_PORTS[snap_name]] if snap_name in SNAP_UI_PORTS else []
             )
@@ -990,16 +1005,26 @@ class LxdControlPlane(ControlPlaneBase):
                     logger.info("Stopped %s before update", service_name)
                 except Exception as exc:
                     logger.warning("Could not stop %s before update: %s", service_name, exc)
-            url = nimbus_store.get_download_url(snap)
-            filename = nimbus_store.get_filename(snap)
-            if not url or not filename:
-                raise RuntimeError(f"No download URL for '{snap_name}' on this architecture")
-            flags = nimbus_store.get_install_flags(snap)
-            logger.info("Updating %s via sideload from %s", snap_name, url)
-            result = await container_snaps.sideload_container_snap(url, filename, flags)
-            if not result.get("ok"):
-                raise RuntimeError(f"Update failed: {result.get('stderr', '')}")
-            logger.info("Update sideload completed for %s", snap_name)
+            channel = nimbus_store.get_channel(snap)
+            if channel:
+                # Store snap — refresh on its tracked channel.
+                store_name = nimbus_store.get_store_name(snap)
+                logger.info("Updating %s via store refresh (channel=%s)", snap_name, channel)
+                result = await container_snaps.refresh_container_snap(store_name, channel=channel)
+                if not result.get("ok"):
+                    raise RuntimeError(f"Update failed: {result.get('stderr', '')}")
+                logger.info("Store refresh completed for %s", snap_name)
+            else:
+                url = nimbus_store.get_download_url(snap)
+                filename = nimbus_store.get_filename(snap)
+                if not url or not filename:
+                    raise RuntimeError(f"No download URL for '{snap_name}' on this architecture")
+                flags = nimbus_store.get_install_flags(snap)
+                logger.info("Updating %s via sideload from %s", snap_name, url)
+                result = await container_snaps.sideload_container_snap(url, filename, flags)
+                if not result.get("ok"):
+                    raise RuntimeError(f"Update failed: {result.get('stderr', '')}")
+                logger.info("Update sideload completed for %s", snap_name)
             if service_name:
                 try:
                     await container_snaps.service_action(service_name, "start")
