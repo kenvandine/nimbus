@@ -701,6 +701,14 @@ function CloudOffloadTab() {
         </div>
       </div>
 
+      {enabled && !showAdvanced && !canSave && (
+        <p style={styles.errorText}>
+          {!cloudModel
+            ? t('cloud_offload_needs_model', 'Select a cloud model above before saving.')
+            : t('cloud_offload_needs_condition', 'Select at least one condition above to route requests to the cloud model.')}
+        </p>
+      )}
+
       <div>
         <button style={styles.advancedToggle} onClick={() => setShowAdvanced(!showAdvanced)}>
           {showAdvanced ? '▾' : '▸'} {t('cloud_offload_advanced', 'Advanced: edit policy JSON')}

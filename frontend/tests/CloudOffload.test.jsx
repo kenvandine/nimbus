@@ -70,6 +70,30 @@ describe('CloudOffloadTab', () => {
 
     const saveButton = screen.getByRole('button', { name: /save/i })
     expect(saveButton).toBeDisabled()
+    expect(screen.getByText('Select a cloud model above before saving.')).toBeInTheDocument()
+  })
+
+  test('explains that a routing condition is needed once a model is picked but no toggle is set', async () => {
+    renderCloudTab()
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument())
+
+    const checkboxes = screen.getAllByRole('checkbox')
+    fireEvent.click(checkboxes[0]) // enable, no toggles picked yet
+
+    const selects = screen.getAllByRole('combobox')
+    fireEvent.change(selects[0], { target: { value: 'fireworks' } })
+    await waitFor(() => expect(screen.getAllByRole('combobox')[1].querySelectorAll('option').length).toBeGreaterThan(1))
+    fireEvent.change(selects[1], { target: { value: 'fireworks.kimi-k2p5' } })
+
+    const saveButton = screen.getByRole('button', { name: /save/i })
+    expect(saveButton).toBeDisabled()
+    expect(screen.getByText('Select at least one condition above to route requests to the cloud model.')).toBeInTheDocument()
+
+    // Picking any one condition clears the hint and enables Save.
+    fireEvent.click(screen.getAllByRole('checkbox')[1])
+    await waitFor(() => expect(saveButton).not.toBeDisabled())
+    expect(screen.queryByText('Select at least one condition above to route requests to the cloud model.')).not.toBeInTheDocument()
   })
 
   test('advanced JSON textarea hides the toggle controls when populated', async () => {

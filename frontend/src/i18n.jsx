@@ -455,6 +455,8 @@ const translations = {
     cloud_offload_keywords_placeholder: 'comma-separated keywords',
     cloud_offload_advanced: 'Advanced: edit policy JSON',
     cloud_offload_advanced_invalid: 'Invalid policy JSON',
+    cloud_offload_needs_model: 'Select a cloud model above before saving.',
+    cloud_offload_needs_condition: 'Select at least one condition above to route requests to the cloud model.',
     cloud_offload_save_success: 'Cloud offload policy saved.',
     cloud_offload_provider_added: 'Provider added.',
     cloud_offload_provider_removed: 'Provider removed.',
