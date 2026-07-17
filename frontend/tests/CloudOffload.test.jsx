@@ -5,7 +5,7 @@ import { TranslationProvider } from '../src/i18n.jsx'
 import DeviceInfo from '../src/components/DeviceInfo.jsx'
 
 vi.mock('../src/api.js', () => ({
-  getModelStatus: vi.fn(() => Promise.resolve({ provider: 'lemonade', model_id: 'user.Local-GGUF', status: 'ready' })),
+  getModelStatus: vi.fn(() => Promise.resolve({ provider: 'lemonade', model_id: 'user.NimbusModel', local_model_id: 'user.Local-GGUF', status: 'ready' })),
   getAvailableModels: vi.fn(() => Promise.resolve([])),
   pullModel: vi.fn(() => Promise.resolve()),
   ensureModel: vi.fn(() => Promise.resolve()),
