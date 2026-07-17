@@ -743,6 +743,10 @@ export default function DeviceInfo({ stats, apps }) {
 
   useEffect(() => {
     getCloudUsage(14).then(setUsage).catch(() => {})
+    const interval = setInterval(() => {
+      getCloudUsage(14).then(setUsage).catch(() => {})
+    }, 30000)
+    return () => clearInterval(interval)
   }, [])
 
   const tabs = [
