@@ -117,6 +117,34 @@ UNIT
         "$workdir/etc/systemd/system/multi-user.target.wants/cpu-performance.service"
     echo "    Applied system performance fixes (getty mask, NFC blacklist, CPU governor)"
 
+    # 4. Clear chromium's stale SingletonLock before the kiosk browser starts.
+    #    An unclean shutdown leaves the lock behind, which makes chromium
+    #    refuse to start on the next boot until someone deletes it by hand.
+    #    This used to be installed by the gadget's configure hook, but a
+    #    strictly-confined gadget hook can't write to /etc/systemd/system or
+    #    call systemctl, so the gadget failed to install. snapcraft's own
+    #    app-level before/after keys only order services within the same
+    #    snap, so this hand-written unit references the other snaps'
+    #    generated service names directly; it and they are all
+    #    WantedBy=multi-user.target, which puts them in the same boot
+    #    transaction for the ordering to take effect.
+    cat > "$workdir/etc/systemd/system/nimbus-chromium-lock-fixup.service" <<'UNIT'
+[Unit]
+Description=Remove stale chromium SingletonLock before the kiosk browser starts
+DefaultDependencies=no
+Before=snap.chromium.daemon.service snap.ubuntu-frame.daemon.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'rm -f /root/snap/chromium/common/chromium/SingletonLock'
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    ln -sf /etc/systemd/system/nimbus-chromium-lock-fixup.service \
+        "$workdir/etc/systemd/system/multi-user.target.wants/nimbus-chromium-lock-fixup.service"
+    echo "    Added nimbus-chromium-lock-fixup.service to preseed"
+
     # ─────────────────────────────────────────────────────────────────────────
 
     # Connect nimbus system: slot interfaces that the gadget connections: section
