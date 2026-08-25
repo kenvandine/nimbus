@@ -10,8 +10,9 @@ Copy to a test device and run as root:
     python3 nimbus-key-poweroff-debug.py --device /dev/input/event2
     python3 nimbus-key-poweroff-debug.py --key 193       # only a specific code
 
-Use --all if you are not sure the button really maps to KEY_F23 (99): press
-the button and read off the code from the output.
+Use --all if you are not sure what the button maps to: press it and read off
+the code from the output. (The chassis reset button emits KEY_F23 (193)
+chorded with KEY_LEFTMETA (125).)
 
 Same event logic as the installed watcher
 (/writable/system-data/nimbus-key-poweroff.py), but by default it only logs
@@ -29,11 +30,11 @@ import subprocess
 import sys
 import time
 
-KEY_F23 = 99          # standard KEY_F23 (linux/input-event-codes.h, USB keyboards)
-KEY_F23_PS2 = 193     # code AT/PS/2 keyboards report for F23 ("KEY_F23 (193)" in libinput)
+KEY_F23 = 193         # KEY_F23 (input-event-codes.h); reset button emits it with LEFTMETA (125) + LEFTSHIFT (42)
 EV_KEY = 0x01
-INPUT_EVENT = struct.Struct("llHLL")  # struct input_event (64-bit LE)
-DEFAULT_KEY_CODES = {KEY_F23, KEY_F23_PS2}
+# struct input_event (64-bit): 2x int64 timeval, u16 type, u16 code, s32 value
+INPUT_EVENT = struct.Struct(("<" if sys.byteorder == "little" else ">") + "qqHHl")
+DEFAULT_KEY_CODES = {KEY_F23}
 READ_CHUNK = 4096
 
 
@@ -68,10 +69,11 @@ def main():
     ap = argparse.ArgumentParser(description="confirm KEY_F23 events reach the system")
     ap.add_argument("--hold", type=float, default=20.0,
                     help="seconds held before the action triggers (default 20)")
-    ap.add_argument("--key", default="99,193",
+    ap.add_argument("--key", default="193",
                     help="comma-separated evdev key code(s) to watch "
-                         "(default %(default)s: 99 = USB F23, 193 = PS/2 F23; "
-                         "run with --all, press the button, and read off the code)")
+                         "(default %(default)s: 193 = KEY_F23, emitted by the "
+                         "chassis reset button; run with --all, press the "
+                         "button, and read off the code)")
     ap.add_argument("--action", default="systemctl poweroff -i",
                     help="action to run when the hold threshold is met (default %(default)s)")
     ap.add_argument("--run", action="store_true",

@@ -161,12 +161,11 @@ UNIT
 KEYPOWEROFF_ACTION="systemctl poweroff -i"
 # Seconds the key must be held down before the action runs.
 KEYPOWEROFF_HOLD_SECONDS=20
-# evdev key code(s) to watch, comma-separated (default "99,193").
-#   99  = KEY_F23 as reported by USB keyboards
-#   193 = the code AT/PS/2 keyboards report for F23
+# evdev key code(s) to watch, comma-separated (default "193").
+#   193 = KEY_F23 (chassis reset button; it also emits LEFTMETA 125 + LEFTSHIFT 42)
 # Confirm what the button on the target device emits with
 # `sudo python3 nimbus-key-poweroff-debug.py --all` (look for "key N press").
-KEYPOWEROFF_KEY="99,193"
+KEYPOWEROFF_KEY="193"
 # Optional: watch only this single input event device.
 # By default all of /dev/input/event* is watched.
 #KEYPOWEROFF_DEVICE=/dev/input/event4
@@ -193,9 +192,8 @@ Environment (from /etc/nimbus-key-poweroff.conf):
   KEYPOWEROFF_DEVICE        optional: watch only this single event device
                             (default: all of /dev/input/event*)
   KEYPOWEROFF_KEY           evdev key code(s) to watch, comma- or
-                            space-separated (default: "99,193" - 99 = KEY_F23
-                            on USB keyboards, 193 = the code AT/PS/2 keyboards
-                            report for F23)
+                            space-separated (default: "193" - KEY_F23, which the
+                            chassis reset button emits)
 """
 
 import glob
@@ -203,17 +201,18 @@ import os
 import select
 import struct
 import subprocess
+import sys
 import time
 
-KEY_F23 = 99          # standard KEY_F23 (linux/input-event-codes.h, USB keyboards)
-KEY_F23_PS2 = 193     # code AT/PS/2 keyboards report for F23 ("KEY_F23 (193)" in libinput)
+KEY_F23 = 193         # KEY_F23 (input-event-codes.h); reset button emits it with LEFTMETA (125) + LEFTSHIFT (42)
 EV_KEY = 0x01
-INPUT_EVENT = struct.Struct("llHLL")  # struct input_event (64-bit LE)
+# struct input_event (64-bit): 2x int64 timeval, u16 type, u16 code, s32 value
+INPUT_EVENT = struct.Struct(("<" if sys.byteorder == "little" else ">") + "qqHHl")
 
 DEFAULT_ACTION = "systemctl poweroff -i"
 DEFAULT_HOLD_SECONDS = 20.0
 DEFAULT_DEVICE_GLOB = "/dev/input/event*"
-DEFAULT_KEY_CODES = {KEY_F23, KEY_F23_PS2}
+DEFAULT_KEY_CODES = {KEY_F23}
 READ_CHUNK = 4096
 
 
@@ -235,19 +234,19 @@ def parse_key_codes(raw, default):
 
 
 def config():
-    action = os.environ.get("KEYPOWEROPF_ACTION", DEFAULT_ACTION).strip()
+    action = os.environ.get("KEYPOWEROFF_ACTION", DEFAULT_ACTION).strip()
     if not action:
         action = DEFAULT_ACTION
     try:
-        hold = float(os.environ.get("KEYPOWEROPF_HOLD_SECONDS", DEFAULT_HOLD_SECONDS))
+        hold = float(os.environ.get("KEYPOWEROFF_HOLD_SECONDS", DEFAULT_HOLD_SECONDS))
     except ValueError:
-        log("warning: invalid KEYPOWEROPF_HOLD_SECONDS, using %.0f" % DEFAULT_HOLD_SECONDS)
+        log("warning: invalid KEYPOWEROFF_HOLD_SECONDS, using %.0f" % DEFAULT_HOLD_SECONDS)
         hold = DEFAULT_HOLD_SECONDS
     hold = max(hold, 0.1)
-    device = os.environ.get("KEYPOWEROPF_DEVICE", "").strip()
+    device = os.environ.get("KEYPOWEROFF_DEVICE", "").strip()
     if not device:
         device = DEFAULT_DEVICE_GLOB
-    key_codes = parse_key_codes(os.environ.get("KEYPOWEROPF_KEY"), DEFAULT_KEY_CODES)
+    key_codes = parse_key_codes(os.environ.get("KEYPOWEROFF_KEY"), DEFAULT_KEY_CODES)
     return action, hold, device, key_codes
 
 
