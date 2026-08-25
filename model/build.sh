@@ -145,6 +145,229 @@ UNIT
         "$workdir/etc/systemd/system/multi-user.target.wants/nimbus-chromium-lock-fixup.service"
     echo "    Added nimbus-chromium-lock-fixup.service to preseed"
 
+    # 5. Hardware power key: run a configurable action when KEY_F23 is held.
+    #    The kiosk has no software path to shut down, so the F23 button on the
+    #    chassis acts as the power key: hold it for 20 seconds without
+    #    releasing and the system runs the configured action, which defaults
+    #    to "systemctl poweroff -i". Releasing the key before the threshold
+    #    cancels.
+    #    The watcher script sits at the system-data root, so it is reachable
+    #    at /writable/system-data/nimbus-key-poweroff.py on the running device;
+    #    the action and hold time are overridden in /etc/nimbus-key-poweroff.conf.
+    cat > "$workdir/etc/nimbus-key-poweroff.conf" <<'CONF'
+# Configuration for nimbus-key-poweroff.service.
+#
+# Command to run when KEY_F23 is held down without being released.
+KEYPOWEROFF_ACTION="systemctl poweroff -i"
+# Seconds the key must be held down before the action runs.
+KEYPOWEROFF_HOLD_SECONDS=20
+# evdev key code(s) to watch, comma-separated (default "99,193").
+#   99  = KEY_F23 as reported by USB keyboards
+#   193 = the code AT/PS/2 keyboards report for F23
+# Confirm what the button on the target device emits with
+# `sudo python3 nimbus-key-poweroff-debug.py --all` (look for "key N press").
+KEYPOWEROFF_KEY="99,193"
+# Optional: watch only this single input event device.
+# By default all of /dev/input/event* is watched.
+#KEYPOWEROFF_DEVICE=/dev/input/event4
+CONF
+    cat > "$workdir/nimbus-key-poweroff.py" <<'PY'
+#!/usr/bin/python3
+"""Watch for a held KEY_F23 and run a configurable action.
+
+The Nimbus kiosk has no software path to shut down, so the F23 button on
+the chassis acts as the hardware power key: hold it for 20 seconds
+without releasing and the system runs the configured action, which
+defaults to "systemctl poweroff -i". Releasing the key before the hold
+threshold cancels the pending action.
+
+All /dev/input/event* devices are watched: hot-plugged devices are picked
+up, removed ones are dropped. Every press, release, and action is logged
+to the systemd journal.
+
+Environment (from /etc/nimbus-key-poweroff.conf):
+  KEYPOWEROFF_ACTION        command to run once the hold threshold is met
+                            (default: "systemctl poweroff -i")
+  KEYPOWEROFF_HOLD_SECONDS  seconds the key must be held down
+                            (default: 20)
+  KEYPOWEROFF_DEVICE        optional: watch only this single event device
+                            (default: all of /dev/input/event*)
+  KEYPOWEROFF_KEY           evdev key code(s) to watch, comma- or
+                            space-separated (default: "99,193" - 99 = KEY_F23
+                            on USB keyboards, 193 = the code AT/PS/2 keyboards
+                            report for F23)
+"""
+
+import glob
+import os
+import select
+import struct
+import subprocess
+import time
+
+KEY_F23 = 99          # standard KEY_F23 (linux/input-event-codes.h, USB keyboards)
+KEY_F23_PS2 = 193     # code AT/PS/2 keyboards report for F23 ("KEY_F23 (193)" in libinput)
+EV_KEY = 0x01
+INPUT_EVENT = struct.Struct("llHLL")  # struct input_event (64-bit LE)
+
+DEFAULT_ACTION = "systemctl poweroff -i"
+DEFAULT_HOLD_SECONDS = 20.0
+DEFAULT_DEVICE_GLOB = "/dev/input/event*"
+DEFAULT_KEY_CODES = {KEY_F23, KEY_F23_PS2}
+READ_CHUNK = 4096
+
+
+def log(msg):
+    print("nimbus-key-poweroff: %s" % msg, flush=True)
+
+
+def parse_key_codes(raw, default):
+    raw = (raw or "").strip()
+    if not raw:
+        return set(default)
+    codes = set()
+    for tok in raw.replace(",", " ").split():
+        try:
+            codes.add(int(tok))
+        except ValueError:
+            log("warning: ignoring invalid key code %r" % tok)
+    return codes or set(default)
+
+
+def config():
+    action = os.environ.get("KEYPOWEROPF_ACTION", DEFAULT_ACTION).strip()
+    if not action:
+        action = DEFAULT_ACTION
+    try:
+        hold = float(os.environ.get("KEYPOWEROPF_HOLD_SECONDS", DEFAULT_HOLD_SECONDS))
+    except ValueError:
+        log("warning: invalid KEYPOWEROPF_HOLD_SECONDS, using %.0f" % DEFAULT_HOLD_SECONDS)
+        hold = DEFAULT_HOLD_SECONDS
+    hold = max(hold, 0.1)
+    device = os.environ.get("KEYPOWEROPF_DEVICE", "").strip()
+    if not device:
+        device = DEFAULT_DEVICE_GLOB
+    key_codes = parse_key_codes(os.environ.get("KEYPOWEROPF_KEY"), DEFAULT_KEY_CODES)
+    return action, hold, device, key_codes
+
+
+def main():
+    action, hold, device_glob, key_codes = config()
+    log("started: key(s) %s (KEY_F23) held for %.0fs runs %r"
+        % (",".join(str(c) for c in sorted(key_codes)), hold, action))
+
+    devices = {}        # path -> fd
+    pressed_at = None   # monotonic time of the current KEY_F23 press
+    pressed_path = None # device that reported the current press
+    fired = False       # action already ran for the current press
+
+    def release(why):
+        nonlocal pressed_at, pressed_path, fired
+        if pressed_at is None:
+            return
+        held = time.monotonic() - pressed_at
+        if fired:
+            log("KEY_F23 %s after %.1fs (action already ran)" % (why, held))
+        else:
+            log("KEY_F23 %s after %.1fs of %.0fs - action cancelled" % (why, held, hold))
+        pressed_at = None
+        pressed_path = None
+        fired = False
+
+    def drop(path, reason):
+        fd = devices.pop(path, None)
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        log("no longer watching %s (%s)" % (path, reason))
+        if pressed_path == path:
+            release("device removed while held")
+
+    def rescan():
+        present = set(glob.glob(device_glob))
+        for path in sorted(set(devices) - present):
+            drop(path, "device removed")
+        for path in sorted(present):
+            if path in devices:
+                continue
+            try:
+                devices[path] = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+            except OSError as exc:
+                log("warning: cannot open %s: %s" % (path, exc))
+                continue
+            log("watching %s" % path)
+
+    while True:
+        now = time.monotonic()
+        if pressed_at is not None and not fired and now - pressed_at >= hold:
+            fired = True
+            log("KEY_F23 held for %.0fs - running: %s" % (hold, action))
+            try:
+                rc = subprocess.call(action, shell=True)
+                log("action exited with code %d" % rc)
+            except Exception as exc:
+                log("error running action: %s" % exc)
+
+        rescan()
+        if not devices:
+            log("no input devices present, retrying in 5s")
+            time.sleep(5)
+            continue
+
+        readable, _, _ = select.select(list(devices.values()), [], [], 0.25)
+        for path, fd in list(devices.items()):
+            if fd not in readable:
+                continue
+            try:
+                data = os.read(fd, READ_CHUNK)
+            except (BlockingIOError, InterruptedError):
+                continue
+            except OSError as exc:
+                drop(path, str(exc))
+                continue
+            for off in range(0, len(data) - INPUT_EVENT.size + 1, INPUT_EVENT.size):
+                _, _, ev_type, code, value = INPUT_EVENT.unpack_from(data, off)
+                if ev_type != EV_KEY or code not in key_codes:
+                    continue
+                if value == 0:
+                    release("released")
+                elif pressed_at is None:
+                    # value 1 (press) or 2 (auto-repeat) on an untracked key
+                    pressed_at = time.monotonic()
+                    pressed_path = path
+                    fired = False
+                    log("KEY_F23 pressed on %s - will run %r if held for %.0fs"
+                        % (path, action, hold))
+
+
+if __name__ == "__main__":
+    main()
+PY
+    cat > "$workdir/etc/systemd/system/nimbus-key-poweroff.service" <<'UNIT'
+[Unit]
+Description=Run configured action when KEY_F23 is held for 20s (default: power off)
+After=multi-user.target
+Wants=multi-user.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/nimbus-key-poweroff.conf
+ExecStart=/usr/bin/python3 /writable/system-data/nimbus-key-poweroff.py
+Restart=always
+RestartSec=5
+SyslogIdentifier=nimbus-key-poweroff
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    ln -sf /etc/systemd/system/nimbus-key-poweroff.service \
+        "$workdir/etc/systemd/system/multi-user.target.wants/nimbus-key-poweroff.service"
+    echo "    Added nimbus-key-poweroff.service to preseed"
+
     # ─────────────────────────────────────────────────────────────────────────
 
     # Connect nimbus system: slot interfaces that the gadget connections: section
