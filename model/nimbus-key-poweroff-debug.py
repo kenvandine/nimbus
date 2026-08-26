@@ -16,13 +16,15 @@ chorded with KEY_LEFTMETA (125).)
 
 Same event logic as the installed watcher
 (/writable/system-data/nimbus-key-poweroff.py), but by default it only logs
-what it would do instead of running the action, and it prints a summary on
-Ctrl-C / SIGTERM.
+what it would do instead of running the action. Like the watcher it plays a
+warning bell every few seconds while the key is held (this works in dry run
+too), and it prints a summary on Ctrl-C / SIGTERM.
 """
 
 import argparse
 import glob
 import os
+import pwd
 import select
 import signal
 import struct
@@ -35,6 +37,10 @@ EV_KEY = 0x01
 # struct input_event (64-bit): 2x int64 timeval, u16 type, u16 code, s32 value
 INPUT_EVENT = struct.Struct(("<" if sys.byteorder == "little" else ">") + "qqHHl")
 DEFAULT_KEY_CODES = {KEY_F23}
+DEFAULT_BELL = "bell"
+DEFAULT_BELL_INTERVAL = 5.0
+YARU_STEREO = "/usr/share/sounds/Yaru/stereo"
+NIMBUS_SNAP_SOUNDS = "/snap/nimbus/current/share/sounds/nimbus"
 READ_CHUNK = 4096
 
 
@@ -65,6 +71,101 @@ def device_names():
     return names
 
 
+def session_user():
+    """Return the local user running an audio server (dev machines).
+
+    Prefers a user with a PipeWire or PulseAudio socket in their runtime
+    directory; falls back to the first non-root runtime directory.
+    """
+    try:
+        uids = sorted((u for u in os.listdir("/run/user") if u.isdigit()),
+                      key=int)
+    except OSError:
+        return None
+    fallback = None
+    for uid in uids:
+        if int(uid) == 0:
+            continue
+        try:
+            pw = pwd.getpwuid(int(uid))
+        except KeyError:
+            continue
+        rt = "/run/user/%s" % uid
+        if os.path.exists(os.path.join(rt, "pipewire-0")) or \
+           os.path.exists(os.path.join(rt, "pulse", "native")):
+            return pw.pw_name
+        if fallback is None:
+            fallback = pw.pw_name
+    return fallback
+
+
+def _local_paplay(path, say):
+    """Play via the local session's audio server, else plain paplay."""
+    user = session_user()
+    if user is not None:
+        try:
+            pw = pwd.getpwnam(user)
+            cmd = ["setpriv", "--reuid", str(pw.pw_uid), "--regid", str(pw.pw_gid),
+                   "--clear-groups", "env",
+                   "XDG_RUNTIME_DIR=/run/user/%d" % pw.pw_uid,
+                   "paplay", path]
+            rc = subprocess.call(cmd, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, timeout=10)
+            if rc == 0:
+                return
+            say("bell: session paplay failed (exit %d), retrying locally" % rc)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            say("bell: session paplay failed (%s), retrying locally" % exc)
+    try:
+        subprocess.call(["paplay", path], stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL, timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        say("bell: %s" % exc)
+
+
+def play_sound(spec, say):
+    """Play a sound: a bundled name (bell, warty-startup) or a file path.
+
+    Inside the snap, the staged paplay and staged sound are used. On a host
+    without a login session (Ubuntu Core), the nimbus snap's paplay app is
+    used. On a dev machine, the local session's audio server is used.
+    """
+    if os.environ.get("SNAP"):
+        if spec.startswith("/"):
+            path = spec
+        else:
+            path = os.path.join(os.environ["SNAP"], "share", "sounds",
+                                "nimbus", spec + ".oga")
+        if not os.path.exists(path):
+            say("bell: sound %s not found" % path)
+            return
+        paplay = os.path.join(os.environ["SNAP"], "usr", "bin", "paplay")
+        if not os.path.exists(paplay):
+            paplay = "paplay"
+        try:
+            subprocess.call([paplay, path], stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL, timeout=10)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            say("bell: %s" % exc)
+        return
+    if "/" not in spec:
+        if os.path.exists(os.path.join(NIMBUS_SNAP_SOUNDS, spec + ".oga")):
+            try:
+                subprocess.call(["snap", "run", "nimbus.paplay", spec],
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, timeout=15)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                say("bell: snap run nimbus.paplay %s failed: %s" % (spec, exc))
+            return
+        path = os.path.join(YARU_STEREO, spec + ".oga")
+    else:
+        path = spec
+    if not os.path.exists(path):
+        say("bell: sound %s not found" % path)
+        return
+    _local_paplay(path, say)
+
+
 def main():
     ap = argparse.ArgumentParser(description="confirm KEY_F23 events reach the system")
     ap.add_argument("--hold", type=float, default=20.0,
@@ -76,6 +177,11 @@ def main():
                          "button, and read off the code)")
     ap.add_argument("--action", default="systemctl poweroff -i",
                     help="action to run when the hold threshold is met (default %(default)s)")
+    ap.add_argument("--bell", default=DEFAULT_BELL,
+                    help="sound played while the key is held: a bundled name "
+                         "(bell, warty-startup) or a path (default %(default)s)")
+    ap.add_argument("--bell-interval", type=float, default=DEFAULT_BELL_INTERVAL,
+                    help="seconds between held-key warning bells (default %(default)s)")
     ap.add_argument("--run", action="store_true",
                     help="actually run the action (default: dry run, log only)")
     ap.add_argument("--all", action="store_true",
@@ -90,6 +196,7 @@ def main():
     pressed_at = None   # monotonic time of the current F23 press
     pressed_path = None # device that reported the current press
     fired = False       # threshold already hit for the current press
+    next_bell_at = None # monotonic time of the next held-key bell
     stats = {"press": 0, "release": 0, "fire": 0}
 
     def out(msg):
@@ -126,7 +233,7 @@ def main():
             out("watching %s" % label(path))
 
     def release(why):
-        nonlocal pressed_at, pressed_path, fired
+        nonlocal pressed_at, pressed_path, next_bell_at, fired
         if pressed_at is None:
             return
         held = time.monotonic() - pressed_at
@@ -138,6 +245,7 @@ def main():
             out("F23 released after %.1fs of %.0fs - action cancelled" % (held, args.hold))
         pressed_at = None
         pressed_path = None
+        next_bell_at = None
         fired = False
 
     def finish(signum, frame):
@@ -154,10 +262,12 @@ def main():
     signal.signal(signal.SIGINT, finish)
     signal.signal(signal.SIGTERM, finish)
 
-    out("monitoring %s | key(s) %s (F23) hold=%.0fs action=%r mode=%s"
+    out("monitoring %s | key(s) %s (F23) hold=%.0fs bell=%r every %.0fs "
+        "action=%r mode=%s"
         % (args.device or "all /dev/input/event*",
-           ",".join(str(c) for c in sorted(key_codes)), args.hold,
-           args.action, "RUN" if args.run else "DRY RUN"))
+           ",".join(str(c) for c in sorted(key_codes)), args.hold, args.bell,
+           args.bell_interval, args.action,
+           "RUN" if args.run else "DRY RUN"))
     if args.all:
         out("logging all key press/release events (auto-repeat suppressed)")
     out("press the F23 button now and watch for 'F23 pressed' lines; Ctrl-C to stop")
@@ -172,6 +282,12 @@ def main():
             out("no key events seen yet on the watched device(s)")
             out("if the button is not on this device, re-run without --device to watch all of them")
             out("also close any other input tool (e.g. 'libinput debug-events') - it grabs the devices exclusively")
+        if pressed_at is not None and not fired:
+            if next_bell_at is None:
+                next_bell_at = pressed_at + args.bell_interval
+            elif now >= next_bell_at:
+                play_sound(args.bell, out)
+                next_bell_at += args.bell_interval
         if pressed_at is not None and not fired and now - pressed_at >= args.hold:
             fired = True
             stats["fire"] += 1

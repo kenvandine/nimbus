@@ -161,6 +161,11 @@ UNIT
 KEYPOWEROFF_ACTION="systemctl poweroff -i"
 # Seconds the key must be held down before the action runs.
 KEYPOWEROFF_HOLD_SECONDS=20
+# Warning bell: sound played every BELL_INTERVAL seconds while the key is
+# held (5s/10s/15s/20s before the action runs). A name plays a sound bundled
+# in the nimbus snap (bell, warty-startup); a path is played locally.
+KEYPOWEROFF_BELL="bell"
+KEYPOWEROFF_BELL_INTERVAL=5
 # evdev key code(s) to watch, comma-separated (default "193").
 #   193 = KEY_F23 (chassis reset button; it also emits LEFTMETA 125 + LEFTSHIFT 42)
 # Confirm what the button on the target device emits with
@@ -178,7 +183,8 @@ The Nimbus kiosk has no software path to shut down, so the F23 button on
 the chassis acts as the hardware power key: hold it for 20 seconds
 without releasing and the system runs the configured action, which
 defaults to "systemctl poweroff -i". Releasing the key before the hold
-threshold cancels the pending action.
+threshold cancels the pending action. While the key is held, a warning
+bell sounds every 5 seconds (at 5s, 10s, 15s, 20s).
 
 All /dev/input/event* devices are watched: hot-plugged devices are picked
 up, removed ones are dropped. Every press, release, and action is logged
@@ -189,6 +195,10 @@ Environment (from /etc/nimbus-key-poweroff.conf):
                             (default: "systemctl poweroff -i")
   KEYPOWEROFF_HOLD_SECONDS  seconds the key must be held down
                             (default: 20)
+  KEYPOWEROFF_BELL          sound played while the key is held: a bundled
+                            sound name (default: "bell") or a file path
+  KEYPOWEROFF_BELL_INTERVAL seconds between held-key warning bells
+                            (default: 5)
   KEYPOWEROFF_DEVICE        optional: watch only this single event device
                             (default: all of /dev/input/event*)
   KEYPOWEROFF_KEY           evdev key code(s) to watch, comma- or
@@ -198,6 +208,7 @@ Environment (from /etc/nimbus-key-poweroff.conf):
 
 import glob
 import os
+import pwd
 import select
 import struct
 import subprocess
@@ -211,7 +222,11 @@ INPUT_EVENT = struct.Struct(("<" if sys.byteorder == "little" else ">") + "qqHHl
 
 DEFAULT_ACTION = "systemctl poweroff -i"
 DEFAULT_HOLD_SECONDS = 20.0
+DEFAULT_BELL = "bell"
+DEFAULT_BELL_INTERVAL = 5.0
 DEFAULT_DEVICE_GLOB = "/dev/input/event*"
+YARU_STEREO = "/usr/share/sounds/Yaru/stereo"
+NIMBUS_SNAP_SOUNDS = "/snap/nimbus/current/share/sounds/nimbus"
 DEFAULT_KEY_CODES = {KEY_F23}
 READ_CHUNK = 4096
 
@@ -233,6 +248,101 @@ def parse_key_codes(raw, default):
     return codes or set(default)
 
 
+def session_user():
+    """Return the local user running an audio server (dev machines).
+
+    Prefers a user with a PipeWire or PulseAudio socket in their runtime
+    directory; falls back to the first non-root runtime directory.
+    """
+    try:
+        uids = sorted((u for u in os.listdir("/run/user") if u.isdigit()),
+                      key=int)
+    except OSError:
+        return None
+    fallback = None
+    for uid in uids:
+        if int(uid) == 0:
+            continue
+        try:
+            pw = pwd.getpwuid(int(uid))
+        except KeyError:
+            continue
+        rt = "/run/user/%s" % uid
+        if os.path.exists(os.path.join(rt, "pipewire-0")) or \
+           os.path.exists(os.path.join(rt, "pulse", "native")):
+            return pw.pw_name
+        if fallback is None:
+            fallback = pw.pw_name
+    return fallback
+
+
+def _local_paplay(path, say):
+    """Play via the local session's audio server, else plain paplay."""
+    user = session_user()
+    if user is not None:
+        try:
+            pw = pwd.getpwnam(user)
+            cmd = ["setpriv", "--reuid", str(pw.pw_uid), "--regid", str(pw.pw_gid),
+                   "--clear-groups", "env",
+                   "XDG_RUNTIME_DIR=/run/user/%d" % pw.pw_uid,
+                   "paplay", path]
+            rc = subprocess.call(cmd, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, timeout=10)
+            if rc == 0:
+                return
+            say("bell: session paplay failed (exit %d), retrying locally" % rc)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            say("bell: session paplay failed (%s), retrying locally" % exc)
+    try:
+        subprocess.call(["paplay", path], stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL, timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        say("bell: %s" % exc)
+
+
+def play_sound(spec, say):
+    """Play a sound: a bundled name (bell, warty-startup) or a file path.
+
+    Inside the snap, the staged paplay and staged sound are used. On a host
+    without a login session (Ubuntu Core), the nimbus snap's paplay app is
+    used. On a dev machine, the local session's audio server is used.
+    """
+    if os.environ.get("SNAP"):
+        if spec.startswith("/"):
+            path = spec
+        else:
+            path = os.path.join(os.environ["SNAP"], "share", "sounds",
+                                "nimbus", spec + ".oga")
+        if not os.path.exists(path):
+            say("bell: sound %s not found" % path)
+            return
+        paplay = os.path.join(os.environ["SNAP"], "usr", "bin", "paplay")
+        if not os.path.exists(paplay):
+            paplay = "paplay"
+        try:
+            subprocess.call([paplay, path], stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL, timeout=10)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            say("bell: %s" % exc)
+        return
+    if "/" not in spec:
+        if os.path.exists(os.path.join(NIMBUS_SNAP_SOUNDS, spec + ".oga")):
+            try:
+                subprocess.call(["snap", "run", "nimbus.paplay", spec],
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, timeout=15)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                say("bell: snap run nimbus.paplay %s failed: %s" % (spec, exc))
+            return
+        path = os.path.join(YARU_STEREO, spec + ".oga")
+    else:
+        path = spec
+    if not os.path.exists(path):
+        say("bell: sound %s not found" % path)
+        return
+    _local_paplay(path, say)
+
+
 def config():
     action = os.environ.get("KEYPOWEROFF_ACTION", DEFAULT_ACTION).strip()
     if not action:
@@ -247,21 +357,34 @@ def config():
     if not device:
         device = DEFAULT_DEVICE_GLOB
     key_codes = parse_key_codes(os.environ.get("KEYPOWEROFF_KEY"), DEFAULT_KEY_CODES)
-    return action, hold, device, key_codes
+    bell = os.environ.get("KEYPOWEROFF_BELL", DEFAULT_BELL).strip()
+    if not bell:
+        bell = DEFAULT_BELL
+    try:
+        bell_interval = float(os.environ.get("KEYPOWEROFF_BELL_INTERVAL",
+                                             DEFAULT_BELL_INTERVAL))
+    except ValueError:
+        log("warning: invalid KEYPOWEROFF_BELL_INTERVAL, using %.0f"
+            % DEFAULT_BELL_INTERVAL)
+        bell_interval = DEFAULT_BELL_INTERVAL
+    bell_interval = max(bell_interval, 0.5)
+    return action, hold, device, key_codes, bell, bell_interval
 
 
 def main():
-    action, hold, device_glob, key_codes = config()
-    log("started: key(s) %s (KEY_F23) held for %.0fs runs %r"
-        % (",".join(str(c) for c in sorted(key_codes)), hold, action))
+    action, hold, device_glob, key_codes, bell, bell_interval = config()
+    log("started: key(s) %s held for %.0fs runs %r; bell %r every %.0fs while held"
+        % (",".join(str(c) for c in sorted(key_codes)), hold, action, bell,
+           bell_interval))
 
     devices = {}        # path -> fd
     pressed_at = None   # monotonic time of the current KEY_F23 press
     pressed_path = None # device that reported the current press
+    next_bell_at = None # monotonic time of the next held-key bell
     fired = False       # action already ran for the current press
 
     def release(why):
-        nonlocal pressed_at, pressed_path, fired
+        nonlocal pressed_at, pressed_path, next_bell_at, fired
         if pressed_at is None:
             return
         held = time.monotonic() - pressed_at
@@ -271,6 +394,7 @@ def main():
             log("KEY_F23 %s after %.1fs of %.0fs - action cancelled" % (why, held, hold))
         pressed_at = None
         pressed_path = None
+        next_bell_at = None
         fired = False
 
     def drop(path, reason):
@@ -300,6 +424,12 @@ def main():
 
     while True:
         now = time.monotonic()
+        if pressed_at is not None and not fired:
+            if next_bell_at is None:
+                next_bell_at = pressed_at + bell_interval
+            elif now >= next_bell_at:
+                play_sound(bell, log)
+                next_bell_at += bell_interval
         if pressed_at is not None and not fired and now - pressed_at >= hold:
             fired = True
             log("KEY_F23 held for %.0fs - running: %s" % (hold, action))
@@ -383,6 +513,7 @@ Wants=snapd.seeded.service
 Type=oneshot
 ExecStart=/bin/sh -c ' \
 snap connect nimbus:firewall-control; \
+snap connect nimbus:audio-playback; \
 snap connect nimbus:network-control; \
 snap connect nimbus:network-observe; \
 snap connect nimbus:system-observe; \

@@ -24,6 +24,7 @@ apps:
     daemon: simple
     restart-condition: on-failure
     plugs:
+      - audio-playback
       - hardware-observe
       - network
       - network-bind
@@ -89,6 +90,11 @@ apps:
       LXD_DIR: /var/snap/lxd/common/lxd
       NIMBUS_LXD_CONTAINER_NAME: nimbus
 
+  paplay:
+    command: bin/nimbus-paplay
+    plugs:
+      - audio-playback
+
 parts:
   frontend:
     plugin: nil
@@ -100,6 +106,13 @@ parts:
       npm run build --silent -- --outDir dist
       mkdir -p "$CRAFT_PART_INSTALL/web-static"
       cp -r dist/. "$CRAFT_PART_INSTALL/web-static/"
+
+  sounds:
+    plugin: nil
+    source: sounds
+    override-build: |
+      mkdir -p "$CRAFT_PART_INSTALL/share/sounds/nimbus"
+      cp -a "$CRAFT_PART_SOURCE"/*.oga "$CRAFT_PART_INSTALL/share/sounds/nimbus/"
 
   nimbus:
     plugin: python
@@ -127,6 +140,7 @@ parts:
       - python3-dbus
       - python3-gi
       - iptables
+      - pulseaudio-utils
     after:
       - frontend
     override-build: |
@@ -141,6 +155,8 @@ parts:
       chmod +x "$CRAFT_PART_INSTALL/bin/nimbus-launch"
       cp snap/local/nimbus-reset "$CRAFT_PART_INSTALL/bin/nimbus-reset"
       chmod +x "$CRAFT_PART_INSTALL/bin/nimbus-reset"
+      cp snap/local/nimbus-paplay "$CRAFT_PART_INSTALL/bin/nimbus-paplay"
+      chmod +x "$CRAFT_PART_INSTALL/bin/nimbus-paplay"
       cp snap/local/nimbus_reset.py "$CRAFT_PART_INSTALL/bin/nimbus_reset.py"
       if [ -f "$CRAFT_PART_BUILD/lxc-seed/nimbus-lxc-seed.tar.gz" ]; then
         mkdir -p "$CRAFT_PART_INSTALL/lxc-seed"

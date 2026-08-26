@@ -261,6 +261,7 @@ async def lifespan(app: FastAPI):
     store_task = None
     redirect_task = None
     ap_task = None
+    chime_task = None
     if settings.tls_enabled:
         redirect_task = asyncio.create_task(
             _run_http_redirect(settings.http_redirect_port, int(os.environ.get("NIMBUS_PORT", "443")))
@@ -278,9 +279,19 @@ async def lifespan(app: FastAPI):
         logger.info("Scheduling startup AP management task...")
         ap_task = asyncio.create_task(wifi_service.check_and_manage_ap_on_startup())
 
+    from services import sound as sound_service
+    logger.info("Scheduling boot-ready chime task...")
+    chime_task = asyncio.create_task(sound_service.announce_boot_ready())
+
     await get_control_plane().initialize()
     openclaw_service.start()
     yield
+    if chime_task and not chime_task.done():
+        chime_task.cancel()
+        try:
+            await chime_task
+        except asyncio.CancelledError:
+            pass
     if ap_task and not ap_task.done():
         ap_task.cancel()
         try:

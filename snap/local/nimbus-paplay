@@ -1,0 +1,22 @@
+#!/bin/sh
+# Play a bundled Nimbus sound through the snap's audio stack.
+#
+# Usage: nimbus-paplay <name|path>
+#   name  - a bundled sound from $SNAP/share/sounds/nimbus (bell, warty-startup)
+#   path  - a file inside the snap
+set -eu
+name="${1:-}"
+if [ -z "$name" ]; then
+  echo "usage: nimbus-paplay <bell|warty-startup|path>" >&2
+  exit 1
+fi
+if [ -f "$name" ]; then
+  file="$name"
+else
+  file="$SNAP/share/sounds/nimbus/$name.oga"
+fi
+if [ ! -f "$file" ]; then
+  echo "nimbus-paplay: sound not found: $file" >&2
+  exit 1
+fi
+exec "$SNAP/usr/bin/paplay" "$file"
