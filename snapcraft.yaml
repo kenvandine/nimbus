@@ -112,7 +112,7 @@ parts:
     source: sounds
     override-build: |
       mkdir -p "$CRAFT_PART_INSTALL/share/sounds/nimbus"
-      cp -a "$CRAFT_PART_SOURCE/*.oga" "$CRAFT_PART_INSTALL/share/sounds/nimbus/"
+      cp -a "$CRAFT_PART_SRC"/*.oga "$CRAFT_PART_INSTALL/share/sounds/nimbus/"
 
   nimbus:
     plugin: python
