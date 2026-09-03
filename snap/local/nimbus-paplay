@@ -19,4 +19,5 @@ if [ ! -f "$file" ]; then
   echo "nimbus-paplay: sound not found: $file" >&2
   exit 1
 fi
+export LD_LIBRARY_PATH="$SNAP/usr/lib/x86_64-linux-gnu/pulseaudio${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 exec "$SNAP/usr/bin/paplay" "$file"

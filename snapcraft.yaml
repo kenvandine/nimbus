@@ -141,6 +141,8 @@ parts:
       - python3-gi
       - iptables
       - pulseaudio-utils
+      - libpulse0
+      - libsndfile1
     after:
       - frontend
     override-build: |
